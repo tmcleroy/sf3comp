@@ -36,7 +36,7 @@
   start) the game's defaults go over them, so they take from the next start.
 - Straight to the opening (skip_intro, Enhanced): the first 760 frames (memory checks, region warning, Capcom's
   logo) fast-forwarded. Cheats: no damage, no stun (each player), one hit knocks out, infinite time.
-- Survival (Game page): a one-player game whose health carries over (written as each round begins), a tenth back
+- Survival (its own page; online it is off, and its best kept as it is): a one-player game whose health carries over (written as each round begins), a tenth back
   per round won, the best run kept (survival_best); knock-outs read as health 0 or 255.
 - Credits: byte 02007CE0 (free_play keeps it at 2). Round clock: byte 02011377 (seconds; infinite_time).
 - The DMA-done interrupt (level 10) drives the game's queue of character and palette DMAs (handler 060004D0 calls

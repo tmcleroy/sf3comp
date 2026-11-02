@@ -105,7 +105,7 @@ void SurvivalState(Archive &ar) {
 }
 
 void RegisterSurvival(Game &game) {
-    game.features.push_back({"survival", "Game", "Survival",
+    game.features.push_back({"survival", "Survival", "Survival",
                              "A one-player game in which your health is not given back between rounds and fights: how many rounds "
                              "you win before it runs out is the score (the best is kept). The computer's fighters start each round "
                              "full, as always. A tenth of your health comes back for each round won."});
@@ -121,7 +121,7 @@ void RegisterSurvival(Game &game) {
     for (const std::string &number : numbers) {
         choices.push_back(number.c_str());
     }
-    game.features.push_back({"survival_best", "Game", "Survival: best", "The most rounds won in one survival run. (Left puts it back.)",
+    game.features.push_back({"survival_best", "Survival", "Best", "The most rounds won in one survival run. (Left puts it back.)",
                              kFeatureOwn, choices});
 }
 
