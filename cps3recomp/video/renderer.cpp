@@ -5,10 +5,49 @@
 #include "machine.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 
 namespace cps3recomp {
 
 using machine::Machine;
+
+// A blend's bits (colour numbers' 13 and up pick a bank of the palette the game fills with shadow or highlight colours)
+// applied to a colour of another board's: each component scaled as the bank's colours are, on the whole, against the
+// first bank's (worked out once a picture, for the banks used)
+uint32_t Renderer::Blended(const uint32_t *palette, uint32_t bank, uint32_t pixel) {
+    bank &= 0xF;
+    if (m_blendFrame != m_drawCount || !m_blendKnown[bank]) {
+        if (m_blendFrame != m_drawCount) {
+            m_blendFrame = m_drawCount;
+            m_blendKnown = {};
+        }
+        uint64_t base[3] = {}, made[3] = {};
+        for (uint32_t i = 1; i < 0x2000; i++) {
+            const uint32_t a = palette[i], b = palette[(bank << 13) | i];
+            if (a == 0) {
+                continue;
+            }
+            for (int c = 0; c < 3; c++) {
+                base[c] += (a >> (8 * c)) & 0xFF;
+                made[c] += (b >> (8 * c)) & 0xFF;
+            }
+        }
+        for (int c = 0; c < 3; c++) {
+            m_blendScale[bank][c] = base[c] ? std::min<uint32_t>(static_cast<uint32_t>(made[c] * 256 / base[c]), 512) : 256;
+        }
+        m_blendKnown[bank] = true;
+        if (getenv("CPS3RECOMP_BLEND_LOG")) {
+            fprintf(stderr, "blend bank %u: %u %u %u\n", bank, m_blendScale[bank][0], m_blendScale[bank][1], m_blendScale[bank][2]);
+        }
+    }
+    uint32_t out = 0;
+    for (int c = 0; c < 3; c++) {
+        const uint32_t v = std::min<uint32_t>((((pixel >> (8 * c)) & 0xFF) * m_blendScale[bank][c]) >> 8, 255);
+        out |= v << (8 * c);
+    }
+    return out;
+}
 
 // One 16x16 tile of character RAM (a byte a pixel), zoomed by scaleX / scaleY (16.16), into the buffer as colour
 // numbers: pixel | colour * granularity. A pixel of 0 is not drawn. A "blend" object instead sets bits of what is
@@ -148,6 +187,7 @@ void Renderer::DrawText(const Machine &m, uint32_t *pixels, int width, int heigh
 }
 
 void Renderer::Draw(const Machine &m, std::vector<uint32_t> &pixels, int &width, int &height) {
+    m_drawCount++;
     const machine::VideoRegisters &regs = m.Video();
     width = static_cast<int>((regs.crtc[1] >> 16) & 0xFFFF) - static_cast<int>(regs.crtc[0] & 0xFFFF);
     height = static_cast<int>((regs.crtc[5] >> 16) & 0xFFFF) - static_cast<int>(regs.crtc[4] & 0xFFFF);
@@ -252,8 +292,12 @@ void Renderer::Draw(const Machine &m, std::vector<uint32_t> &pixels, int &width,
         uint32_t sx = 0;
         for (int col = 0; col < width; col++, sx += fx) {
             const uint32_t colour = source[std::min<uint32_t>(sx >> 16, kBufferWidth - 1)];
-            if (!overlay || colour) { // (overlaid: where nothing was drawn, what the pixels had shows)
+            if (!overlay || (colour & 0x1FFF)) { // (overlaid: where nothing was drawn, what the pixels had shows)
                 dest[col] = palette[colour & 0x1FFFF];
+            } else if (colour) {
+                // (overlaid, a blend object over nothing of this board's: what the pixels had, made as much darker or
+                // lighter as that blend makes this board's colours)
+                dest[col] = Blended(palette, colour >> 13, dest[col]);
             }
         }
     }

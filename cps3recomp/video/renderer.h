@@ -7,6 +7,7 @@
 // CPS-3 driver's (BSD-3-Clause), written again here.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -42,6 +43,10 @@ private:
                   int sx, int sy, bool blend, uint32_t scaleX, uint32_t scaleY);
     void DrawTilemapLine(const machine::Machine &m, const uint32_t *regs, int line, const Clip &clip);
     void DrawText(const machine::Machine &m, uint32_t *pixels, int width, int height);
+    uint32_t Blended(const uint32_t *palette, uint32_t bank, uint32_t pixel);
+    uint64_t m_drawCount = 0, m_blendFrame = ~0ull;
+    std::array<bool, 16> m_blendKnown{};
+    uint32_t m_blendScale[16][3] = {};
 };
 
 } // namespace cps3recomp
