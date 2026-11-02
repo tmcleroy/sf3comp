@@ -71,5 +71,10 @@ constexpr uint32_t kMeterUpdate[2] = {0x020157C8, 0x020157C9};
 // Stun: the most a player can take before being stunned (a byte), its timer two bytes on, and how much has been taken
 // (the high byte of the long six bytes on)
 constexpr uint32_t kStunMost[2] = {0x020695F7, 0x0206960B};
+// Parrying: each player's four windows (forward, down, in the air, anti-air), each a byte counting the frames it stays
+// open (player 2's 0x406 on); the "connection" word of the record reads 0xFFF1 the frame a parry lands
+constexpr uint32_t kParryWindow[4] = {0x02026335, 0x02026337, 0x02026339, 0x02026347};
+constexpr uint32_t kParryWindowPlayer2 = 0x406;
+constexpr uint32_t kConnection = 0x32E;
 
 } // namespace sfiii3

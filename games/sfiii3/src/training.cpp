@@ -28,6 +28,17 @@ namespace {
         uint16_t hits[2] = {}, marker[2] = {};
         uint8_t health[2] = {}, blocking[2] = {}, freeze[2] = {};
         bool reeling[2] = {}, guarding[2] = {};
+        // (the parry readout: each player's last window opened, and what came of it)
+        struct Parry {
+            uint8_t window[4] = {};
+            bool armed = false;
+            int8_t kind = -1;        // which window
+            int16_t result = 0;      // 1 parried, 2 the wrong window, 3 too early, 4 too late, 0 none yet
+            int16_t frames = 0;      // ... how many frames into the window, or early or late by
+            uint32_t opened = 0, closed = 0, lastHit = 0, shownUntil = 0;
+            uint16_t connection = 0;
+        } parry[2];
+        uint32_t frame = 0;
     } g;
 
     int16_t Signed16(uint32_t address) {
@@ -92,8 +103,74 @@ namespace {
         }
     }
 
+    // The parry readout. A parry in a window says which of its frames it came on; a hit or guard arriving while a window
+    // is open but not parried, the wrong window; a hit within 20 frames after a window closed, too early by so many; a
+    // window opened within 20 frames after a hit, too late by so many.
+    void ReadParries(bool hit[2], bool guarded[2]) {
+        static const char *const kKinds[4] = {"forward", "down", "air", "anti-air"};
+        static const bool log = getenv("SFIII3_PARRIES") != nullptr;
+        for (int p = 0; p < 2; p++) {
+            State::Parry &parry = g.parry[p];
+            const uint16_t connection = Ram16(Player(p) + sfiii3::kConnection);
+            const bool parried = parry.connection != 0xFFF1 && connection == 0xFFF1 && !hit[p];
+            parry.connection = connection;
+            const bool struck = hit[p] || guarded[p];
+            auto say = [&](int result, int frames) {
+                parry.result = static_cast<int16_t>(result);
+                parry.frames = static_cast<int16_t>(frames);
+                parry.armed = false;
+                parry.shownUntil = g.frame + 120;
+                if (log) {
+                    static const char *const kResults[5] = {"", "parried", "wrong window", "too early", "too late"};
+                    fprintf(stderr, "parry: player %d %s %s, %d frames\n", p + 1, kKinds[parry.kind], kResults[result], frames);
+                }
+            };
+            bool open = false;
+            for (int k = 0; k < 4; k++) {
+                const uint8_t now = Ram8(sfiii3::kParryWindow[k] + p * sfiii3::kParryWindowPlayer2);
+                if (parry.window[k] == 0 && now != 0) {
+                    parry.kind = static_cast<int8_t>(k);
+                    parry.opened = g.frame;
+                    parry.armed = true;
+                    if (parry.lastHit && g.frame - parry.lastHit <= 20 && !parried) {
+                        say(4, static_cast<int>(g.frame - parry.lastHit));
+                    }
+                }
+                parry.window[k] = now;
+                open = open || now != 0;
+            }
+            if (struck) {
+                parry.lastHit = g.frame;
+            }
+            if (parried && parry.kind >= 0) {
+                say(1, static_cast<int>(g.frame - parry.opened));
+                parry.closed = 0;
+                continue;
+            }
+            if (!parry.armed) {
+                continue;
+            }
+            if (open) {
+                parry.closed = 0;
+                if (struck) {
+                    say(2, static_cast<int>(g.frame - parry.opened));
+                }
+            } else {
+                if (!parry.closed) {
+                    parry.closed = g.frame;
+                }
+                if (struck) {
+                    say(3, static_cast<int>(g.frame - parry.closed));
+                } else if (g.frame - parry.closed > 20) {
+                    parry.armed = false; // (nothing came: forgotten)
+                }
+            }
+        }
+    }
+
     // After every frame: what each player did, told to the session
     void ReadSteps() {
+        g.frame++;
         if (!InMatch()) {
             for (int p = 0; p < 2; p++) {
                 g.hits[p] = Ram16(Player(p) + sfiii3::kHitCount);
@@ -104,7 +181,7 @@ namespace {
         }
         // First what landed this frame on each player (the attacker's move connected this step, whatever its boxes say:
         // a hit can take the box away the frame it lands)
-        bool landed[2] = {};
+        bool landed[2] = {}, wasHit[2] = {}, wasGuarded[2] = {};
         for (int p = 0; p < 2; p++) {
             const uint32_t base = Player(p);
             const uint16_t hits = Ram16(base + sfiii3::kHitCount);
@@ -121,6 +198,8 @@ namespace {
                 session::Contact(p, true);
             }
             landed[1 - p] = hit || guardStarted;
+            wasHit[p] = hit;
+            wasGuarded[p] = guardStarted;
             g.guarding[p] = Guarding(p);
             const uint8_t health = Ram8(base + sfiii3::kLife);
             if (health < g.health[p]) {
@@ -128,6 +207,7 @@ namespace {
             }
             g.health[p] = health;
         }
+        ReadParries(wasHit, wasGuarded);
         for (int p = 0; p < 2; p++) {
             const uint32_t base = Player(p);
             const bool idle = Idle(p);
@@ -226,6 +306,25 @@ void RegisterTraining(Game &game) {
         if (FeatureOn("hit_boxes")) {
             Boxes(boxes);
         }
+        if (FeatureOn("parry_readout")) {
+            static const char *const kKinds[4] = {"FORWARD", "DOWN", "AIR", "ANTI-AIR"};
+            for (int p = 0; p < 2; p++) {
+                const State::Parry &parry = g.parry[p];
+                char text[64] = "";
+                if (parry.result && g.frame < parry.shownUntil && parry.kind >= 0) {
+                    if (parry.result == 1) {
+                        snprintf(text, sizeof(text), "PARRIED (%s, frame %d of the window)", kKinds[parry.kind], parry.frames + 1);
+                    } else if (parry.result == 2) {
+                        snprintf(text, sizeof(text), "PARRY: WRONG WINDOW (%s)", kKinds[parry.kind]);
+                    } else {
+                        snprintf(text, sizeof(text), "PARRY: TOO %s BY %d", parry.result == 3 ? "EARLY" : "LATE", parry.frames);
+                    }
+                }
+                if (*text) {
+                    lines.push_back({p == 0 ? 0.02f : 0.98f, 0.26f, p == 0 ? -1 : 1, text, 120, 200, 255});
+                }
+            }
+        }
         if (FeatureOn("stun_readout")) {
             // (under each health bar, at its outer end: taken / the most before a stun)
             for (int p = 0; p < 2; p++) {
@@ -240,12 +339,15 @@ void RegisterTraining(Game &game) {
         {"hit_boxes", session::kPage, "Hit boxes",
          "Each fighter's boxes over the picture: blue where it can be hit, red where it hits, yellow its throw, pink where it can be "
          "thrown, green the body that pushes."},
+        {"parry_readout", session::kPage, "Parry readout",
+         "When a parry window opens (the stick forward, down, in the air, or up against a jump-in): whether the parry came, on which "
+         "frame of the window, or how long after the window opened the hit came instead."},
         {"stun_readout", session::kPage, "Stun readout",
          "Under each health bar: how much stun the player has taken, and how much stuns them (it drains when they are left alone)."},
         {"full_meter", session::kPage, "Full meter", "Player 1's super art meter is always full."},
         {"full_meter_2", session::kPage, "Full meter, player 2", "Player 2's super art meter is always full."},
     };
-    d.ownAids = {"hit_boxes", "stun_readout", "full_meter", "full_meter_2"};
+    d.ownAids = {"hit_boxes", "parry_readout", "stun_readout", "full_meter", "full_meter_2"};
     session::Register(d);
     game.state = [](Archive &ar) {
         WidescreenState(ar);
