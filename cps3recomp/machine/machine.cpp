@@ -220,6 +220,7 @@ void Machine::BusWrite8(uint32 a, uint8 v) {
         return;
     }
     if ((a & 0xFFF00000u) == 0x04100000u) {
+        TouchChar(((m_charBank & 7) << 20) | (a & 0xFFFFF));
         m_charRam[((m_charBank & 7) << 20) | (a & 0xFFFFF)] = v;
         return;
     }
@@ -232,6 +233,7 @@ void Machine::BusWrite16(uint32 a, uint16 v) {
         return;
     }
     if ((a & 0xFFF00000u) == 0x04100000u) {
+        TouchChar(((m_charBank & 7) << 20) | (a & 0xFFFFF));
         Put16(&m_charRam[((m_charBank & 7) << 20) | (a & 0xFFFFE)], v);
         return;
     }
@@ -244,6 +246,7 @@ void Machine::BusWrite32(uint32 a, uint32 v) {
         return;
     }
     if ((a & 0xFFF00000u) == 0x04100000u) {
+        TouchChar(((m_charBank & 7) << 20) | (a & 0xFFFFF));
         Put32(&m_charRam[((m_charBank & 7) << 20) | (a & 0xFFFFC)], v);
         return;
     }
@@ -465,6 +468,14 @@ void Machine::WritePpu(uint32 offset, uint32 v, uint32 mask) {
     }
 }
 
+void Machine::MakeColours() {
+    for (uint32 i = 0; i < m_colourRam.size(); i++) {
+        const uint16 value = m_colourRam[i];
+        const uint32 r = value & 0x1F, g = (value >> 5) & 0x1F, b = (value >> 10) & 0x1F;
+        m_rgb[i] = (r << 3) | ((g << 3) << 8) | ((b << 3) << 16);
+    }
+}
+
 void Machine::SetColour(uint32 index, uint16 value, uint32 fade) {
     int r = value & 0x1F, g = (value >> 5) & 0x1F, b = (value >> 10) & 0x1F;
     if (fade & 0x40400040u) {
@@ -559,6 +570,7 @@ uint32 Machine::CharDmaByte(uint8 value, uint32 destination) {
         uint32 count = (value & 0x3F) + 1, done = 0;
         while (count--) {
             m_charRam[(destination + done) & 0x7FFFFF] = m_lastNormalByte & 0x3F;
+            TouchChar((destination + done) & 0x7FFFFF);
             done++;
             if (destination + done > 0x7FFFFF) {
                 break;
@@ -567,6 +579,7 @@ uint32 Machine::CharDmaByte(uint8 value, uint32 destination) {
         return done;
     }
     m_charRam[destination] = value;
+    TouchChar(destination);
     m_lastNormalByte = value;
     return 1;
 }
@@ -577,6 +590,7 @@ uint32 Machine::CharDmaByte8(uint8 value, uint32 destination) {
         const int run = (value + 1) & 0xFF;
         for (int i = 0; i < run; i++) {
             m_charRam[(destination + i) & 0x7FFFFF] = static_cast<uint8>(m_lastb);
+            TouchChar((destination + i) & 0x7FFFFF);
         }
         m_lastb2 = 0xFFFF;
         return static_cast<uint32>(run);
@@ -584,6 +598,7 @@ uint32 Machine::CharDmaByte8(uint8 value, uint32 destination) {
     m_lastb2 = m_lastb;
     m_lastb = value;
     m_charRam[destination & 0x7FFFFF] = value;
+    TouchChar(destination & 0x7FFFFF);
     return 1;
 }
 
@@ -654,6 +669,7 @@ void Machine::CharacterDma(uint32 listAddress) {
         case 0: // not compressed
             while (length--) {
                 m_charRam[destination & 0x7FFFFF] = source(from++);
+                TouchChar(destination & 0x7FFFFF);
                 destination++;
             }
             break;

@@ -200,8 +200,8 @@ struct Port {
     // again in a rollback)
     void Step(const uint16_t *players);
     // The machine and the game's sources, kept in memory and put back (run-ahead's and rollback's)
-    void KeepState(std::vector<uint8_t> &data);
-    void PutBackState(const std::vector<uint8_t> &data);
+    void KeepState(std::vector<uint8_t> &data, bool inMemory = false);
+    void PutBackState(const std::vector<uint8_t> &data, bool inMemory = false);
     RollbackTest rollbackTest;
     void RollbackFrame(const uint16_t *real);
     // Online play (netplay.h): the other side found before the first frame, and each frame run through it

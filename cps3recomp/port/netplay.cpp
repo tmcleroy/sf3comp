@@ -1314,10 +1314,10 @@ void Netplay::Frame(Port &port, uint16_t controls) {
     }
     if (wrong < upTo) {
         const size_t sound = port.machine->audio.size();
-        port.PutBackState(kept[wrong % kKept].state);
+        port.PutBackState(kept[wrong % kKept].state, true);
         for (uint64_t at = wrong; at < frame; at++) {
             if (at != wrong) {
-                port.KeepState(kept[at % kKept].state);
+                port.KeepState(kept[at % kKept].state, true);
             }
             Run(port, at, false);
         }
@@ -1348,7 +1348,7 @@ void Netplay::Frame(Port &port, uint16_t controls) {
     confirmed = upTo;
     Compare();
     // The frame itself
-    port.KeepState(kept[frame % kKept].state);
+    port.KeepState(kept[frame % kKept].state, true);
     Run(port, frame, true);
     const double took = std::chrono::duration<double>(std::chrono::steady_clock::now() - began).count();
     worst = std::max(worst, took);

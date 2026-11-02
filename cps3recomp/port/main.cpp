@@ -80,7 +80,7 @@ bool Movie::Save(const std::string &path) const {
 }
 
 namespace {
-    constexpr uint32_t kStateVersion = 1;
+    constexpr uint32_t kStateVersion = 2; // (2: the colours made again from colour RAM, not kept)
 
     bool ReadFile(const std::string &path, std::vector<uint8_t> &data) {
         FILE *f = fopen(path.c_str(), "rb");
@@ -923,7 +923,7 @@ bool Port::LoadState(const std::string &path, std::string &error) {
     ar.Mark(0x43505332);
     uint32_t version = 0;
     ar.Pod(version);
-    const bool known = version >= 5 && version <= kStateVersion;
+    const bool known = version == kStateVersion;
     ar.version = version;
     if (ar.Ok() && known) {
         machine->Serialize(ar);
@@ -940,18 +940,20 @@ bool Port::LoadState(const std::string &path, std::string &error) {
     return true;
 }
 
-void Port::KeepState(std::vector<uint8_t> &data) {
+void Port::KeepState(std::vector<uint8_t> &data, bool inMemory) {
     data.clear();
     Archive ar(data, true);
+    ar.inMemory = inMemory;
     machine->Serialize(ar);
     if (TheGame().state) {
         TheGame().state(ar);
     }
 }
 
-void Port::PutBackState(const std::vector<uint8_t> &data) {
+void Port::PutBackState(const std::vector<uint8_t> &data, bool inMemory) {
     std::vector<uint8_t> &from = const_cast<std::vector<uint8_t> &>(data); // (an Archive that reads does not change it)
     Archive ar(from, false);
+    ar.inMemory = inMemory;
     machine->Serialize(ar);
     if (TheGame().state) {
         TheGame().state(ar);
@@ -979,7 +981,7 @@ void Port::RollbackFrame(const uint16_t *real) {
     const Clock::time_point began = Clock::now();
     const auto keep = [&](RollbackTest::Kept &k) {
         const Clock::time_point at = Clock::now();
-        KeepState(k.state);
+        KeepState(k.state, true);
         k.sound = machine->audio.size();
         t.keepTime += seconds(at);
         t.keeps++;
@@ -1039,7 +1041,7 @@ void Port::RollbackFrame(const uint16_t *real) {
     t.rerun += frame + 1 - wrong;
     t.most = std::max<uint64_t>(t.most, frame + 1 - wrong);
     const Clock::time_point putting = Clock::now();
-    PutBackState(t.kept[wrong % RollbackTest::kKept].state);
+    PutBackState(t.kept[wrong % RollbackTest::kKept].state, true);
     t.putBackTime += seconds(putting);
     t.putBacks++;
     machine->audio.resize(t.kept[wrong % RollbackTest::kKept].sound);
@@ -1070,7 +1072,7 @@ void Port::RunAhead() {
         return;
     }
     static std::vector<uint8_t> kept;
-    KeepState(kept);
+    KeepState(kept, true);
     const size_t sound = machine->audio.size();
     uint16_t held[Machine::kMaxPlayers];
     memcpy(held, machine->players, sizeof(held));
@@ -1085,7 +1087,7 @@ void Port::RunAhead() {
             TheGame().frame(*machine);
         }
     }
-    PutBackState(kept);
+    PutBackState(kept, true);
     SetRunningAhead(false);
     machine->audio.resize(sound);
     memcpy(machine->players, held, sizeof(held));

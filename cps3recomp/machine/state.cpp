@@ -6,6 +6,9 @@
 
 #include "state.h"
 
+#include <algorithm>
+#include <cstdio>
+
 namespace cps3recomp::machine {
 
 void SH2::Serialize(Archive &ar) {
@@ -41,10 +44,53 @@ void Machine::Serialize(Archive &ar) {
     ar.Vec(m_mainRam);
     mainRam = m_mainRam.data();
     ar.Vec(m_spriteRam);
-    ar.Vec(m_charRam);
+    if (ar.inMemory) {
+        // (the pages' stamps only; each page as it is now is kept beside, once)
+        if (ar.Saving()) {
+            for (int page = 0; page < kCharPages; page++) {
+                std::deque<PageCopy> &kept = m_charKept[page];
+                if (kept.empty() || kept.back().stamp != m_charStamp[page]) {
+                    PageCopy copy;
+                    if (kept.size() >= kCharPagesKept) {
+                        copy = std::move(kept.front()); // (its buffer used again)
+                        kept.pop_front();
+                    }
+                    copy.stamp = m_charStamp[page];
+                    copy.data.assign(m_charRam.begin() + page * 0x10000, m_charRam.begin() + (page + 1) * 0x10000);
+                    kept.push_back(std::move(copy));
+                }
+            }
+        }
+        std::array<uint64, kCharPages> stamps = m_charStamp;
+        ar.Pod(stamps);
+        if (!ar.Saving()) {
+            for (int page = 0; page < kCharPages; page++) {
+                if (stamps[page] == m_charStamp[page]) {
+                    continue;
+                }
+                const std::deque<PageCopy> &kept = m_charKept[page];
+                const auto found = std::find_if(kept.rbegin(), kept.rend(), [&](const PageCopy &c) { return c.stamp == stamps[page]; });
+                if (found == kept.rend()) {
+                    fprintf(stderr, "state: character RAM page %d is no longer kept\n", page);
+                    continue;
+                }
+                std::copy(found->data.begin(), found->data.end(), m_charRam.begin() + page * 0x10000);
+                m_charStamp[page] = stamps[page];
+            }
+        }
+    } else {
+        ar.Vec(m_charRam);
+        if (!ar.Saving()) {
+            for (uint64 &stamp : m_charStamp) {
+                stamp = ++m_stampCounter; // (what a state from a file holds is new to the run)
+            }
+        }
+    }
     ar.Vec(m_fram);
     ar.Vec(m_colourRam);
-    ar.Vec(m_rgb);
+    if (!ar.Saving()) {
+        MakeColours();
+    }
     ar.Vec(m_ssRam);
     ar.Pod(m_ssRegs);
     ar.Pod(m_ssHScroll);

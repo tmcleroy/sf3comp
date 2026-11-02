@@ -25,6 +25,9 @@ public:
     // The version of the save state being read, where the port knows it (0: as this build writes): a part added
     // since is read only from states that have it
     uint32_t version = 0;
+    // A state kept in memory by this run, and only for a short while (run-ahead's, rollback's): what has not changed
+    // since an earlier one may be shared with it rather than copied (the machine's character RAM)
+    bool inMemory = false;
 
     bool Saving() const {
         return m_saving;

@@ -30,6 +30,7 @@
 #include "sh2.h"
 
 #include <array>
+#include <deque>
 #include <cstdint>
 #include <vector>
 
@@ -170,6 +171,22 @@ private:
     }
 
     std::vector<uint8> m_spriteRam, m_charRam, m_fram;
+    // Character RAM by pages of 64 KB, each with a stamp that changes at every write to it (unique over the run), and
+    // the last copies of each page kept by states kept in memory (Archive::inMemory): such a state holds only the
+    // stamps, and putting it back copies only the pages that differ
+    static constexpr int kCharPages = 128;
+    static constexpr size_t kCharPagesKept = 48;
+    std::array<uint64, kCharPages> m_charStamp{};
+    uint64 m_stampCounter = 0;
+    struct PageCopy {
+        uint64 stamp = 0;
+        std::vector<uint8> data;
+    };
+    std::array<std::deque<PageCopy>, kCharPages> m_charKept;
+    void TouchChar(uint32 address) {
+        m_charStamp[(address >> 16) & (kCharPages - 1)] = ++m_stampCounter;
+    }
+    void MakeColours(); // (the colours as drawn, made again from colour RAM after a state is put back)
     std::vector<uint16> m_colourRam;
     std::vector<uint32> m_rgb;
     std::vector<uint8> m_ssRam;

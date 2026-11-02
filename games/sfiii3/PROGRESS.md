@@ -71,10 +71,10 @@
    game.cfg only). 2nd Impact's instructions are deciphered but its data is not (RomSet::opcodes); its cartridge's
    keys are those of a dead CPU, tried when they cannot be solved. Next: find where NG and 2I keep their stages and
    music, and how 3S loads its own, to graft them. 2nd Impact's SIMM program is not enciphered (game.cfg program_enciphered = 0).
-5. Online play's cost: a save state is 10 MB (8 MB of it character RAM) and took 14.7 ms to keep on a loaded
-   machine. Keep character RAM by changed pages (it changes in bulk, by the character DMA) before trying online play.
-   The rollback check itself passes: `--rollback-test 3 --hash-log` equals a plain run's over 2600 frames of made-up
-   play (227 rollbacks, 1255 frames run again).
+5. Online play's cost: states kept in memory (rollback, run-ahead) share unchanged character RAM pages (64 KB pages
+   stamped at each write; machine/state.cpp), so keeping one takes 0.18 ms and putting one back 0.21 ms (were 2.2
+   and 2.1), 1.4 MB a state. The rollback check passes (`--rollback-test 3 --hash-log` equals a plain run over 2600
+   frames); a state saved to a file and loaded continues the same. Online play itself has not been tried.
 6. Linux / Windows builds (cps2recomp's and fighting_vipers' tools/release as the model).
 
 ## Decisions for the user
