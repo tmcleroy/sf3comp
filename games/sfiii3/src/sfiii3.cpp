@@ -102,6 +102,8 @@ void RegisterGame() {
     game.features.push_back({"no_damage", "Cheats", "No damage", "Player 1's health does not go down."});
     game.features.push_back({"no_damage_2", "Cheats", "No damage, player 2", "Player 2's health does not go down (the opponent's, in a one-player game)."});
     game.features.push_back({"one_hit", "Cheats", "One hit knocks out", "Any hit that does damage takes all the health that is left (both players)."});
+    game.features.push_back({"full_gauge", "Cheats", "Full gauge", "Player 1's super art gauge is always full."});
+    game.features.push_back({"full_gauge_2", "Cheats", "Full gauge, player 2", "Player 2's super art gauge is always full (the opponent's, in a one-player game)."});
     game.features.push_back({"no_stun", "Cheats", "No stun", "Player 1 is never stunned: the stun they take is put back to none."});
     game.features.push_back({"no_stun_2", "Cheats", "No stun, player 2", "Player 2 is never stunned (the opponent, in a one-player game)."});
     game.beforeFrame = BeforeFrame;

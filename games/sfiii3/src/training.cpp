@@ -369,7 +369,7 @@ namespace {
     }
 
     bool FullMeter(int p) {
-        return FeatureOn(p == 0 ? "full_meter" : "full_meter_2");
+        return FeatureOn(p == 0 ? "full_meter" : "full_meter_2") || FeatureOn(p == 0 ? "full_gauge" : "full_gauge_2"); // (training's; the cheat)
     }
 } // namespace
 
