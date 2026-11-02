@@ -125,6 +125,13 @@ public:
     const uint8 *SsRam() const {
         return m_ssRam.data();
     }
+    // The game's sources' say over the colours a palette DMA brings in (custom colours): given where in the graphics a
+    // colour is read from (its word) and where it goes, the colour to use (none: as read). And a colour written as the
+    // CPU would (both its copies are the game's to keep: this writes one)
+    uint16 (*paletteColour)(uint32 word, uint32 index, uint16 colour) = nullptr;
+    void WriteColour(uint32 index, uint16 value) {
+        SetColour(index, value, 0);
+    }
     const uint16 *ColourRam() const {
         return m_colourRam.data();
     }

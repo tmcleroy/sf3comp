@@ -376,6 +376,7 @@ namespace {
 void WidescreenState(Archive &ar);
 void BattleState(Archive &ar);
 void BattleHud(std::vector<HudLine> &lines);
+void ModelHud(std::vector<HudLine> &lines, std::vector<HudBox> &boxes);
 
 void TrainingBeforeFrame(Machine &m) {
     if (InMatch()) {
@@ -513,6 +514,7 @@ void RegisterTraining(Game &game) {
     d.facingLeft = [](int p) { return Ram8(sfiii3::kPlayer[p] + sfiii3::kFacing) == 0; };
     d.hud = [](Machine &, std::vector<HudLine> &lines, std::vector<HudBox> &boxes) {
         BattleHud(lines);
+        ModelHud(lines, boxes);
         if (FeatureOn("hit_boxes")) {
             Boxes(boxes);
         }

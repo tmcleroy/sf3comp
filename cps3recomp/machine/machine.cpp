@@ -567,7 +567,10 @@ void Machine::PaletteDma(uint32 control) {
     for (uint32 i = 0; i < length; i++) {
         // (in 32-bit words the two colours of each word are swapped on both sides, as MAME has it)
         const size_t at = static_cast<size_t>(((source >> 1) + i) ^ 1) * 2;
-        const uint16 colour = at + 1 < g.size() ? static_cast<uint16>((g[at] << 8) | g[at + 1]) : 0;
+        uint16 colour = at + 1 < g.size() ? static_cast<uint16>((g[at] << 8) | g[at + 1]) : 0;
+        if (paletteColour) {
+            colour = paletteColour(static_cast<uint32>((source >> 1) + i), (m_palDmaDest + i) ^ 1, colour);
+        }
         SetColour((m_palDmaDest + i) ^ 1, colour, m_palDmaFade);
     }
     m_dmaStatus |= 4;

@@ -23,6 +23,7 @@ void RingOutBeforeFrame(Machine &machine);
 void BattleBeforeFrame(Machine &machine);
 void ModelBeforeFrame(Machine &machine);
 void RegisterModel(Game &game);
+void RegisterColours(Game &game);
 void RegisterBattle(Game &game);
 bool BattleOn();
 void RegisterRingOut(Game &game);
@@ -108,6 +109,7 @@ void RegisterGame() {
     RegisterMusic(game);
     RegisterBattle(game);
     RegisterModel(game);
+    RegisterColours(game);
     game.noRunAhead = BattleOn; // (a mode with a spare machine: its frames are not run ahead)
     // The menu's pages for the ways of playing beyond the board's own (as the CPS-2 ports have them)
     game.pages.push_back({"Alternative modes", "", "Ways to play beyond the arcade game: training, survival, ring out, endless and "
@@ -119,6 +121,7 @@ void RegisterGame() {
     game.pages.push_back({"Endless battle", "Alternative modes", "Two fighters the game plays, for as long as you like. Touch the controls "
                                                                  "to take one over."});
     game.pages.push_back({"Model viewer", "Alternative modes", "A character alone, to look at: on a stage or plain, at any size."});
+    game.pages.push_back({"Colour editor", "Alternative modes", "Your own colours for the characters: change any of them, and fight with them."});
     game.pages.push_back({"Team battle", "Alternative modes", "Two teams: lose a round and the next of your team comes on. The last team "
                                                               "standing wins."});
     RegisterSoundProbe();
