@@ -97,6 +97,10 @@ int main(int argc, char **argv) {
     // (--stage-cfg games/<id>/game.cfg --stage-rom SET: an experiment for the definitive version: that game run beside
     // this one, its camera following this one's, and the pictures made of its stage with this game's fighters over it)
     std::string stageCfg, stageRom;
+    uint64_t traceFirst = 1, traceLast = 0;
+    uint32_t traceLow = 0, traceHigh = 0;
+    std::string tracePath;
+    FILE *traceFile = nullptr;
     std::string ramPath; // (--dump-ram FRAME:file: main RAM after that frame)
     std::string groupsPrefix;
     std::string cpu = "native";
@@ -165,6 +169,19 @@ int main(int argc, char **argv) {
         } else if (a == "--stage-rom") {
             stageRom = v;
             i++;
+        } else if (a == "--trace") {
+            // FIRST-LAST:LOW-HIGH:file (frames; hex offsets in main RAM): those bytes after each of those frames
+            unsigned long long first = 0, last = 0;
+            unsigned low = 0, high = 0;
+            char path[1024] = {};
+            if (sscanf(v, "%llu-%llu:%x-%x:%1023s", &first, &last, &low, &high, path) == 5) {
+                traceFirst = first;
+                traceLast = last;
+                traceLow = low & 0x7FFFF;
+                traceHigh = high & 0x7FFFF;
+                tracePath = path;
+            }
+            i++;
         } else if (a == "--hash") {
             hash = true;
         } else if (a == "--cpu") {
@@ -229,6 +246,7 @@ int main(int argc, char **argv) {
     std::unique_ptr<RomSet> stageSet;
     std::unique_ptr<machine::Machine> stage;
     Renderer stageRenderer;
+    bool stageFought = false;
     if (!stageCfg.empty()) {
         const auto cfg = ReadCfg(stageCfg);
         RomList stageList;
@@ -267,8 +285,22 @@ int main(int argc, char **argv) {
             // (the same made-up play takes it into a fight; its camera then follows this game's, from one stage's ends to
             // the other's: words at 0x020221CC/D4/E4 and ends at 0x02022218 in 2nd Impact, 0x02026CA8/B0/C0 and 0x02026CF4
             // in 3rd Strike)
-            stage->inputs = ~inputs;
-            stage->extra = ~extra;
+            // (its fight kept going: no clock, nobody hurt; once in it, nobody touches the controls. 2nd Impact's places:
+            // the clock 0x02010167 and 0x02023EF5, the players' health 0x0200E5A3/E5A5 and 0x0200E9AF/E9B1)
+            const bool fighting = stage->mainRam[0x10167] > 0 && stage->mainRam[0x10167] <= 99 && stage->mainRam[0xE5A3] > 0;
+            if (fighting) {
+                stageFought = true;
+            }
+            stage->inputs = stageFought ? 0xFFFFFFFFu : ~inputs;
+            stage->extra = stageFought ? 0xFFFFFFFFu : ~extra;
+            if (stageFought) {
+                for (const uint32_t at : {0x10167u, 0x23EF5u}) {
+                    stage->mainRam[at] = 99;
+                }
+                for (const uint32_t at : {0xE5A3u, 0xE5A5u, 0xE9AFu, 0xE9B1u}) {
+                    stage->mainRam[at] = 160;
+                }
+            }
             auto word = [](uint8_t *ram, uint32_t at) { return static_cast<int16_t>((ram[at & 0x7FFFF] << 8) | ram[(at + 1) & 0x7FFFF]); };
             auto setWord = [](uint8_t *ram, uint32_t at, int v) {
                 ram[at & 0x7FFFF] = static_cast<uint8_t>(v >> 8);
@@ -307,6 +339,14 @@ int main(int argc, char **argv) {
         if (shot) {
             const std::string path = shots.count(frame) ? shots[frame] : shotsPrefix + std::to_string(frame) + ".png";
             WritePng(path.c_str(), pixels.data(), static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+        }
+        if (frame >= traceFirst && frame <= traceLast && traceHigh >= traceLow) {
+            if (!traceFile) {
+                traceFile = fopen(tracePath.c_str(), "wb");
+            }
+            if (traceFile) {
+                fwrite(m.mainRam + traceLow, 1, traceHigh - traceLow + 1, traceFile);
+            }
         }
         if (frame == ramAt) {
             if (FILE *f = fopen(ramPath.c_str(), "wb")) {

@@ -706,6 +706,15 @@ void Machine::WriteSound(uint32 offset, uint32 v, uint32 mask) {
         Combine(voices[offset / 8].regs[offset & 7], v, mask);
     } else if (offset == 0x80) {
         const uint16 key = static_cast<uint16>(v >> 16);
+        // (debugging aid, CPS3RECOMP_TRACE_VOICES=1: each voice keyed on, and the sample it starts at)
+        static const bool traceVoices = getenv("CPS3RECOMP_TRACE_VOICES") != nullptr;
+        if (traceVoices) {
+            for (int i = 0; i < 16; i++) {
+                if ((key & (1 << i)) && !(keyOn & (1 << i))) {
+                    fprintf(stderr, "voice %d on, sample %08X, frame %llu\n", i, voices[i].regs[1], static_cast<unsigned long long>(m_frame));
+                }
+            }
+        }
         for (int i = 0; i < 16; i++) {
             if ((key & (1 << i)) && !(keyOn & (1 << i))) {
                 voices[i].position = voices[i].fraction = 0; // (key on)

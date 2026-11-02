@@ -22,10 +22,15 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
 - The board keeps each object's group (Machine::SpriteGroups); the renderer draws a chosen part (drawGroup) and can
   draw over another picture (overlay).
 
+- 2nd Impact's own places: the clock 0x02010167 (copy 0x02023EF5; a second is 54 frames), the players' records
+  0x0200E504 and 0x0200E910 (health at +0x9F as in 3rd Strike, with a copy at +0xA1, and the HUD's at 0x02023ED1 and
+  0x02023EE9). Holding the clock at 99 and both healths at 160, with no input once it fights, keeps 2nd Impact's
+  board on its stage while 3rd Strike plays round after round (seen over 9000 frames).
+
 ## To do
 
-1. The stage board held in a fight on the stage chosen: its stage select (or the stage variable at a match's start),
-   no clock, nobody knocked out, its fighters out of the way (they still move its camera's walls).
+1. The stage board on the stage chosen: its stage select, or the stage variable at a match's start (held in its
+   fight: done, above). Its fighters stand still, out of the picture's way (they still set its camera's walls).
 2. Its music in place of 3rd Strike's, 3rd Strike's sound effects kept: which of the sound chip's voices play music
    (or the game's music request, to stop 3rd Strike's).
 3. The second board translated too (its own generated code: today it runs in the interpreter, about half the speed).
