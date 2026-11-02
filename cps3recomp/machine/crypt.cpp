@@ -3,6 +3,8 @@
 #include "crypt.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 #include <map>
 #include <tuple>
 
@@ -66,7 +68,8 @@ void Decipher(uint32_t *words, size_t count, uint32_t base, const CipherKey &key
 // 2. C ^ L is key1.lo ^ key2.lo for every L. Try the 65536 key1.lo: each gives key2.lo, and from each L's Y a key1.hi;
 //    the right key1.lo makes them all agree.
 // A filler of ones instead of zeros spoils some L of step 1; the most common answer over many L wins.
-bool RecoverKeys(const std::vector<CipherRegion> &regions, CipherKey &key, std::string &error) {
+namespace {
+bool RecoverKeysWith(const std::vector<CipherRegion> &regions, CipherKey &key, std::string &error, size_t runLeast, size_t samplesLeast) {
     // The samples: (block, mask) by low address half, from runs of 16 or more words whose halves are alike (and
     // which are not all one word: an unwritten flash reads as 0xFFFFFFFF, stored as it is)
     std::map<uint16_t, std::vector<std::pair<uint16_t, uint16_t>>> byLow;
@@ -81,7 +84,7 @@ bool RecoverKeys(const std::vector<CipherRegion> &regions, CipherKey &key, std::
             while (j < region.count && (w[j] >> 16) == (w[j] & 0xFFFF)) {
                 j++;
             }
-            if (j - i >= 16 && w[i] != w[i + 1]) {
+            if (j - i >= runLeast && w[i] != w[i + 1]) {
                 for (size_t k = i; k < j; k++) {
                     const uint32_t address = region.base + static_cast<uint32_t>(k) * 4;
                     byLow[static_cast<uint16_t>(address)].push_back({static_cast<uint16_t>(address >> 16), static_cast<uint16_t>(w[k])});
@@ -96,7 +99,7 @@ bool RecoverKeys(const std::vector<CipherRegion> &regions, CipherKey &key, std::
     std::vector<std::tuple<uint16_t, uint16_t, uint16_t, uint16_t>> found; // (L, Y, key2.hi, key1.lo ^ key2.lo)
     int tried = 0;
     for (const auto &[low, samples] : byLow) {
-        if (samples.size() < 6) {
+        if (samples.size() < samplesLeast) {
             continue;
         }
         if (++tried > 1000) {
@@ -180,6 +183,51 @@ bool RecoverKeys(const std::vector<CipherRegion> &regions, CipherKey &key, std::
         return false;
     }
     return true;
+}
+
+} // namespace
+
+// The strictest test first (long runs of filler, many samples at each low address half); less where a program has
+// little filler (New Generation's 8 MB; a cartridge's ROM alone)
+bool RecoverKeys(const std::vector<CipherRegion> &regions, CipherKey &key, std::string &error) {
+    static constexpr size_t kTries[][2] = {{16, 6}, {8, 4}, {4, 3}};
+    for (const auto &[runLeast, samplesLeast] : kTries) {
+        if (RecoverKeysWith(regions, key, error, runLeast, samplesLeast)) {
+            error.clear();
+            return true;
+        }
+    }
+    // A cartridge whose CPU has lost its keys (2nd Impact runs from one: MAME's init_sfiii2) deciphers with keys of
+    // nothing at all. Too little of its ROM is filler to solve them as above, so they are tried, and taken if the
+    // filler there is fits them.
+    size_t fits = 0, all = 0;
+    for (const CipherRegion &region : regions) {
+        const uint32_t *w = region.words;
+        for (size_t i = 0; i < region.count;) {
+            size_t j = i;
+            while (j < region.count && (w[j] >> 16) == (w[j] & 0xFFFF)) {
+                j++;
+            }
+            if (j - i >= 4 && w[i] != w[i + 1]) {
+                for (size_t k = i; k < j; k++) {
+                    const uint16_t m = Mask16(region.base + static_cast<uint32_t>(k) * 4, 0, 0);
+                    fits += m == static_cast<uint16_t>(w[k]) || m == static_cast<uint16_t>(~w[k]);
+                    all++;
+                }
+            }
+            i = j > i ? j : i + 1;
+        }
+    }
+    if (getenv("CPS3RECOMP_KEY_LOG")) {
+        fprintf(stderr, "keys of nothing: %zu of %zu filler words fit\n", fits, all);
+    }
+    // (a wrong key fits about 2 in 65536 of them; fillers other than all zeros or ones do not fit either)
+    if (all >= 64 && fits * 2 >= all) {
+        key = {};
+        error.clear();
+        return true;
+    }
+    return false;
 }
 
 } // namespace cps3recomp

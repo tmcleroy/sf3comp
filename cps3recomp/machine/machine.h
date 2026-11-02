@@ -90,6 +90,10 @@ public:
     const uint8 *ProgramBytes() const {
         return m_programBytes.data();
     }
+    // ... and the program SIMMs as its data reads see them (2nd Impact's are not deciphered; elsewhere the same)
+    const uint8 *ProgramDataBytes() const {
+        return m_programDataBytes.empty() ? m_programBytes.data() : m_programDataBytes.data();
+    }
 
     SH2 &Cpu() {
         return m_cpu;
@@ -151,7 +155,7 @@ public:
 
 private:
     const RomSet &m_rom;
-    std::vector<uint8> m_biosBytes, m_programBytes;
+    std::vector<uint8> m_biosBytes, m_programBytes, m_programDataBytes;
     void UpdateFlashPlain();
     SH2 m_cpu;
     uint64 m_frame = 0;

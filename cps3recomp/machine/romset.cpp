@@ -255,18 +255,24 @@ bool LoadRomSet(const std::string &path, const RomList &list, RomSet &set, std::
     }
 
     // The keys, from the program itself (crypt.h); the cartridge's ROM has the same
-    std::vector<CipherRegion> regions = {{set.programRaw.data(), set.programRaw.size(), 0x06000000}};
-    if (!list.programEnciphered) {
-        regions = {{set.biosRaw.data(), set.biosRaw.size(), 0x00000000}};
+    // (the cartridge's ROM has the same keys as the program: both are used, where both are enciphered)
+    std::vector<CipherRegion> regions = {{set.biosRaw.data(), set.biosRaw.size(), 0x00000000}};
+    if (list.programEnciphered) {
+        regions.push_back({set.programRaw.data(), set.programRaw.size(), 0x06000000});
     }
     if (!RecoverKeys(regions, set.key, error)) {
         return false;
     }
+    set.programEnciphered = list.programEnciphered;
     set.bios = set.biosRaw;
     Decipher(set.bios.data(), set.bios.size(), 0, set.key);
     set.program = set.programRaw;
     if (list.programEnciphered) {
         Decipher(set.program.data(), set.program.size(), 0x06000000, set.key);
+        set.opcodes.clear();
+    } else {
+        set.opcodes = set.programRaw;
+        Decipher(set.opcodes.data(), set.opcodes.size(), 0x06000000, set.key);
     }
 
     // The graphics SIMMs, pairs of chips one after the other; the video reads a pair's two chips byte by byte in turn.

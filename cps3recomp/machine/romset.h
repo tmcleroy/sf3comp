@@ -35,12 +35,19 @@ struct RomSet {
     // The program SIMMs 1 and 2 (0x06000000-0x06FFFFFF): 4 M words as stored (what the SH-2's DMA reads) and
     // deciphered (what the CPU reads); a SIMM the game does not have reads as 0xFFFFFFFF
     std::vector<uint32_t> programRaw, program;
+    // ... and as the CPU's instruction reads see it, where that is not `program` (2nd Impact: its instructions are
+    // deciphered, its data is not); empty: `program`
+    std::vector<uint32_t> opcodes;
+    const std::vector<uint32_t> &Opcodes() const {
+        return opcodes.empty() ? program : opcodes;
+    }
     // The graphics SIMMs 3-7 as the video's DMAs see them: a stream of bytes, two chips of a pair alternating, the
     // first byte at the video's address 0x400000 (MAME's "user5" region). The sound chip's samples are here too.
     std::vector<uint8_t> graphics;
     // The flash chips themselves, [simm][chip], for the CPU's reads of them as flash
     std::vector<uint8_t> chips[7][8];
     CipherKey key;
+    bool programEnciphered = true; // (RomList's: the SIMMs' program is read through the cipher)
 };
 
 bool LoadRomSet(const std::string &path, const RomList &list, RomSet &set, std::string &error);

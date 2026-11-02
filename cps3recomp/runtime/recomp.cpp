@@ -34,6 +34,7 @@ namespace cps3recomp {
 uint8_t *g_mainRam = nullptr;
 const uint8_t *g_bios = nullptr;
 const uint8_t *g_program = nullptr;
+const uint8_t *g_programData = nullptr;
 const bool *g_flashPlain = nullptr;
 
 using OpcodeType = machine::Op;
@@ -831,6 +832,7 @@ void Attach(Machine &m, const Options &options) {
     g_mainRam = m.mainRam;
     g_bios = m.BiosBytes();
     g_program = m.ProgramBytes();
+    g_programData = m.ProgramDataBytes();
     g_flashPlain = &machine::g_flashPlain;
     rt.regions[0] = {0x06000000, 0x1000000, g_program, true, {}};
     rt.regions[1] = {0x02000000, 0x80000, g_mainRam, false, {}};

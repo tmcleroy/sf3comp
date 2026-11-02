@@ -61,7 +61,10 @@ Machine::Machine(const RomSet &rom)
         }
     };
     bytes(m_rom.bios, m_biosBytes);
-    bytes(m_rom.program, m_programBytes);
+    bytes(m_rom.Opcodes(), m_programBytes);
+    if (!m_rom.opcodes.empty()) {
+        bytes(m_rom.program, m_programDataBytes);
+    }
 }
 
 bool g_flashPlain = true;
@@ -786,7 +789,7 @@ uint16 Machine::FetchOpcode(uint32 a) {
         return static_cast<uint16>(m_rom.bios[a >> 2] >> ((2 - (a & 2)) * 8));
     }
     if (a >= 0x06000000u && a < 0x07000000u) {
-        return static_cast<uint16>(m_rom.program[(a & 0xFFFFFF) >> 2] >> ((2 - (a & 2)) * 8));
+        return static_cast<uint16>(m_rom.Opcodes()[(a & 0xFFFFFF) >> 2] >> ((2 - (a & 2)) * 8));
     }
     return BusRead16(a);
 }
@@ -797,7 +800,7 @@ uint16 Machine::CacheOpcode(const uint8 *cache, uint32 offset) {
 }
 
 bool Machine::IsEnciphered(uint32 a) const {
-    return a < 0x80000 || (a >= 0x06000000u && a < 0x07000000u && !m_rom.key.none);
+    return a < 0x80000 || (a >= 0x06000000u && a < 0x07000000u && !m_rom.key.none && m_rom.programEnciphered);
 }
 uint32 Machine::RawRead32(uint32 a) {
     if (a < 0x80000) {

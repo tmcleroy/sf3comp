@@ -2,7 +2,11 @@
 
 ## Native / emulated
 
-- The board (`cps3recomp/machine`): own code, no emulator. SH-2 from satrecomp (interpreter only so far).
+- The board (`cps3recomp/machine`): own code, no emulator. SH-2 from satrecomp.
+- The game's SH-2 code: translated ahead of time (`cps3recomp/tools/translate.sh`, 18,789 blocks from attract mode
+  and five seeds of made-up play; checks in `tools/check.sh`: interpreter and translation the same over 6000 frames
+  of each, 3.56 M dispatches compared block by block, 0 different). 287 fps headless on a loaded machine (the
+  interpreter: 15). Code not reached by the recording runs in the interpreter.
 - Picture: own software renderer (`cps3recomp/video/renderer.cpp`), MAME's drawing rules.
 - Sound: own 16-voice mixer (`cps3recomp/sound/pcm.cpp`), not listened to yet.
 - Frontend: cps2recomp's port/ (window, SDL_GPU presenter, shaders, menu, HUD, zoom, bindings, netplay, run-ahead,
@@ -44,7 +48,7 @@
 
 ## Next
 
-1. Merge the translation branch (SH-2 to C++, checked block by block against the interpreter).
+1. Translation coverage: more recorded play (every character, supers, the endings).
 2. The full training session: port cps2recomp's fight/session.{h,cpp} with the modes and battle layers it sits on
    (alternative.cpp, battle.cpp: these use cps2recomp's spare machines) and a 3S description. Health here is a byte
    (session.cpp reads words). The steps and contacts are read once a frame from RAM until the translation gives hooks.
@@ -52,7 +56,10 @@
    published frame data.
 3. Widescreen: the board has a 496-column mode; the stage and camera limits need finding.
 4. The definitive version: New Generation (sfiiin) and 2nd Impact (sfiii2n) sets are in ~/code/recomp/cps3-roms
-   (Internet Archive, the user's choice). 2nd Impact's SIMM program is not enciphered (game.cfg program_enciphered = 0).
+   (Internet Archive, the user's choice); both run their attract modes on the board (games/sfiiin, games/sfiii2n:
+   game.cfg only). 2nd Impact's instructions are deciphered but its data is not (RomSet::opcodes); its cartridge's
+   keys are those of a dead CPU, tried when they cannot be solved. Next: find where NG and 2I keep their stages and
+   music, and how 3S loads its own, to graft them. 2nd Impact's SIMM program is not enciphered (game.cfg program_enciphered = 0).
 5. Online play's cost: a save state is 10 MB (8 MB of it character RAM) and took 14.7 ms to keep on a loaded
    machine. Keep character RAM by changed pages (it changes in bulk, by the character DMA) before trying online play.
    The rollback check itself passes: `--rollback-test 3 --hash-log` equals a plain run's over 2600 frames of made-up

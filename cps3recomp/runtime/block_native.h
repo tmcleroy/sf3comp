@@ -22,6 +22,7 @@ namespace cps3recomp {
 extern uint8_t *g_mainRam;       // 512 KiB at 0x02000000
 extern const uint8_t *g_bios;    // the cartridge's ROM, 512 KiB at 0x00000000, deciphered
 extern const uint8_t *g_program; // the program SIMMs, 16 MiB at 0x06000000, deciphered
+extern const uint8_t *g_programData; // ... as data reads see them (2nd Impact's: not deciphered)
 extern const bool *g_flashPlain; // the program SIMMs' flash chips are all reading their data (not their IDs)
 
 // Direct memory access (BlockSet<-1> only so that it is a friend of SH2, like the generated code)
@@ -33,7 +34,7 @@ struct BlockSet<-1> {
             return g_mainRam + (a & 0x7FFFFu);
         }
         if ((a & 0xDF000000u) == 0x06000000u && *g_flashPlain) {
-            return g_program + (a & 0xFFFFFFu);
+            return g_programData + (a & 0xFFFFFFu);
         }
         if ((a & 0xDFF80000u) == 0) {
             return g_bios + (a & 0x7FFFFu);
