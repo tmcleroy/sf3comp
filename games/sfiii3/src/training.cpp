@@ -288,6 +288,13 @@ void TrainingBeforeFrame(Machine &m) {
             SetRam8(sfiii3::kClock, 99);
         }
     }
+    // (a session's stage: set while no round is on, so the next fight's is the one chosen)
+    if (session::InSession() && !InMatch()) {
+        const int stage = FeatureValue("training_stage");
+        if (stage > 0) {
+            SetRam8(sfiii3::kStage, static_cast<uint8_t>(stage - 1));
+        }
+    }
     session::BeforeFrame(m);
     // The dummy parries: as player 1's attack starts, a tap towards player 1 (down for an attack made crouching) opens
     // a parry window of about 10 frames; again after the window's cooldown (about 24) while the attack is still starting
@@ -361,6 +368,9 @@ void RegisterTraining(Game &game) {
         {"hit_boxes", session::kPage, "Hit boxes",
          "Each fighter's boxes over the picture: blue where it can be hit, red where it hits, yellow its throw, pink where it can be "
          "thrown, green the body that pushes."},
+        {"training_stage", session::kPage, "Stage", "The stage a training session is fought on.", kFeatureMenuChoices,
+         {"The game's choice", "Gill's", "Alex's", "Ryu's", "Yun's", "Dudley's", "Necro's", "Hugo's", "Ibuki's", "Elena's", "Oro's",
+          "Yang's", "Ken's", "Sean's", "Urien's", "Akuma's", "Akuma's (red)", "Chun-Li's", "Makoto's", "Q's", "Twelve's", "Remy's"}},
         {"dummy_parry", "Dummy", "Parries",
          "Player 2 tries to parry player 1's attacks: it taps towards player 1 (or down for an attack made crouching) as an attack "
          "starts. An early form: it catches attacks that hit within about 10 frames of starting (about a third of attacks in tests)."},

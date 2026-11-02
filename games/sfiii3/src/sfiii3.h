@@ -77,4 +77,8 @@ constexpr uint32_t kParryWindow[4] = {0x02026335, 0x02026337, 0x02026339, 0x0202
 constexpr uint32_t kParryWindowPlayer2 = 0x406;
 constexpr uint32_t kConnection = 0x32E;
 
+// The stage of the next fight (a byte): a character's number, its stage (written before the fight's stage is set up, it
+// is the stage fought on: Elena's 8, from the training script's notes; all 21 seen in pictures, Gill 0 to Remy 20)
+constexpr uint32_t kStage = 0x020154F5;
+
 } // namespace sfiii3

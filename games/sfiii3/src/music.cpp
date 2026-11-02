@@ -90,8 +90,9 @@ void MusicBeforeFrame(Machine &machine) {
 
 void RegisterMusic(Game &game) {
     game.songCount = kMostSongs; // (the custom soundtrack offered; the songs are the table's: MusicBeforeFrame)
-    // The songs heard so far and where (made-up play over eight runs, a picture at each song's start); a stage's second
-    // song follows its first later in the same match. The others are not placed yet.
+    // The songs and where they are heard: the screens' from made-up play (a picture at each song's start), the stages'
+    // from a training session on each of the 21 stages (sfiii3.h, kStage). A stage's second song follows its first later in
+    // the match (seen for most of them; taken to be so for the rest). The others are not placed yet (the endings, say).
     game.songs = {
         {48, "opening", "Capcom's logo and the opening"},
         {1, "title", "The attract mode's drawings and the title"},
@@ -99,24 +100,38 @@ void RegisterMusic(Game &game) {
         {3, "versus", "The versus screen"},
         {4, "winner", "The winner's screen"},
         {7, "challenger", "A challenger comes in"},
-        {10, "stage_workshop", "A stage: a workshop, ladders and a clock"},
-        {11, "stage_workshop_2", "... the same, later in the match"},
-        {12, "stage_russia", "A stage: Russia (a crane and a dome)"},
+        {10, "stage_nyc", "New York: Alex's and Ken's stages"},
+        {11, "stage_nyc_2", "... the same, later in the match"},
+        {12, "stage_russia", "Russia: Necro's and Twelve's stages"},
         {13, "stage_russia_2", "... the same, later in the match"},
-        {14, "stage_conservatory", "A stage: a glass house with tables"},
-        {15, "stage_conservatory_2", "... the same, later in the match"},
-        {18, "stage_rooftop", "A stage: a Japanese rooftop"},
-        {19, "stage_rooftop_2", "... the same, later in the match"},
-        {22, "stage_japanese_house", "A stage: a Japanese house and garden"},
-        {23, "stage_japanese_house_2", "... the same, later in the match"},
-        {28, "stage_harbour", "A stage: a harbour, a lorry and sacks"},
-        {29, "stage_harbour_2", "... the same, later in the match"},
-        {30, "stage_street", "A stage: a street with a horse carriage"},
-        {32, "stage_hong_kong", "A stage: Hong Kong (a restaurant's neon)"},
-        {34, "stage_skulls", "A stage: a street of carved skulls"},
-        {35, "stage_skulls_2", "... the same, later in the match"},
-        {36, "stage_ruins", "A stage: ruins in a forest"},
-        {37, "stage_ruins_2", "... the same, later in the match"},
+        {14, "stage_hugo", "Hugo's stage"},
+        {15, "stage_hugo_2", "... the same, later in the match"},
+        {16, "stage_chun_li", "Chun-Li's stage"},
+        {17, "stage_chun_li_2", "... the same, later in the match"},
+        {18, "stage_ryu", "Ryu's stage"},
+        {19, "stage_ryu_2", "... the same, later in the match"},
+        {20, "stage_ibuki", "Ibuki's stage"},
+        {21, "stage_ibuki_2", "... the same, later in the match"},
+        {22, "stage_makoto", "Makoto's stage"},
+        {23, "stage_makoto_2", "... the same, later in the match"},
+        {24, "stage_akuma", "Akuma's stages"},
+        {25, "stage_akuma_2", "... the same, later in the match"},
+        {26, "stage_elena", "Elena's stage"},
+        {27, "stage_elena_2", "... the same, later in the match"},
+        {28, "stage_brazil", "Brazil: Oro's and Sean's stages"},
+        {29, "stage_brazil_2", "... the same, later in the match"},
+        {30, "stage_dudley", "Dudley's stage"},
+        {31, "stage_dudley_2", "... the same, later in the match"},
+        {32, "stage_hong_kong", "Hong Kong: Yun's and Yang's stages"},
+        {33, "stage_hong_kong_2", "... the same, later in the match"},
+        {34, "stage_remy", "Remy's stage"},
+        {35, "stage_remy_2", "... the same, later in the match"},
+        {36, "stage_urien", "Urien's stage"},
+        {37, "stage_urien_2", "... the same, later in the match"},
+        {38, "stage_gill", "Gill's stage"},
+        {39, "stage_gill_2", "... the same, later in the match"},
+        {40, "stage_q", "Q's stage"},
+        {41, "stage_q_2", "... the same, later in the match"},
     };
     std::vector<uint16_t> songs;
     for (uint16_t n = 1; n <= 49; n++) {

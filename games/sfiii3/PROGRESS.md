@@ -77,7 +77,9 @@ The CPS-2 ports' custom soundtrack (cps2recomp's port/soundtrack.* and decoders,
 1), track 0's record (0x02078D0C: +0 its place, +4 its start, +0x5E bit 0x80 stopped) saying which song plays and
 when it starts again. A file plays while its song does (the board's music voices left out, unheard: the game's state
 is the same, checked by hash with and without, and over rollbacks); with no file named for a song, the folder plays
-as a playlist through everything. Songs named so far from pictures at their starts (music.cpp); songs.txt lists them.
+as a playlist through everything. Songs named from pictures at their starts and from a training session on each stage
+(music.cpp; every stage's music is known, the endings' and a few others' not); songs.txt lists them. The stage byte
+(0x020154F5, a character's number) gives training mode its stage choice.
 Not listened to by a person: checked by the sound's loudness only (the music's voices silent under a file, the effects
 heard, the file's tone in --soundtrack-dump).
 
