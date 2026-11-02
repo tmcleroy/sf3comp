@@ -39,6 +39,16 @@
 
 namespace cps3recomp {
 
+// (stages.cpp: 3rd Strike's own stages drawn behind the fighters from the stage board)
+void StageBehind(int stage);
+void StageBehindCamera(int x);
+int StageBehindFollow();
+bool StageBehindEnds(int &left, int &right);
+bool StageBehindShown();
+void StageBehindNext(int stage);
+bool StageBehindNextReady();
+void StageBehindSwitch(Machine &machine);
+
 namespace {
     const char *const kCharacters[] = {"Gill", "Alex", "Ryu", "Yun", "Dudley", "Necro", "Hugo", "Ibuki", "Elena", "Oro", "Yang",
                                        "Ken", "Sean", "Urien", "Akuma", "Akuma (red)", "Chun-Li", "Makoto", "Q", "Twelve", "Remy"};
@@ -47,6 +57,10 @@ namespace {
     constexpr uint32_t kTakenFor = 600;   // frames a person keeps an endless battle's fighter after letting go
     constexpr int kSpareFramesAFrame = 6; // the next match's machine, run so many frames a frame on its way
     constexpr uint32_t kShownFor = 240;   // frames of the knock-out (and the end's line) before the next is put on
+    constexpr int kShuffleMinutes[] = {1, 2, 3, 5, 10}; // (endless, shuffled) minutes on a stage before it fades into another
+    constexpr int kFadeFor = 75;                        //   frames of fading out (and as many in)
+    constexpr int kScrollSpeeds[] = {64, 128, 256};     // (endless, scrolling) 256ths of a pixel a frame
+    enum { kStageShuffle, kStageScroll };               // (endless_stage's first two choices; then the stages)
     constexpr int kOutPast = 40;          // (ring out) how far past its wall a fighter is out
     constexpr uint32_t kKnockedFor = 50;  // (ring out) frames after a hit that a fighter's wall lets it go
 
@@ -62,7 +76,12 @@ namespace {
         bool decided = false;       // the match on is decided: the next being made
         uint32_t decidedAt = 0;
         uint32_t touched[2] = {};   // (endless) when a person last worked each side
-        uint8_t stage = 0;          // the next match's stage (shuffled)
+        uint8_t stage = 0;          // the stage behind (endless, shuffled or scrolling)
+        uint8_t nextStage = 0;      // ... the one to come
+        uint32_t onStageFor = 0;    // frames fought on it
+        int fade = 0;               // the fade between two stages: 0 none, 1-kFadeFor out, then in
+        int32_t scroll = 0;         // (scrolling) the camera's middle, in 256ths of a pixel
+        bool scrolled = false;      // ... across to its right end
         // team
         uint8_t member[2][kMost] = {};
         uint8_t size = 2;
@@ -108,13 +127,23 @@ namespace {
         const int value = FeatureValue(name);
         return value > 0 ? value - 1 : -1;
     }
-    // The stage of the next match: endless's choice (the game's, shuffled, one), or the game's
+    // The stage of the next match: endless's one stage, or (shuffled, scrolling: a stage drawn behind) the game's
     int StageWanted() {
         if (b.mode != kEndless) {
             return -1;
         }
         const int choice = FeatureValue("endless_stage");
-        return choice == 0 ? -1 : choice == 1 ? b.stage : choice - 2;
+        return choice <= kStageScroll ? -1 : choice - 2;
+    }
+    bool Behind() {
+        return b.mode == kEndless && FeatureValue("endless_stage") <= kStageScroll;
+    }
+    uint8_t AnotherStage(uint8_t not1) {
+        uint8_t stage = not1;
+        for (int n = 0; n < 8 && stage == not1; n++) {
+            stage = static_cast<uint8_t>(Next() % kCharacterCount);
+        }
+        return stage;
     }
 
     // A machine on its way through character select to its round, as the mode wants it: true once its round is fought
@@ -153,6 +182,7 @@ namespace {
         b.random ^= static_cast<uint32_t>(machine.frame * 2654435761u) | 1u;
         g_atChoice.clear();
         g_next.Clear();
+        StageBehind(-1);
     }
     void StartSurvival(Machine &machine) {
         Begin(machine, kSurvival);
@@ -164,7 +194,11 @@ namespace {
     }
     void StartEndless(Machine &machine) {
         Begin(machine, kEndless);
-        b.stage = static_cast<uint8_t>(Next() % kCharacterCount);
+        b.stage = FeatureValue("endless_stage") == kStageScroll ? 0 : static_cast<uint8_t>(Next() % kCharacterCount);
+        b.nextStage = b.stage; // (none to come yet)
+        if (Behind()) {
+            StageBehind(b.stage);
+        }
         for (int p = 0; p < 2; p++) {
             const int chosen = Choice(p == 0 ? "endless_one" : "endless_two");
             b.want[p] = chosen >= 0 ? static_cast<uint8_t>(chosen) : RandomCharacter();
@@ -201,9 +235,7 @@ namespace {
             const int chosen = Choice(loser == 0 ? "endless_one" : "endless_two");
             b.want[loser] = chosen >= 0 ? static_cast<uint8_t>(chosen) : RandomCharacter();
             b.health[winner] = 0; // (both fresh: the next pair's fight)
-            if (FeatureValue("endless_stage") == 1) {
-                b.stage = static_cast<uint8_t>(Next() % kCharacterCount);
-            }
+
             break;
         }
         case kTeam:
@@ -283,6 +315,61 @@ namespace {
     const Lift kWallLift[] = {{"Wall (let go in a ring out)", 0x0611DFB8, 8, 0x2E0F9B3860C660B1ull, WallLift}};
 } // namespace
 
+// The endless battle's stage behind its fighters: shuffled (fought on for its minutes, then faded into another made
+// ready beside it), or scrolling (its camera carried across it at the speed chosen, then the next in order faded in)
+namespace {
+    void StageBehindFrame(Machine &m) {
+        const bool scrolling = FeatureValue("endless_stage") == kStageScroll;
+        int left = 0, right = 0;
+        const bool shown = StageBehindShown() && StageBehindEnds(left, right);
+        if (getenv("SFIII3_BATTLE_LOG") && b.frames % 600 == 0) {
+            fprintf(stderr, "behind: frame %u stage %d next %d shown %d ends %d-%d for %u fade %d ready %d\n", b.frames, b.stage, b.nextStage, shown,
+                    left, right, b.onStageFor, b.fade, StageBehindNextReady());
+        }
+        if (scrolling && shown && b.fade == 0) {
+            const int speed = kScrollSpeeds[std::clamp(FeatureValue("endless_scroll"), 0, 2)];
+            if (b.scroll == 0) {
+                b.scroll = left * 256;
+            }
+            b.scroll += speed;
+            if (b.scroll >= right * 256) {
+                b.scroll = right * 256;
+                b.scrolled = true;
+            }
+            StageBehindCamera(b.scroll / 256);
+        }
+        if (shown && b.fade == 0) {
+            b.onStageFor++;
+        }
+        // (the next stage begun: shuffled, after the minutes on this one, less the time to make it; scrolling, at once)
+        const uint32_t minutes = static_cast<uint32_t>(kShuffleMinutes[std::clamp(FeatureValue("endless_shuffle"), 0, 4)]);
+        const bool due = scrolling ? b.scrolled : b.onStageFor >= minutes * 3600;
+        if (shown && b.nextStage == b.stage && (scrolling || b.onStageFor + 600 >= minutes * 3600)) {
+            b.nextStage = scrolling ? static_cast<uint8_t>((b.stage + 1) % kCharacterCount) : AnotherStage(b.stage);
+            StageBehindNext(b.nextStage);
+        }
+        // (the fade: this stage out to black, the next one put in its place, and in from black)
+        if (b.fade == 0 && due && b.nextStage != b.stage && StageBehindNextReady()) {
+            b.fade = 1;
+        }
+        if (b.fade > 0) {
+            if (b.fade == kFadeFor) {
+                StageBehindSwitch(m);
+                b.stage = b.nextStage;
+                b.onStageFor = 0;
+                b.scroll = 0;
+                b.scrolled = false;
+                StageBehindCamera(scrolling ? left : StageBehindFollow());
+            }
+            m.stageDarken = (b.fade <= kFadeFor ? b.fade : 2 * kFadeFor - b.fade) * 256 / kFadeFor;
+            if (++b.fade > 2 * kFadeFor) {
+                b.fade = 0;
+                m.stageDarken = 0;
+            }
+        }
+    }
+} // namespace
+
 bool BattleOn() {
     return b.mode != kNone;
 }
@@ -291,6 +378,7 @@ void BattleBeforeFrame(Machine &m) {
     m.hidePanel = false;
     if (b.mode != kNone && session::InSession()) {
         b.mode = kNone; // (a training session started: the mode is over)
+        StageBehind(-1);
     }
     if (b.mode == kNone || session::Booting()) {
         return;
@@ -303,10 +391,14 @@ void BattleBeforeFrame(Machine &m) {
     if ((b.mode == kEndless || b.mode == kRingOut) && Ram8(sfiii3::kClock) > 0 && Ram8(sfiii3::kClock) < 99) {
         SetRam8(sfiii3::kClock, 99); // (no clock: a round is ended by a knock-out, or a ring out)
     }
+    if (Behind() && b.started) {
+        StageBehindFrame(m);
+    }
     if (b.over) {
         // (the battle won or the run over: said for a while, then the mode ends and the board starts over)
         if (b.frames - b.overAt > kShownFor + 60) {
             b.mode = kNone;
+            StageBehind(-1);
             m.Reset(); // (back to the board's start, as after a reset)
             StateLoaded();
         }
@@ -489,14 +581,17 @@ void RegisterBattle(Game &game) {
             stageNames.push_back(std::string(name) + "'s");
         }
     }
-    std::vector<const char *> stages = {"The game's choice", "Shuffle"};
+    std::vector<const char *> stages = {"Shuffle", "Scroll"};
     for (const std::string &name : stageNames) {
         stages.push_back(name.c_str());
     }
     game.features.push_back({"endless_stage", "Endless battle", "Stage",
-                             "Where they fight: the game's choice, a new stage with each fighter that comes on (shuffle), or always "
-                             "one. With the Stages option's \"the opponent's\", that game's stage of the one chosen.",
+                             "Where they fight. Shuffle: a stage that fades into another every so often. Scroll: the stages go by, one "
+                             "after another, and the fighters are carried along. Or one stage.",
                              kFeatureMenuChoices, stages});
+    game.features.push_back({"endless_shuffle", "Endless battle", "Shuffle every", "Shuffle: how long they fight on a stage before it fades "
+                             "into another.", 0, {"1 minute", "2 minutes", "3 minutes", "5 minutes", "10 minutes"}});
+    game.features.push_back({"endless_scroll", "Endless battle", "Scroll speed", "Scroll: how fast the stages go by.", 0, {"Slow", "Medium", "Fast"}});
 
     game.commands.push_back({"team_start", "Team battle", "Start",
                              "Two teams: knock a fighter down and the next of that team comes on with full health; the winner stays "

@@ -83,6 +83,12 @@ void Machine::RunFrame() {
             return me.stageObject(*me.m_stage, object);
         };
         m_stageRenderer.Draw(*m_stage, m_picture, m_width, m_height);
+        if (stageDarken > 0) {
+            const uint32_t keep = static_cast<uint32_t>(256 - std::min(stageDarken, 256));
+            for (uint32_t &p : m_picture) {
+                p = ((((p & 0xFF00FF) * keep) >> 8) & 0xFF00FF) | ((((p & 0x00FF00) * keep) >> 8) & 0x00FF00);
+            }
+        }
         m_renderer.overlay = true;
         m_renderer.drawGroupContext = this;
         m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
@@ -154,6 +160,24 @@ void Machine::SetStageBoard(std::unique_ptr<RomSet> set) {
         // (its own translated code, if the program has it: tools/translate.sh with GAME=its id)
         AttachSecond(*m_stage);
         m_stagePcm = std::make_unique<Pcm>(*m_stage);
+    }
+}
+
+void Machine::RunStageQuiet(int frames) {
+    if (!m_stage) {
+        return;
+    }
+    for (int n = 0; n < frames; n++) {
+        if (beforeStage) {
+            beforeStage(*this, *m_stage);
+        }
+        const bool plain = machine::g_flashPlain;
+        Activate(*m_stage);
+        m_stage->RunFrame();
+        Activate(board);
+        machine::g_flashPlain = plain;
+        m_stageAudio.clear();
+        m_stagePcm->EndFrame(&m_stageAudio);
     }
 }
 

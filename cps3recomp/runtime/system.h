@@ -107,6 +107,10 @@ public:
     // The stage board as it is now (its machine and its sound), kept to come back to, and put back (a stage reached once
     // is there again at once)
     void KeepStage(std::vector<uint8_t> &data);
+    // The stage board run `frames` frames, unheard and unseen (beforeStage before each)
+    void RunStageQuiet(int frames);
+    // The stage board's picture darkened by so much of 256 before this board's is put over it (a fade between stages)
+    int stageDarken = 0;
     void RestoreStage(const std::vector<uint8_t> &data);
     machine::Machine *StageBoard() {
         return m_stage.get();

@@ -38,6 +38,9 @@ namespace {
     const StageGame kSecondImpact = {"sfiii2n", {0x020221CC, 0x020221D4, 0x020221E4}, {0, 0}, 0x02022218, 0x0202221C, 0, 0,
                                      {0x02010167, 0x02023EF5}, {0x0200E5A3, 0x0200E5A5, 0x0200E9AF, 0x0200E9B1, 0, 0}, 0x020142E7,
                                      {0x0200E504, 0x0200E910}};
+    // 3rd Strike's own, as a stage board behind its fighters (the modes' shuffled and scrolling stages: battle.cpp)
+    const StageGame kThirdStrike = {GAME_ROM_SET, {0x02026CA8, 0x02026CB0, 0x02026CC0}, {0, 0}, 0x02026CF4, 0x02026CF8, 748, 272,
+                                    {0x02011377, 0}, {0x02068D0B, 0x020691A3, 0, 0, 0, 0}, 0x020154F5, {0x02068C6C, 0x02069104}};
     // (a choice's stage: the one fought on in 3rd Strike, as that game has it: both number their stages as 3rd Strike
     // numbers its characters (Gill 0, Alex 1...: seen in their own one-player games, the opponent's stage number and
     // name), New Generation's 0-12 and 2nd Impact's 0-14; the characters they have not, 3rd Strike's own stage)
@@ -57,7 +60,13 @@ namespace {
         {&kSecondImpact, 6}, {&kSecondImpact, 7}, {&kSecondImpact, 8}, {&kSecondImpact, 9},
         {&kSecondImpact, 10}, {&kSecondImpact, 11}, {&kSecondImpact, 12}, {&kSecondImpact, 13},
         {&kSecondImpact, 14}, {&kNewGeneration, kOpponents}, {&kSecondImpact, kOpponents},
+        // (not on the menu: 3rd Strike's own stages behind its fighters, for the modes: kOwnFirst on)
+        {&kThirdStrike, 0}, {&kThirdStrike, 1}, {&kThirdStrike, 2}, {&kThirdStrike, 3}, {&kThirdStrike, 4}, {&kThirdStrike, 5},
+        {&kThirdStrike, 6}, {&kThirdStrike, 7}, {&kThirdStrike, 8}, {&kThirdStrike, 9}, {&kThirdStrike, 10}, {&kThirdStrike, 11},
+        {&kThirdStrike, 12}, {&kThirdStrike, 13}, {&kThirdStrike, 14}, {&kThirdStrike, 15}, {&kThirdStrike, 16}, {&kThirdStrike, 17},
+        {&kThirdStrike, 18}, {&kThirdStrike, 19}, {&kThirdStrike, 20},
     };
+    constexpr int kOwnFirst = 31;
     // (by whose stage it is: both games number their stages as 3rd Strike numbers its characters; New Generation has no
     // Hugo, and its stage 6 is a beer festival)
     const char *const kNames[] = {
@@ -84,6 +93,7 @@ namespace {
         int ownRight = 0, ownLeft = 0, madeRight = 0, madeLeft = 0; // its stage's ends as its game set them, and as made
         int stage = -1;      // (the opponent's: the stage its board is on its way to, or in; -1 none)
         bool offsetKnown = false;
+        uint32_t inFight = 0; // its frames in its fight (its round's banners over by kBannersFor)
         int offset = 0;      // its camera's middle less its fighters' as its fight began (New Generation's rainy London
                              // stage places its fighters about 512 left of its camera; the others about 0)
     } g;
@@ -106,6 +116,14 @@ namespace {
         State live;
     } g_pre;
     uint64_t g_uses = 0;
+    // The modes' stage behind (battle.cpp): a choice in place of the menu's (0: the menu's), the camera wanted for it
+    // (kFollow: 3rd Strike's mapped across), and the ends its camera was last kept between
+    constexpr int kFollow = -100000;
+    constexpr uint32_t kBannersFor = 200; // (3rd Strike's own board: its "ROUND 1" and "FIGHT!" drawn as its stage is, so it is
+                                          // shown only after them)
+    int g_choiceWanted = 0;
+    int g_cameraWanted = kFollow;
+    int g_theirLeft = 0, g_theirRight = 0;
 
     uint16_t Word(const uint8_t *ram, uint32_t at) {
         return static_cast<uint16_t>((ram[at & 0x7FFFF] << 8) | ram[(at + 1) & 0x7FFFF]);
@@ -133,6 +151,9 @@ namespace {
     // 0x10, 2nd Impact's 0x00 and 0x18) and their shadows (palette 0, blending). Its stage's people and things have
     // palettes from 0x40 (or 8 bits a pixel); its HUD is in the text layer, not drawn.
     bool StageObject(const machine::Machine &m, uint32_t object) {
+        if (kChoices[g.loaded].game == &kThirdStrike) {
+            return OwnStageObject(m, object);
+        }
         const uint32_t v1 = m.SpriteList()[object * 4];
         const uint32_t palette = v1 & 0x1FF;
         const bool sixBits = (v1 >> 9) & 1, blend = (v1 >> 10) & 1;
@@ -143,6 +164,25 @@ namespace {
     }
 
     std::unique_ptr<RomSet> LoadSet(const StageGame &game) {
+        if (&game == &kThirdStrike) {
+            // (the player's own set, read again)
+            RomList own;
+            own.set = GAME_ROM_SET;
+            own.parent = GAME_ROM_PARENT;
+            own.bios = ParseRomFiles(GAME_BIOS);
+            const char *simms[7] = {"", GAME_SIMM1, GAME_SIMM2, GAME_SIMM3, GAME_SIMM4, GAME_SIMM5, GAME_SIMM6};
+            for (int n = 1; n <= 6; n++) {
+                own.simm[n] = ParseRomFiles(simms[n]);
+            }
+            own.programEnciphered = true;
+            auto set = std::make_unique<RomSet>();
+            std::string error;
+            if (LoadRomSet(RomPath(), own, *set, error)) {
+                return set;
+            }
+            fprintf(stderr, "stages: %s could not be read again: %s\n", RomPath().c_str(), error.c_str());
+            return nullptr;
+        }
         RomList list;
         list.set = game.set;
         const bool ng = game.set == std::string("sfiiin");
@@ -250,6 +290,7 @@ namespace {
             return;
         }
         stage.inputs = stage.extra = 0xFFFFFFFFu;
+        g.inFight++;
         // (both its fighters a player's, not its computer's, so that with no controls they stand still: the record's byte 3,
         // as in 3rd Strike, 0 the computer; a computer opponent would fight on, supers and all, behind 3rd Strike's)
         for (const uint32_t at : game.players) {
@@ -346,7 +387,16 @@ namespace {
             for (int p = 0; p < 2; p++) {
                 SetWord(ram, game.players[p] + 0x64, placed[p] + push - g.offset);
             }
-            const int theirs = theirLeft + (std::clamp(camera, left, right) - left) * (theirRight - theirLeft) / (right - left);
+            int theirs = theirLeft + (std::clamp(camera, left, right) - left) * (theirRight - theirLeft) / (right - left);
+            if (g_cameraWanted != kFollow) {
+                theirs = std::clamp(g_cameraWanted, theirLeft, theirRight); // (the modes' scrolling stage: its camera its own)
+                for (int p = 0; p < 2; p++) {
+                    placed[p] = theirs + (p ? 40 : -40);
+                    SetWord(ram, game.players[p] + 0x64, placed[p] - g.offset);
+                }
+            }
+            g_theirLeft = theirLeft;
+            g_theirRight = theirRight;
             // (its camera held short of where it was sent, frame after frame: that is its end)
             const int had = g.lastCamera;
             if (std::abs(theirs - had) > 8 && had == g.stuckAt) {
@@ -381,6 +431,36 @@ bool MusicVoice(int voice); // (music.cpp)
 
 // Each frame: the board for the choice made (loaded when the choice changes: a moment's pause)
 namespace {
+    // Another stage of the board's game made ready beside the one shown (the modes' next stage): the board lent to it
+    // for a few frames each frame, its own put back after
+    struct Making {
+        bool on = false, ready = false;
+        int choice = 0;
+        State state;
+        std::vector<uint8_t> data;
+    } g_make;
+    std::vector<uint8_t> g_lent;
+
+    void MakeOn(Machine &machine) {
+        if (!g_make.on || g_make.ready || !machine.StageBoard() || !g.loaded || kChoices[g_make.choice].game != kChoices[g.loaded].game) {
+            return;
+        }
+        machine.KeepStage(g_lent);
+        const State live = g;
+        if (g_make.data.empty()) {
+            machine.StageBoard()->Reset();
+        } else {
+            machine.RestoreStage(g_make.data);
+        }
+        g = g_make.state;
+        machine.RunStageQuiet(8);
+        g_keepNow = false; // (kept here, as it is made)
+        g_make.state = g;
+        machine.KeepStage(g_make.data);
+        g_make.ready = g.fought && g.offsetKnown && g.inFight > kBannersFor;
+        machine.RestoreStage(g_lent);
+        g = live;
+    }
     bool IsKept(const void *game, int stage) {
         for (const auto &one : g_kept) {
             if (one.game == game && one.stage == stage) {
@@ -439,7 +519,9 @@ void StagesBeforeFrame(Machine &machine) {
         fprintf(stderr, "stage sound: frame %llu, %s, %d of 3rd Strike's voices left out as music\n", static_cast<unsigned long long>(machine.frame),
                 music ? "the stage's music" : "3rd Strike's own", silenced);
     }
-    const int choice = std::clamp(FeatureValue("stages"), 0, static_cast<int>(std::size(kChoices)) - 1);
+    const int menu = std::clamp(FeatureValue("stages"), 0, static_cast<int>(std::size(kNames)) - 1);
+    const int choice = g_choiceWanted ? g_choiceWanted : menu;
+    MakeOn(machine);
     // (between fights; or in one on 3rd Strike's own stage, when the board is idle and may preload)
     const bool idle = !OnStage() || (g_pre.on ? g_pre.live.stage : g.stage) < 0;
     if (choice == g.loaded && choice && kChoices[choice].stage == kOpponents && machine.StageBoard() && idle) {
@@ -510,6 +592,49 @@ void StagesBeforeFrame(Machine &machine) {
     }
 }
 
+// The modes' stage behind their fighters (battle.cpp): 3rd Strike's own stage `stage` drawn from the stage board (-1:
+// none, the menu's choice again)
+void StageBehind(int stage) {
+    g_choiceWanted = stage >= 0 ? kOwnFirst + std::min(stage, 20) : 0;
+    g_make = {};
+    g_cameraWanted = kFollow;
+}
+// ... its camera's middle wanted (the scrolling stage), or 3rd Strike's followed (kFollow); and the ends it is kept
+// between (false: none yet)
+void StageBehindCamera(int x) {
+    g_cameraWanted = x;
+}
+int StageBehindFollow() {
+    return kFollow;
+}
+bool StageBehindEnds(int &left, int &right) {
+    left = g_theirLeft;
+    right = g_theirRight;
+    return g.fought && g.offsetKnown && right > left;
+}
+bool StageBehindShown() {
+    return g.loaded && g.fought && g.offsetKnown && g.inFight > kBannersFor;
+}
+// The next stage made ready beside it, and put in its place when ready
+void StageBehindNext(int stage) {
+    g_make = {};
+    g_make.on = true;
+    g_make.choice = kOwnFirst + std::min(stage, 20);
+    g_make.state.loaded = g_make.choice;
+}
+bool StageBehindNextReady() {
+    return g_make.on && g_make.ready;
+}
+void StageBehindSwitch(Machine &machine) {
+    if (!StageBehindNextReady()) {
+        return;
+    }
+    machine.RestoreStage(g_make.data);
+    g = g_make.state;
+    g_choiceWanted = g_make.choice;
+    g_make = {};
+}
+
 void RegisterStages(Game &game) {
     game.features.push_back({"stages", "Display", "Stages (experiment)",
                              "The definitive version's stages, an early form: a fight drawn on one of New Generation's or 2nd "
@@ -528,7 +653,7 @@ void RegisterStages(Game &game) {
         machine->ownStageObject = OwnStageObject;
         machine->beforeStage = BeforeStage;
         // (composed while 3rd Strike's round is on and the board is in its fight: for the opponent's, on a stage it has)
-        machine->composeNow = [] { return !g_pre.on && OnStage() && g.fought && (kChoices[g.loaded].stage != kOpponents || g.stage >= 0); };
+        machine->composeNow = [] { return !g_pre.on && OnStage() && g.fought && (kChoices[g.loaded].game != &kThirdStrike || g.inFight > kBannersFor) && (kChoices[g.loaded].stage != kOpponents || g.stage >= 0); };
         // (on its way to its fight: eight frames a frame; in it one, its own pace (its animations and music))
         machine->stageFramesNow = [] { return g.fought ? 1 : 8; };
     }

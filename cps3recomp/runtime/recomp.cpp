@@ -1283,7 +1283,12 @@ bool AttachSecond(Machine &m) {
     const RegisteredSet *best = nullptr;
     size_t bestScore = 0;
     const uint8_t *program = m.ProgramBytes(), *bios = m.BiosBytes();
-    for (const RegisteredSet &set : Registered()) {
+    // (the registered sets, and the program's own: a second board of the same game, the modes' stage behind)
+    std::vector<RegisteredSet> sets = Registered();
+    if (g_blockTableCount) {
+        sets.push_back({"its own game", g_blockTables, g_blockTableCount});
+    }
+    for (const RegisteredSet &set : sets) {
         size_t tried = 0, same = 0;
         for (size_t t = 0; t < set.count && tried < 400; t++) {
             for (size_t i = 0; i < set.tables[t].count && tried < 400; i += 7) {
@@ -1306,6 +1311,9 @@ bool AttachSecond(Machine &m) {
     if (!best) {
         return false;
     }
+    static RegisteredSet chosen;
+    chosen = *best;
+    best = &chosen; // (the list above goes)
     Options options;
     options.mode = first.rt->opt.mode;
     AttachTables(m, options, best->tables, best->count, false);
