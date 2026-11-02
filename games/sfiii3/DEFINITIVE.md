@@ -98,7 +98,9 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
 5. The menu: stages by game (today one long choice on the Display page, named by whose stage it is).
 6. Check the stage rule on every stage of NG and 2I (stage objects with a fighter's palette, effects): all 28 seen
    composed in one picture each (made-up play, frame 4500): the stage whole, its own fighters gone, 3rd Strike's
-   fighters, shadows and HUD over it, in widescreen too. Effects and moving stage pieces over time not looked at. In
-   widescreen a black strip can show at one side for a moment when the stage game's camera moves far at once (a round
-   starting near a stage's end): those games draw their stages' columns only as their camera comes to them. 3rd Strike's
+   fighters, shadows and HUD over it, in widescreen too. Effects and moving stage pieces over time not looked at.  Some stages'
+   cameras stop short of their ends words (2nd Impact's Ken, Sean and Urien stages): those ends are learned as the
+   camera stays put short of where it was sent, and the fighters' middle is kept inside them, so no strip shows past a
+   stage's end. The stage games' fighters are made players' (record byte 3) so that a computer opponent does not fight
+   on behind 3rd Strike's. 3rd Strike's
    shadows over another stage darken it now (they were black).
