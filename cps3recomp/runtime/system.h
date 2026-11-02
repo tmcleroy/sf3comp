@@ -91,4 +91,9 @@ private:
     int m_width = Video::kWidth, m_height = Video::kHeight;
 };
 
+// A long or a word as the CPU would read it, for a game's sources reading tables in the program SIMMs or the
+// cartridge's ROM as well as main RAM (reads with no side effects only: memory, not the board's registers)
+uint32_t Peek32(uint32_t address);
+uint16_t Peek16(uint32_t address);
+
 } // namespace cps3recomp

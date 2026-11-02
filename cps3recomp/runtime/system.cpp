@@ -9,9 +9,25 @@
 
 namespace cps3recomp {
 
+namespace {
+    machine::Machine *g_board = nullptr;
+    bool Plain(uint32_t a) {
+        a &= 0x1FFFFFFFu;
+        return (a & 0xFFF80000u) == 0x02000000u || a < 0x80000u || (a >= 0x06000000u && a < 0x07000000u);
+    }
+} // namespace
+
+uint32_t Peek32(uint32_t a) {
+    return g_board && Plain(a) ? g_board->BusRead32(a & 0x1FFFFFFCu) : 0;
+}
+uint16_t Peek16(uint32_t a) {
+    return g_board && Plain(a) ? g_board->BusRead16(a & 0x1FFFFFFEu) : 0;
+}
+
 Machine::Machine(const RomSet &rom)
     : board(rom)
     , m_pcm(board) {
+    g_board = &board;
     eeprom.words = board.eeprom.data();
     m_picture.assign(static_cast<size_t>(Video::kWidth) * Video::kHeight, 0);
 }

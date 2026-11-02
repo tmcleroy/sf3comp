@@ -16,6 +16,8 @@
 #include "system.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstdlib>
 
 namespace cps3recomp {
 
@@ -48,11 +50,11 @@ namespace {
     // A box list's first box that is not empty
     bool AnyBox(int p, uint32_t offset, int count) {
         const uint32_t at = Ram32(Player(p) + offset);
-        if ((at & 0xFFF80000u) != 0x02000000u) {
+        if (!at) {
             return false;
         }
         for (int n = 0; n < count; n++) {
-            if (Ram32(at + n * 8) || Ram32(at + n * 8 + 4)) {
+            if (Peek32(at + n * 8) || Peek32(at + n * 8 + 4)) {
                 return true;
             }
         }
@@ -68,12 +70,14 @@ namespace {
             const bool flipped = Ram8(base + sfiii3::kFacing) != 0;
             for (const sfiii3::BoxList &list : sfiii3::kBoxes) {
                 const uint32_t at = Ram32(base + list.offset);
-                if ((at & 0xFFF80000u) != 0x02000000u) {
-                    continue; // (no list, or one outside main RAM)
+                if (!at) {
+                    continue; // (no list)
                 }
                 for (int n = 0; n < list.count; n++) {
                     const uint32_t box = at + n * 8;
-                    const int left = Signed16(box), width = Signed16(box + 2), bottom = Signed16(box + 4), height = Signed16(box + 6);
+                    // (the lists are in main RAM or the program's tables)
+                    const int left = static_cast<int16_t>(Peek16(box)), width = static_cast<int16_t>(Peek16(box + 2));
+                    const int bottom = static_cast<int16_t>(Peek16(box + 4)), height = static_cast<int16_t>(Peek16(box + 6));
                     if (!left && !width && !bottom && !height) {
                         continue;
                     }
@@ -126,6 +130,12 @@ namespace {
             view.attacking = Ram8(base + sfiii3::kAttacking) != 0;
             view.jumping = Signed16(base + sfiii3::kY) > 0;
             view.attackOut = AnyBox(p, 0x2C8, 4);
+            // (debugging aid, SFIII3_STEPS=1: what is read of each player, each frame)
+            static const bool printSteps = getenv("SFIII3_STEPS") != nullptr;
+            if (printSteps && p == 0) {
+                fprintf(stderr, "step: control %d canAct %d frozen %d attacking %d jumping %d attackOut %d anim %04X -> %d\n", view.control,
+                        view.canAct, view.frozen, view.attacking, view.jumping, view.attackOut, Ram16(base + 0x202), static_cast<int>(session::Now(p)));
+            }
             session::Step(p, view);
         }
     }

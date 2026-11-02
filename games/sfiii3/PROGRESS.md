@@ -33,7 +33,10 @@
   both), Start over (sides swapped or not), no clock, combo readout, input display, frame data and meter, health
   refills, the dummy (the toolkit's: stand, crouch, jump, guard, record, replay), hit boxes, full meter. Seen working
   in a made-up fight's pictures only. Frame data is read once a frame from the records (not the game's own steps)
-  and has not been compared with published frame data: a jump-in hit showed -14, which looks wrong. "Nobody knocked
+  and checked on one move so far: Alex's standing LP reads startup 5, active 2, recovery 8, and the training script's
+  recorded animation a444 has it hitting on frames 5-6 (a hit counts the frame after the box is out). A jump-in hit
+  showed -14 on hit earlier, before the attack boxes (whose lists are in the program's tables, read with Peek32) were
+  seen: to look at again. "Nobody knocked
   out" puts health back to full below a quarter (no hook on the game's knock-out yet). The player records, boxes, camera and meter places are facts from Grouflon's 3rd_training_lua (no licence:
   facts only, no code), made for the 990512 set; life and positions checked on this 990608 set, the rest seen to
   work in a fight's pictures only.
