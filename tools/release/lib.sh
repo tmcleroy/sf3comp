@@ -48,7 +48,7 @@ build_programs() {
         fi
     done
     cmake -S "$ROOT" -B "$build" -G Ninja -DCMAKE_BUILD_TYPE=Release -DGAME=$GAME "$@" | grep "sf3comp:"
-    cmake --build "$build" --target $GAME $GAME-launcher
+    cmake --build "$build" --target $GAME launcher
 }
 copy_programs() { # from $1 into $2 (the end of a program's name: $3)
     cp "$1/$GAME$3" "$1/$GAME-launcher$3" "$2/"
@@ -63,8 +63,11 @@ add_notices() {
     cp "$ROOT/THIRD_PARTY_NOTICES.md" "$ROOT/README.md" "$ROOT/CHANGELOG.md" "$1/"
     sdl_source
     cp "$DEPS/SDL3-$SDL_VERSION/LICENSE.txt" "$1/licenses/SDL3.txt"
-    cp "$2/_deps/imgui-src/LICENSE.txt" "$1/licenses/DearImGui.txt"
-    cp "$(find "$2/_deps/inter-src" -iname 'LICENSE*' | head -1)" "$1/licenses/Inter-OFL.txt"
+    # (the launcher's downloads: in this build's _deps, or where the build was told they are)
+    imgui="$(grep -E '^FETCHCONTENT_SOURCE_DIR_IMGUI' "$2/CMakeCache.txt" 2>/dev/null | cut -d= -f2)"
+    inter="$(grep -E '^FETCHCONTENT_SOURCE_DIR_INTER' "$2/CMakeCache.txt" 2>/dev/null | cut -d= -f2)"
+    cp "${imgui:-$2/_deps/imgui-src}/LICENSE.txt" "$1/licenses/DearImGui.txt"
+    cp "$(find "${inter:-$2/_deps/inter-src}" -iname 'LICENSE*' | head -1)" "$1/licenses/Inter-OFL.txt"
     { echo "stb_vorbis (cps3recomp/third_party/stb_vorbis.c):"; sed -n '/^ALTERNATIVE A - MIT License/,$p' "$ROOT/cps3recomp/third_party/stb_vorbis.c"
       for f in dr_flac dr_mp3 dr_wav; do echo; echo "$f (cps3recomp/third_party/$f.h):"; sed -n '/^ALTERNATIVE 1 - Public Domain/,$p' "$ROOT/cps3recomp/third_party/$f.h"; done
     } > "$1/licenses/sound-decoders.txt"
