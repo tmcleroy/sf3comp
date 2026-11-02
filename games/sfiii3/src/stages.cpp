@@ -220,15 +220,17 @@ namespace {
         const int margin = machine.WideMargin();
         // (its ends, where its game keeps them and they make sense: New Generation's look odd on a stage or two, which
         // then take the ends assumed)
-        bool kept = false;
+        bool kept = false, ownCoordinates = false;
         if (game.rightAt) {
             const int right = static_cast<int16_t>(Word(ram, game.rightAt)), left = static_cast<int16_t>(Word(ram, game.leftAt));
             if (right != g.madeRight || left != g.madeLeft) {
                 g.ownRight = right;
                 g.ownLeft = left;
             }
-            // (kept in its fighters' coordinates: the camera's, less the offset; see `offset`)
-            kept = g.ownLeft + g.offset > 0 && g.ownRight - g.ownLeft > 2 * margin + 64;
+            // (in its camera's coordinates, or on a stage whose fighters' are another's, in theirs: the rainy London
+            // stage's -240 and 240; see `offset`)
+            ownCoordinates = g.ownLeft <= 100 && g.offset != 0;
+            kept = g.ownLeft + (ownCoordinates ? g.offset : 0) > 100 && g.ownRight - g.ownLeft > 2 * margin + 64;
         }
         if (kept) {
             g.madeRight = g.ownRight - margin;
@@ -240,8 +242,9 @@ namespace {
                 SetWord(ram, at, g.madeLeft);
             }
         }
-        const int theirRight = kept ? g.madeRight + g.offset : game.right - margin;
-        const int theirLeft = kept ? g.madeLeft + g.offset : game.left + margin;
+        const int shift = ownCoordinates ? g.offset : 0;
+        const int theirRight = kept ? g.madeRight + shift : game.right - margin;
+        const int theirLeft = kept ? g.madeLeft + shift : game.left + margin;
         if (right > left && theirRight > theirLeft) {
             // (its game makes its camera from its fighters each frame, whatever its camera words say: so its fighters,
             // unseen, are put where 3rd Strike's are, from one stage to the other, and its camera follows them)
