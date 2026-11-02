@@ -7,13 +7,13 @@ The aim is one definitive Street Fighter III: **3rd Strike**'s gameplay, with th
 **New Generation** and **2nd Impact**. The first milestone is 3rd Strike on its own, with the features of the CPS-2
 ports ([CPS-2 Recomp](https://github.com/tmcleroy/cps2recomp)): training mode, online play, widescreen and the rest.
 
-**Status:** early. 3rd Strike runs as translated code on the port's own CPS-3 machine, with the launcher, the
-in-game menu, save states, free play, the CPS-2 ports' display options, widescreen, a training mode (hit boxes,
-input display, frame meter and frame data, damage and stun readouts, a dummy that guards, parries, escapes throws
-and quick-stands), a survival mode, a custom soundtrack (your own
-music files in place of the game's, by song or as a playlist) and online play with rollback (checked on one machine
-so far). A stage option fights 3rd Strike on New Generation's and 2nd Impact's stages, with
-their music ([games/sfiii3/DEFINITIVE.md](games/sfiii3/DEFINITIVE.md)).
+**Status:** early. 3rd Strike runs as translated code on the port's own CPS-3 machine, with the launcher, the in-game
+menu, save states, free play, the CPS-2 ports' display options, widescreen (or 16:9 played exactly as on the board,
+with invisible walls), a training mode (hit boxes, input display, frame meter and frame data, damage and stun
+readouts, a dummy that guards, parries, escapes throws and quick-stands), a survival mode, a custom soundtrack (your
+own music files in place of the game's, by song or as a playlist) and online play with rollback (checked on one
+machine so far). A stage option fights 3rd Strike on New Generation's and 2nd Impact's stages, with their music
+([games/sfiii3/DEFINITIVE.md](games/sfiii3/DEFINITIVE.md)).
 
 | Widescreen | Training mode | A 2nd Impact stage |
 | --- | --- | --- |

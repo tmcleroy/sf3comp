@@ -25,6 +25,10 @@ public:
     // Columns added on each side (widescreen): the tilemaps drawn on into them, the objects and the text layer moved
     // over by as much; 0 is the board's picture
     int margin = 0;
+    // ... and the objects and tilemaps (the world) drawn that many columns further left than centred in them (the text
+    // layer, the game's panel, stays centred): a wide picture kept on the stage near its ends while the game's camera
+    // goes as far as the board's (-margin to margin)
+    int shift = 0;
     // Draws only the objects whose main-list group this says yes to (none: all), and not the text layer when `text` is
     // off: for pictures made of more than one machine's
     bool (*drawGroup)(void *context, uint16_t group, uint32_t object) = nullptr;

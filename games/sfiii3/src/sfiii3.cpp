@@ -67,6 +67,10 @@ void RegisterGame() {
                              "16:9: 64 more columns of the stage on each side. In a fight the camera stays 64 columns further from "
                              "the stage's ends, so the corners come that much sooner than on the board.",
                              kFeatureFirstPage});
+    game.features.push_back({"widescreen_walls", "Game", "Invisible walls",
+                             "With widescreen: fights are still shown in 16:9, but played exactly as on the board. The camera goes "
+                             "as far as the board's and the corners are the board's; near a stage's end the view stays on the stage, "
+                             "so the fight is then to one side of the picture. Nothing without widescreen (nor on another game's stage)."});
     game.features.push_back({"skip_intro", "Game", "Straight to the opening",
                              "The board's start-up (its memory checks, the region's warning and Capcom's logo) runs unseen, so the game "
                              "shows from its opening in about two seconds.",

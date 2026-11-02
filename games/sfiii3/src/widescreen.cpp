@@ -9,6 +9,8 @@
 #include "state.h"
 #include "system.h"
 
+#include <algorithm>
+
 namespace cps3recomp {
 
 namespace {
@@ -26,10 +28,40 @@ namespace {
     }
 } // namespace
 
+// Invisible walls (widescreen_walls): the camera's limits left as the game sets them, so play is the board's; the picture
+// is kept on the stage near its ends by drawing the world off centre (Machine::worldShiftNow): its middle is the
+// camera's, held between the limits brought in by the margin
+int WorldShift() {
+    if (!FeatureOn("widescreen") || !FeatureOn("widescreen_walls")) {
+        return 0;
+    }
+    const bool fighting = (Ram8(sfiii3::kLocked[0]) == 0xFF || Ram8(sfiii3::kLocked[1]) == 0xFF);
+    const int camera = Word(sfiii3::kCameraX), left = Word(sfiii3::kCameraLeft[0]), right = Word(sfiii3::kCameraRight[0]);
+    Machine *m = TheMachine();
+    if (!fighting || right - left <= 2 * kMargin || (m && m->StageBoard())) {
+        return 0;
+    }
+    const int middle = std::clamp(camera, left + kMargin, right - kMargin);
+    return middle - camera;
+}
+
 void WidescreenBeforeFrame(Machine &m, bool fighting) {
     const bool on = FeatureOn("widescreen");
     m.SetWideMargin(on ? kMargin : 0);
-    if (!on || !fighting) {
+    m.worldShiftNow = WorldShift;
+    // (invisible walls: the limits as the game sets them; with another game's stage, which follows the narrowed limits,
+    // not offered)
+    const bool walls = FeatureOn("widescreen_walls") && !m.StageBoard();
+    if (walls && fighting && g.setLeft && Word(sfiii3::kCameraLeft[0]) == g.setLeft && Word(sfiii3::kCameraRight[0]) == g.setRight) {
+        // (switched on in a fight: the game's own limits back)
+        for (const uint32_t at : sfiii3::kCameraLeft) {
+            SetWord(at, g.left);
+        }
+        for (const uint32_t at : sfiii3::kCameraRight) {
+            SetWord(at, g.right);
+        }
+    }
+    if (!on || !fighting || walls) {
         g = {};
         return;
     }

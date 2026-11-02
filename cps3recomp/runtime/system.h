@@ -74,6 +74,9 @@ public:
     void SetWideMargin(int margin) {
         m_renderer.margin = margin;
     }
+    // For a wide picture played as on the board (the game's camera unchanged): how far the world is drawn from centred,
+    // asked as each picture is drawn (Renderer::shift; none: 0)
+    int (*worldShiftNow)() = nullptr;
     int WideMargin() const {
         return m_renderer.margin;
     }

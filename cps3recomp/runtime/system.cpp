@@ -72,6 +72,7 @@ void Machine::RunFrame() {
     board.extra = ~extra;
     board.RunFrame();
     m_pcm.EndFrame(&audio);
+    m_renderer.shift = worldShiftNow && m_renderer.margin ? std::clamp(worldShiftNow(), -m_renderer.margin, m_renderer.margin) : 0;
     if (drawing && m_stage && stageObject && ownStageObject && (!composeNow || composeNow())) {
         m_stageRenderer.margin = m_renderer.margin;
         m_stageRenderer.text = false;

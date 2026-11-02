@@ -137,7 +137,7 @@ void Renderer::DrawTilemapLine(const Machine &m, const uint32_t *regs, int line,
     if (lineScroll) {
         scrollX += static_cast<int>((m.SpriteRam(lineBase | ((mapLine + 16) & 0x3FF)) >> 16) & 0x3FF);
     }
-    scrollX -= margin; // (the columns added at the left show the map further left)
+    scrollX -= margin - shift; // (the columns added at the left show the map further left)
     const Clip row = {clip.left, clip.right, line, line};
     for (int x = clip.left / 16; x < clip.right / 16 + 2; x++) {
         const uint32_t tile = m.SpriteRam(mapBase + ((tileLine & 63) << 6) + (((x + (scrollX >> 4)) & 63) ^ xFlipMask)); // (>> 4: rounding down)
@@ -270,7 +270,7 @@ void Renderer::Draw(const Machine &m, std::vector<uint32_t> &pixels, int &width,
             if (cx & 0x200) {
                 cx -= 0x400;
             }
-            cx += margin;
+            cx += margin - shift;
             for (int yy = 0; yy < countY; yy++) {
                 int cy = flipY ? y + static_cast<int>((yy * yinc) >> 16) : y - static_cast<int>((yy * yinc) >> 16);
                 cy = ((0x3FF - cy) - 17) & 0x3FF;
