@@ -39,4 +39,7 @@ goes in the game's save state, so that rollback and run-ahead run it as the firs
 ## In 3rd Strike
 
 `games/sfiii3/src/lifts.cpp`: `NextRandom` (0611E0EE, the game's dice: the next of 64 numbers from a table),
-rewritten and checked; a hook on the vertical blank's interrupt (06000528) as an example.
+`ClockTick` (060D7BAE, the round's clock, once a frame) and `ClockFlash` (060D7CB8, its flashing under 30 seconds),
+rewritten and checked; a hook on the vertical blank's interrupt (06000528) as an example. A rewrite's calls to the
+game's routines (`Guest::Call`) reach the other rewrites, except while it is being checked (then the game's code runs
+for all of them): `SFIII3_LIFTS_ONLY=NAME,...` registers only those named, to check one that another calls.
