@@ -507,7 +507,8 @@ void RegisterTraining(Game &game) {
     d.fighting = InMatch;
     // (character select: 0 no player, 1 coming in, 2 choosing a character, 3-4 the super art, 5 chosen)
     d.joined = [](int p) { return Ram8(sfiii3::kSelectState[p]) >= 2; };
-    d.chosen = [](int p) { return Ram8(sfiii3::kSelectState[p]) >= 3; };
+    // (chosen: the character and its super art, so that player 1 then chooses both of player 2's)
+    d.chosen = [](int p) { return Ram8(sfiii3::kSelectState[p]) >= 5; };
     d.choosing = [] { return !InMatch() && (Ram8(sfiii3::kSelectState[0]) >= 1 || Ram8(sfiii3::kSelectState[1]) >= 1) &&
                              (Ram8(sfiii3::kSelectState[0]) < 5 || Ram8(sfiii3::kSelectState[1]) < 5); };
     d.facingLeft = [](int p) { return Ram8(sfiii3::kPlayer[p] + sfiii3::kFacing) == 0; };
