@@ -11,8 +11,8 @@
 - Sound: own 16-voice mixer (`cps3recomp/sound/pcm.cpp`), not listened to yet.
 - Frontend: cps2recomp's port/ (window, SDL_GPU presenter, shaders, menu, HUD, zoom, bindings, netplay, run-ahead,
   save states) on the board through `runtime/system.h`; recomp-common's launcher (`cps3recomp/launcher`).
-- Not yet: translation of the SH-2 code (a branch is in progress), training mode (fight/), widescreen, custom
-  soundtrack, Linux/Windows builds.
+- Not yet: Linux/Windows release builds (Linux on ARM compiles and matches the Mac's hashes), the alternative modes
+  but survival, the viewers, the colour editor.
 
 ## Game facts
 
@@ -27,12 +27,17 @@
   objects and the text layer moved over); in a fight the camera's ends (02026CF4/CF6 right, CF8/CFA left) are
   narrowed by 64 so the picture never shows past the stage. Seen on Ken's stage at both ends; other stages, the
   objects the game leaves out at the edges (it culls to its 384 columns) and non-fight screens not looked at.
+  Invisible walls (widescreen_walls): the limits left as the game sets them, the world drawn off centre near a stage's
+  end (Renderer::shift) and the text layer (the panel) centred: the state hash is the same as without widescreen.
 - The board's game settings (Board page: difficulty, damage, timer speed, rounds against the computer and between
-  two players): the settings EEPROM's bytes 0x21-0x24 (and their copy at 0x51-0x54), found by writing them and
-  reading the test menu; written before the board starts, so a reset takes a change; on a blank EEPROM (the first
+  two players, event, bonus games, continue, demo sound): the settings EEPROM's bytes 0x21-0x24, 0x25, 0x27, 0x02,
+  0x05 (and their copy 0x30 on), found by changing them in the test menu and comparing the EEPROM (each word holds
+  the game's bytes low first: until 2026-11-02 they were written one byte off, so difficulty set the damage); written before the board starts, so a reset takes a change; on a blank EEPROM (the first
   start) the game's defaults go over them, so they take from the next start.
 - Straight to the opening (skip_intro, Enhanced): the first 760 frames (memory checks, region warning, Capcom's
-  logo) fast-forwarded. Cheats: no damage (each player), infinite time.
+  logo) fast-forwarded. Cheats: no damage, no stun (each player), one hit knocks out, infinite time.
+- Survival (Game page): a one-player game whose health carries over (written as each round begins), a tenth back
+  per round won, the best run kept (survival_best); knock-outs read as health 0 or 255.
 - Credits: byte 02007CE0 (free_play keeps it at 2). Round clock: byte 02011377 (seconds; infinite_time).
 - The DMA-done interrupt (level 10) drives the game's queue of character and palette DMAs (handler 060004D0 calls
   06138230: state word 0207603C, queues at 0207803C / 0207844C). Its timing matters: with the board's clock read
@@ -43,8 +48,10 @@
   both), Start over (sides swapped or not), no clock, combo readout, input display, frame data and meter, health
   refills, the dummy (the toolkit's: stand, crouch, jump, guard, record, replay), hit boxes, full meter, a stun readout (taken / the most), a parry readout (parried on which frame of the window, the wrong
   window, too early or too late by so many: windows at 02026335.. per the training script; all four outcomes seen), a dummy that parries
-  (an early form: it taps as player 1's attack starts; 17 of 46 attacks parried in made-up play, slow startups too early,
-  combos too late). Seen working
+  (it learns each of player 1's animations' frames until its attack comes out and taps 2 frames before, again no
+  sooner than 18 frames on: 168 parries to 63 hits over three seeds of made-up play; misses are mostly throws and
+  first sightings), escapes throws, quick-stands, mashes out of stun (timer two bytes on from kStunMost), a stage
+  choice (0x020154F5), the frame data log. Seen working
   in a made-up fight's pictures only. Frame data is read once a frame from the records (not the game's own steps)
   and checked on one move so far: Alex's standing LP reads startup 5, active 2, recovery 8, and the training script's
   recorded animation a444 has it hitting on frames 5-6 (a hit counts the frame after the box is out). Checked in bulk with

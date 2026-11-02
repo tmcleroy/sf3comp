@@ -165,7 +165,7 @@ namespace {
         static const bool cameraLog = getenv("SFIII3_STAGE_CAMERA") != nullptr;
         if (cameraLog && g.frames % 300 == 0) {
             fprintf(stderr, "stage camera:");
-            for (uint32_t at = game.camera[1] - 0x10; at < game.camera[1] + 0x50; at += 2) {
+            for (uint32_t at = game.camera[1] - (getenv("SFIII3_STAGE_CAMERA_WIDE") ? 0x200 : 0x10); at < game.camera[1] + (getenv("SFIII3_STAGE_CAMERA_WIDE") ? 0x200 : 0x50); at += 2) {
                 fprintf(stderr, " %d", static_cast<int16_t>(Word(ram, at)));
             }
             fprintf(stderr, "\n");
