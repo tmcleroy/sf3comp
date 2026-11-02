@@ -98,7 +98,7 @@ heard, the file's tone in --soundtrack-dump).
    on a hit differs by the hit's freeze). The dummy: guard from the boxes (attackInRange), the parry's remaining misses (chained moves and projectiles: SFIII3_PARRY_MISSES).
 2. Hooks in the translated code: the knock-out (so a session's "nobody knocked out" stops putting health back at a
    quarter), the round's steps.
-3. The definitive version (DEFINITIVE.md): New Generation's rainy London stage (its camera does not follow), the stage
+3. The definitive version (DEFINITIVE.md): the stage
    rule checked on every stage, a proper menu of stages by name, the stage board's own effects and announcer.
 4. Custom soundtrack: the songs not placed yet (songs.txt's unnamed ones: the endings, say).
 5. Translation coverage: more recorded play (every character, supers, the endings).

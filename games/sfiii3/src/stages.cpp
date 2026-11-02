@@ -79,6 +79,9 @@ namespace {
         int lastCamera = 0;  // (its camera as its last frame left it, for the debugging aid)
         int ownRight = 0, ownLeft = 0, madeRight = 0, madeLeft = 0; // its stage's ends as its game set them, and as made
         int stage = -1;      // (the opponent's: the stage its board is on its way to, or in; -1 none)
+        bool offsetKnown = false;
+        int offset = 0;      // its camera's middle less its fighters' as its fight began (New Generation's rainy London
+                             // stage places its fighters about 512 left of its camera; the others about 0)
     } g;
 
     uint16_t Word(const uint8_t *ram, uint32_t at) {
@@ -155,6 +158,7 @@ namespace {
         if (fighting && !g.fought && g.frames > 600) {
             g.fought = true;
             g.life = ram[game.life[0] & 0x7FFFF];
+
         }
         if (!g.fought) {
             const uint32_t phase = g.frames % 40;
@@ -173,6 +177,24 @@ namespace {
             return;
         }
         stage.inputs = stage.extra = 0xFFFFFFFFu;
+        if (!g.offsetKnown) {
+            // (its fighters' places as its fight begins, once its game has put them: its own coordinates against its camera's)
+            const int one = static_cast<int16_t>(Word(ram, game.players[0] + 0x64)), two = static_cast<int16_t>(Word(ram, game.players[1] + 0x64));
+            if (one == 0 && two == 0) {
+                return;
+            }
+            g.offsetKnown = true;
+            // (only a whole difference of coordinates, as the rainy London stage's 512, is taken: a camera held at its
+            // limit as the fight begins, or one this word does not hold (0), is not one)
+            const int camera = static_cast<int16_t>(Word(ram, game.camera[1]));
+            g.offset = camera - (one + two) / 2;
+            if (camera == 0 || std::abs(g.offset) < 256) {
+                g.offset = 0;
+            }
+            if (getenv("SFIII3_STAGE_CAMERA")) {
+                fprintf(stderr, "stage fight: camera %d, fighters %d %d: offset %d\n", static_cast<int16_t>(Word(ram, game.camera[1])), one, two, g.offset);
+            }
+        }
         // (debugging aid, SFIII3_STAGE_CAMERA=1: the stage game's camera block, every 300 frames)
         static const bool cameraLog = getenv("SFIII3_STAGE_CAMERA") != nullptr;
         if (cameraLog && g.frames % 300 == 0) {
@@ -224,7 +246,7 @@ namespace {
             // unseen, are put where 3rd Strike's are, from one stage to the other, and its camera follows them)
             for (int p = 0; p < 2; p++) {
                 const int x = static_cast<int16_t>(Ram16(sfiii3::kPlayer[p] + sfiii3::kX));
-                SetWord(ram, game.players[p] + 0x64, theirLeft + (x - left) * (theirRight - theirLeft) / (right - left));
+                SetWord(ram, game.players[p] + 0x64, theirLeft + (x - left) * (theirRight - theirLeft) / (right - left) - g.offset);
             }
             const int theirs = theirLeft + (std::clamp(camera, left, right) - left) * (theirRight - theirLeft) / (right - left);
             for (const uint32_t at : game.camera) {

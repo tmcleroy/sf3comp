@@ -64,7 +64,7 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
   stage's ends to the other's), and its camera follows them with its own smoothing. In widescreen 2nd Impact's ends
   (which its game keeps) are narrowed by the margin, so its picture fills the wide screen; New Generation's stage
   fills only a little more than its 384 columns (its tilemaps are filled ahead of its camera, it seems): a black strip
-  at the right in widescreen. New Generation's ends are beside its camera as 2nd Impact's are (camera +0x44 and +0x48: 0x0201BEC8, 0x0201BECC); on the rainy London stage they read 240 and -240 and its camera stays at 752, so that stage takes 320-680 and keeps a black strip at the right in widescreen.
+  at the right in widescreen. New Generation's ends are beside its camera as 2nd Impact's are (camera +0x44 and +0x48: 0x0201BEC8, 0x0201BECC); on the rainy London stage they read 240 and -240 (that stage takes 320-680), and its fighters stand in coordinates 512 left of its camera's: the difference is measured as its fight begins and its fighters placed with it, so its camera follows and widescreen fills.
 
 - The music: 3rd Strike's sound driver keeps a record for each of its music's 16 voices (0x02078D0C on, 0x74 each)
   and for each of 8 sound effects' (0x020797EC on), which take voices 8-15 from the music while they play (found by
@@ -97,5 +97,4 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
    state hash is the same over rollbacks, the picture's not always).
 5. The menu: stages by game (today one long choice on the Display page, named by whose stage it is).
 6. Check the stage rule on every stage of NG and 2I (stage objects with a fighter's palette, effects). 3rd Strike's
-   shadows over another stage darken it now (they were black). New Generation's rainy London stage: its camera
-   does not follow (a black strip at the right in widescreen).
+   shadows over another stage darken it now (they were black).
