@@ -493,6 +493,15 @@ void RegisterTraining(Game &game) {
         return start;
     };
     d.ownAids = {"hit_boxes", "dummy_parry", "dummy_stun_mash", "dummy_computer", "parry_readout", "stun_readout", "full_meter", "full_meter_2"};
+    // The dummy's guard: player 1's move starting or able to hit, near enough (280 across: the distance a move can hit
+    // from is not known; nearer missed more, farther no fewer); standing against an attack from the air (made-up play,
+    // three seeds: 25 hits taken to 43 with the toolkit's own, which crouches always)
+    d.guardView = [](Machine &, bool &inRange, bool &standing) {
+        const fight::Doing one = session::Now(0);
+        const int dx = std::abs(Signed16(Player(0) + sfiii3::kX) - Signed16(Player(1) + sfiii3::kX));
+        inRange = (one == fight::Doing::Startup || one == fight::Doing::Active) && dx < 280;
+        standing = Signed16(Player(0) + sfiii3::kY) > 0;
+    };
     // Being thrown: the throw escape (light punch and light kick, tapped, as the throw takes hold: kThrown is set two
     // frames after the thrower's buttons)
     d.dummy.heldAction = [](int frame, uint16_t, uint16_t) -> uint16_t {
