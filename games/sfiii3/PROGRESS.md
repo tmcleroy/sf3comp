@@ -97,6 +97,8 @@ heard, the file's tone in --soundtrack-dump).
 6. Widescreen on every stage and screen; the objects the game culls at its 384 columns; invisible walls (play as on
    the board in 16:9, the CPS-2 ports' widescreen_walls: needs the HUD's objects told from the world's).
 7. Linux / Windows builds (cps2recomp's and fighting_vipers' tools/release as the model), then the other devices.
+   Linux on 64-bit ARM compiles and links (gold) in Docker, and its 1500-frame hash is the Mac's; x86_64 and Windows
+   not tried, no release scripts yet.
 8. The alternative modes (survival, endless battle, ring out, tag team: cps2recomp's fight/alternative and battle,
    3000 lines tied to the CPS-2 games' memory), stage and model viewers, the colour editor, the board's other settings.
 
