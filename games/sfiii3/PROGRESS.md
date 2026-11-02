@@ -11,7 +11,7 @@
 - Sound: own 16-voice mixer (`cps3recomp/sound/pcm.cpp`), not listened to yet.
 - Frontend: cps2recomp's port/ (window, SDL_GPU presenter, shaders, menu, HUD, zoom, bindings, netplay, run-ahead,
   save states) on the board through `runtime/system.h`; recomp-common's launcher (`cps3recomp/launcher`).
-- Not yet: Linux/Windows release builds (Linux on ARM compiles and matches the Mac's hashes), ring out and tag team,
+- Not yet: Linux/Windows release builds (Linux on ARM and x86_64 compiles and matches the Mac's hashes), ring out and tag team,
   the model viewer and music player, the colour editor.
 
 ## Game facts
@@ -113,8 +113,8 @@ heard, the file's tone in --soundtrack-dump).
 6. Widescreen on every stage and screen; the objects the game culls at its 384 columns; invisible walls (play as on
    the board in 16:9, the CPS-2 ports' widescreen_walls: needs the HUD's objects told from the world's).
 7. Linux / Windows builds (cps2recomp's and fighting_vipers' tools/release as the model), then the other devices.
-   Linux on 64-bit ARM compiles and links (gold) in Docker, and its 1500-frame hash is the Mac's; x86_64 and Windows
-   not tried, no release scripts yet.
+   Linux on 64-bit ARM (gold) and on x86_64 compile and link in Docker (cps2recomp's build images), and their
+   1500-frame --auto 7 hash is the Mac's (c476e974); Windows not tried, no release scripts yet.
 8. The alternative modes (ring out, tag team: cps2recomp's fight/alternative and battle,
    3000 lines tied to the CPS-2 games' memory), a music player and model viewer, the colour editor, the board's other settings.
 
