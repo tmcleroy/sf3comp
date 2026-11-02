@@ -77,7 +77,7 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
 - Whose stage is whose: New Generation and 2nd Impact number their stages as 3rd Strike numbers its characters (Gill
   0, Alex 1, Ryu 2, Yun 3, Dudley 4, Necro 5, Hugo 6, Ibuki 7, Elena 8, Oro 9, Yang 10, Ken 11, Sean 12, Urien 13,
   Akuma 14), found in their own one-player games (made-up play: the stage byte against the opponent's name over each
-  fight). New Generation has 0-12 (its 6 has no owner seen: it has no Hugo), 2nd Impact 0-14. The choices are named so,
+  fight). New Generation has 0-12 (its 6, Hugo's number though it has no Hugo, is a beer festival, taken as Hugo's), 2nd Impact 0-14. The choices are named so,
   and "the opponent's" puts each 3rd Strike fight on that game's stage of the character whose stage 3rd Strike chose
   (0x020154F5): between fights the stage board is reset and taken to a fight on that stage (four of its frames a
   frame, there in time for the round's start in made-up play); for the characters that game has not, 3rd Strike's own.

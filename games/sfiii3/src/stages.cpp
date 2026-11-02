@@ -59,10 +59,10 @@ namespace {
         {&kSecondImpact, 14}, {&kNewGeneration, kOpponents}, {&kSecondImpact, kOpponents},
     };
     // (by whose stage it is: both games number their stages as 3rd Strike numbers its characters; New Generation has no
-    // Hugo, and its stage 6 has no owner seen)
+    // Hugo, and its stage 6 is a beer festival)
     const char *const kNames[] = {
         "3rd Strike's", "New Generation: Gill's", "New Generation: Alex's", "New Generation: Ryu's",
-        "New Generation: Yun's", "New Generation: Dudley's", "New Generation: Necro's", "New Generation: stage 6",
+        "New Generation: Yun's", "New Generation: Dudley's", "New Generation: Necro's", "New Generation: a beer festival (6)",
         "New Generation: Ibuki's", "New Generation: Elena's", "New Generation: Oro's", "New Generation: Yang's",
         "New Generation: Ken's", "New Generation: Sean's", "2nd Impact: Gill's", "2nd Impact: Alex's",
         "2nd Impact: Ryu's", "2nd Impact: Yun's", "2nd Impact: Dudley's", "2nd Impact: Necro's",
@@ -269,8 +269,8 @@ void StagesBeforeFrame(Machine &machine) {
     if (choice == g.loaded && choice && kChoices[choice].stage == kOpponents && machine.StageBoard() && !OnStage()) {
         // (the opponent's: between fights, 3rd Strike's next stage chosen, the board started again on its way to that one)
         const int most = kChoices[choice].game == &kNewGeneration ? 12 : 14;
-        const bool ng = kChoices[choice].game == &kNewGeneration;
-        const int next = Ram8(sfiii3::kStage) <= most && !(ng && Ram8(sfiii3::kStage) == 6) ? Ram8(sfiii3::kStage) : -1; // (no Hugo in NG)
+        // (New Generation's 6, Hugo's number though it has no Hugo, is a beer festival: Hugo's, as Germany's)
+        const int next = Ram8(sfiii3::kStage) <= most ? Ram8(sfiii3::kStage) : -1;
         if (next != g.stage) {
             const int loaded = g.loaded;
             g = {};
