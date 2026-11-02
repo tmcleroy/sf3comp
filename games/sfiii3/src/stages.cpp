@@ -76,7 +76,11 @@ namespace {
         bool fought = false; // it has come to its fight
         uint8_t life = 0;
         uint32_t frames = 0; // its frames, for working its controls on the way
-        int lastCamera = 0;  // (its camera as its last frame left it, for the debugging aid)
+        int lastCamera = 0;  // its camera as its last frame left it
+        int given = 0;       // ... and the camera it was given (its fighters placed for)
+        // (the ends its camera really keeps, where they are nearer than its ends words say: learned when it stays put
+        // short of where it was sent; 0 not known)
+        int realLeft = 0, realRight = 0, stuck = 0, stuckAt = 0;
         int ownRight = 0, ownLeft = 0, madeRight = 0, madeLeft = 0; // its stage's ends as its game set them, and as made
         int stage = -1;      // (the opponent's: the stage its board is on its way to, or in; -1 none)
         bool offsetKnown = false;
@@ -177,6 +181,11 @@ namespace {
             return;
         }
         stage.inputs = stage.extra = 0xFFFFFFFFu;
+        // (both its fighters a player's, not its computer's, so that with no controls they stand still: the record's byte 3,
+        // as in 3rd Strike, 0 the computer; a computer opponent would fight on, supers and all, behind 3rd Strike's)
+        for (const uint32_t at : game.players) {
+            ram[(at + 3) & 0x7FFFF] = 1;
+        }
         if (!g.offsetKnown) {
             // (its fighters' places as its fight begins, once its game has put them: its own coordinates against its camera's)
             const int one = static_cast<int16_t>(Word(ram, game.players[0] + 0x64)), two = static_cast<int16_t>(Word(ram, game.players[1] + 0x64));
@@ -243,16 +252,43 @@ namespace {
             }
         }
         const int shift = ownCoordinates ? g.offset : 0;
-        const int theirRight = kept ? g.madeRight + shift : game.right - margin;
-        const int theirLeft = kept ? g.madeLeft + shift : game.left + margin;
+        int theirRight = kept ? g.madeRight + shift : game.right - margin;
+        int theirLeft = kept ? g.madeLeft + shift : game.left + margin;
+        if (g.realLeft && g.realLeft + margin > theirLeft && g.realLeft + margin < theirRight) {
+            theirLeft = g.realLeft + margin;
+        }
+        if (g.realRight && g.realRight - margin < theirRight && g.realRight - margin > theirLeft) {
+            theirRight = g.realRight - margin;
+        }
         if (right > left && theirRight > theirLeft) {
             // (its game makes its camera from its fighters each frame, whatever its camera words say: so its fighters,
             // unseen, are put where 3rd Strike's are, from one stage to the other, and its camera follows them)
+            // (their middle, which its camera follows, kept between the ends it was given: near a stage's end 3rd Strike's
+            // fighters' middle is past its camera's limit, and a game that keeps its own limits would follow them there,
+            // past the narrowed ones, and show past its stage's end in widescreen)
+            int placed[2];
             for (int p = 0; p < 2; p++) {
                 const int x = static_cast<int16_t>(Ram16(sfiii3::kPlayer[p] + sfiii3::kX));
-                SetWord(ram, game.players[p] + 0x64, theirLeft + (x - left) * (theirRight - theirLeft) / (right - left) - g.offset);
+                placed[p] = theirLeft + (x - left) * (theirRight - theirLeft) / (right - left);
+            }
+            const int middle = (placed[0] + placed[1]) / 2;
+            const int push = middle < theirLeft ? theirLeft - middle : middle > theirRight ? theirRight - middle : 0;
+            for (int p = 0; p < 2; p++) {
+                SetWord(ram, game.players[p] + 0x64, placed[p] + push - g.offset);
             }
             const int theirs = theirLeft + (std::clamp(camera, left, right) - left) * (theirRight - theirLeft) / (right - left);
+            // (its camera held short of where it was sent, frame after frame: that is its end)
+            const int had = g.lastCamera;
+            if (std::abs(theirs - had) > 8 && had == g.stuckAt) {
+                if (++g.stuck > 30) {
+                    (theirs < had ? g.realLeft : g.realRight) = had;
+                    g.stuck = 0;
+                }
+            } else {
+                g.stuck = 0;
+            }
+            g.stuckAt = had;
+            g.given = theirs;
             for (const uint32_t at : game.camera) {
                 SetWord(ram, at, theirs);
             }
@@ -332,7 +368,9 @@ void RegisterStages(Game &game) {
         machine->beforeStage = BeforeStage;
         // (composed while 3rd Strike's round is on and the board is in its fight: for the opponent's, on a stage it has)
         machine->composeNow = [] { return OnStage() && g.fought && (kChoices[g.loaded].stage != kOpponents || g.stage >= 0); };
-        machine->stageFramesNow = [] { return g.fought ? 1 : 4; }; // (on its way to its fight: four frames a frame)
+        // (on its way to its fight: four frames a frame; in it, two while its camera is far from where it was sent (a round
+        // starting near a stage's end), so it gets there sooner and draws its stage's columns on the way)
+        machine->stageFramesNow = [] { return !g.fought ? 4 : std::abs(g.lastCamera - g.given) > 32 ? 2 : 1; };
     }
 }
 
