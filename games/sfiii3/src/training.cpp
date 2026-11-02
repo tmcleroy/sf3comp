@@ -53,6 +53,7 @@ namespace {
         uint32_t animFrom = 0;
         bool animBox = false;
         uint32_t learnedAt = 0;
+        int projectileDistance = 1 << 20; // (the dummy's parry: player 1's nearest projectile with its attack out, how far)
     } g;
 
     // A move's startup as learned (0: not seen yet)
@@ -114,19 +115,28 @@ namespace {
         return false;
     }
 
-    void Boxes(std::vector<HudBox> &boxes) {
-        const int cameraX = Signed16(sfiii3::kCameraX), cameraY = Signed16(sfiii3::kCameraY);
-        // (the players' records, then the projectiles': the game's object list 3, from the index at 0x02068A96 + 6, each
-        // a record of the players' shape 0x800 bytes apart from 0x02028990, the next's index at +0x1C; -1 ends it.
-        // From the training script; a record with no hurt box list is not in use)
-        std::vector<uint32_t> records = {Player(0), Player(1)};
+    // The projectiles' records: the game's object list 3, from the index at 0x02068A96 + 6, each a record of the
+    // players' shape 0x800 bytes apart from 0x02028990, the next's index at +0x1C, -1 ending it; one with no hurt box
+    // list is not in use; byte 2 says whose (0 player 1). From the training script.
+    std::vector<uint32_t> Projectiles() {
+        std::vector<uint32_t> list;
         int16_t index = static_cast<int16_t>(Ram16(0x02068A96 + 3 * 2));
         for (int n = 0; n < 30 && index >= 0; n++) {
             const uint32_t base = 0x02028990u + (static_cast<uint32_t>(index) << 11);
             if (Ram32(base + 0x2A0) != 0) {
-                records.push_back(base);
+                list.push_back(base);
             }
             index = static_cast<int16_t>(Ram16(base + 0x1C));
+        }
+        return list;
+    }
+
+    void Boxes(std::vector<HudBox> &boxes) {
+        const int cameraX = Signed16(sfiii3::kCameraX), cameraY = Signed16(sfiii3::kCameraY);
+        // (the players' records, then the projectiles')
+        std::vector<uint32_t> records = {Player(0), Player(1)};
+        for (const uint32_t base : Projectiles()) {
+            records.push_back(base);
         }
         for (const uint32_t base : records) {
             const int px = Signed16(base + sfiii3::kX) - cameraX + Video::kWidth / 2;
@@ -420,9 +430,20 @@ void TrainingBeforeFrame(Machine &m) {
         const int startup = LearnedStartup(static_cast<uint8_t>(Ram16(Player(0) + 0x3C0)), g.anim);
         const int into = static_cast<int>(g.frame - g.animFrom);
         const bool due = startup ? into >= startup - lead && !g.animBox : session::Now(0) == fight::Doing::Startup && into == 0;
+        // (player 1's projectiles: the nearest with its attack out, tapped for as it comes within three frames of its
+        // closing speed, past the boxes' reach of about 60)
+        int nearest = 1 << 20;
+        for (const uint32_t base : Projectiles()) {
+            if (Ram8(base + 2) == 0 && Ram32(base + 0x2C8) != 0) {
+                nearest = std::min(nearest, std::abs(Signed16(base + sfiii3::kX) - Signed16(Player(1) + sfiii3::kX)));
+            }
+        }
+        const int closing = g.projectileDistance - nearest;
+        const bool projectile = nearest < (1 << 20) && closing > 0 && closing < 64 && nearest - 60 <= closing * 3;
+        g.projectileDistance = nearest;
         static const uint32_t again = getenv("SFIII3_PARRY_AGAIN") ? static_cast<uint32_t>(atoi(getenv("SFIII3_PARRY_AGAIN"))) : 18;
-        if (due && (g.parryTap == 0 || g.frame - g.parryTap > again)) {
-            m.players[1] = g.moveLow[0] ? kDown : (onRight ? kLeft : kRight);
+        if ((due || projectile) && (g.parryTap == 0 || g.frame - g.parryTap > again)) {
+            m.players[1] = g.moveLow[0] && !projectile ? kDown : (onRight ? kLeft : kRight);
             if (!RunningAhead()) {
                 g.parryTap = g.frame;
             }
