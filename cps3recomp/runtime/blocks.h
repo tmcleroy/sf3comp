@@ -50,9 +50,13 @@ struct BlockTable {
     size_t functionCount;
 };
 
-// Defined by the generated blocks_index.cpp (or by no_blocks.cpp when nothing was generated)
+// Defined by the generated blocks_index.cpp (or, empty, by no_blocks.cpp when nothing was generated for the game)
 extern const BlockTable g_blockTables[];
 extern const size_t g_blockTableCount;
+
+// Another game's code linked into the same program (tools/recomp.py --prefix: a stage board's), registered by name as
+// the program starts; a board takes the set whose blocks its program holds (runtime/recomp.cpp)
+bool RegisterBlockTables(const char *name, const BlockTable *tables, size_t count);
 
 // Longest block the recorder makes
 inline constexpr unsigned kMaxBlockInstrs = 48;

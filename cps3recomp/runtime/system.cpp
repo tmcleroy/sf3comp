@@ -3,6 +3,7 @@
 #include "system.h"
 
 #include "state.h"
+#include "recomp.h"
 
 #include <algorithm>
 
@@ -116,11 +117,19 @@ void Machine::RunFrame() {
 
 void Machine::SetStageBoard(std::unique_ptr<RomSet> set) {
     m_stagePcm.reset();
+    if (m_stage) {
+        Detach(*m_stage);
+    }
     m_stage.reset();
     m_stageSet = std::move(set);
     if (m_stageSet) {
+        // (the board's flash state is global, for the translated code: this board's is kept as it was)
+        const bool plain = machine::g_flashPlain;
         m_stage = std::make_unique<machine::Machine>(*m_stageSet);
         m_stage->Reset();
+        machine::g_flashPlain = plain;
+        // (its own translated code, if the program has it: tools/translate.sh with GAME=its id)
+        AttachSecond(*m_stage);
         m_stagePcm = std::make_unique<Pcm>(*m_stage);
     }
 }
@@ -132,7 +141,13 @@ void Machine::StepStage() {
     if (beforeStage) {
         beforeStage(*this, *m_stage);
     }
+    // (the runtime runs the stage board's own code while it runs: its memory and its code's map; and the flash's
+    // state, a global the translated code reads, is this board's again after it)
+    const bool plain = machine::g_flashPlain;
+    Activate(*m_stage);
     m_stage->RunFrame();
+    Activate(board);
+    machine::g_flashPlain = plain;
     // Its sound: made every frame (so that it keeps time), added to this board's last frame's when wanted
     m_stageAudio.clear();
     m_stagePcm->EndFrame(&m_stageAudio);

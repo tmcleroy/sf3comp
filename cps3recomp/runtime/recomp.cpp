@@ -176,7 +176,7 @@ namespace {
         unsigned inCall = 0;  // Guest::Call is running a routine
     };
 
-    std::unique_ptr<Runtime> g_rt;
+    Runtime *g_rt = nullptr; // the board being run now (Activate): its runtime, owned by its Board below
     std::deque<Lift> g_lifts; // (a deque: entries point at them)
 
     bool IsUnconditionalDelayed(OpcodeType t) {
@@ -1061,8 +1061,104 @@ bool Call(SH2 &cpu, uint64_t target, int retBlock, uint32_t ret) {
     return true;
 }
 
+namespace {
+    // A board run by its own runtime: the globals the translated code and the CPU read (its memory, the map of its
+    // main RAM's code, the code epoch, its flash's state) are this board's while it is the one being run
+    struct Board {
+        Machine *machine = nullptr;
+        std::unique_ptr<Runtime> rt;
+        uint8_t *mainRam = nullptr;
+        const uint8_t *bios = nullptr, *program = nullptr, *programData = nullptr;
+        const uint8_t *codeBase = nullptr, *codeMap = nullptr;
+        size_t codeSize = 0;
+        uint64_t codeEpoch = 1;
+        uint8_t *dirtyMap = nullptr;
+        bool flashPlain = true;
+    };
+    std::deque<Board> g_boards;
+    Board *g_active = nullptr;
+
+    void SaveGlobals(Board &b) {
+        b.mainRam = g_mainRam;
+        b.bios = g_bios;
+        b.program = g_program;
+        b.programData = g_programData;
+        b.codeBase = CPS3RECOMP_CODE_BASE;
+        b.codeMap = CPS3RECOMP_CODE_MAP;
+        b.codeSize = CPS3RECOMP_CODE_SIZE;
+        b.codeEpoch = CPS3RECOMP_CODE_EPOCH;
+        b.dirtyMap = machine::g_dirtyMap;
+        b.flashPlain = machine::g_flashPlain;
+    }
+    void LoadGlobals(Board &b) {
+        g_rt = b.rt.get();
+        g_mainRam = b.mainRam;
+        g_bios = b.bios;
+        g_program = b.program;
+        g_programData = b.programData;
+        CPS3RECOMP_CODE_BASE = b.codeBase;
+        CPS3RECOMP_CODE_MAP = b.codeMap;
+        CPS3RECOMP_CODE_SIZE = b.codeSize;
+        CPS3RECOMP_CODE_EPOCH = b.codeEpoch;
+        machine::g_dirtyMap = b.dirtyMap;
+        machine::g_flashPlain = b.flashPlain;
+        g_active = &b;
+    }
+
+    struct RegisteredSet {
+        const char *name;
+        const BlockTable *tables;
+        size_t count;
+    };
+    std::vector<RegisteredSet> &Registered() {
+        static std::vector<RegisteredSet> sets;
+        return sets;
+    }
+
+    // A board's runtime made with these tables (and the lifts and the check, for the first board only), and made the
+    // board being run
+    void AttachTables(Machine &m, const Options &options, const BlockTable *tables, size_t tableCount, bool first);
+} // namespace
+
+bool RegisterBlockTables(const char *name, const BlockTable *tables, size_t count) {
+    Registered().push_back({name, tables, count});
+    return true;
+}
+
 void Attach(Machine &m, const Options &options) {
-    g_rt = std::make_unique<Runtime>();
+    const BlockTable *tables = g_blockTables;
+    size_t count = g_blockTableCount;
+    // (a game with no code of its own but another's registered that is its program: a stage game's own build)
+    if (count == 0) {
+        for (const RegisteredSet &set : Registered()) {
+            if (set.count && set.tables[0].count) {
+                tables = set.tables;
+                count = set.count;
+            }
+        }
+    }
+    AttachTables(m, options, tables, count, true);
+}
+
+namespace {
+void AttachTables(Machine &m, const Options &options, const BlockTable *tables, size_t tableCount, bool first) {
+    if (g_active) {
+        SaveGlobals(*g_active);
+    }
+    Board *board = nullptr;
+    for (Board &b : g_boards) {
+        if (b.machine == &m) {
+            board = &b;
+        }
+    }
+    if (!board) {
+        board = &g_boards.emplace_back();
+        board->machine = &m;
+    }
+    board->rt = std::make_unique<Runtime>();
+    g_rt = board->rt.get();
+    g_active = board;
+    machine::g_dirtyMap = nullptr;
     Runtime &rt = *g_rt;
     rt.opt = options;
     rt.machine = &m;
@@ -1082,7 +1178,7 @@ void Attach(Machine &m, const Options &options) {
     CPS3RECOMP_CODE_BASE = g_mainRam;
     CPS3RECOMP_CODE_MAP = rt.codeMap.data();
     CPS3RECOMP_CODE_SIZE = 0x80000;
-    if (rt.opt.checkEvery) {
+    if (rt.opt.checkEvery && first) {
         g_shadow.assign(g_mainRam, g_mainRam + 0x80000);
         g_dirty.assign(kPages, 0);
         machine::g_dirtyMap = g_dirty.data();
@@ -1090,9 +1186,9 @@ void Attach(Machine &m, const Options &options) {
 
     // (CPS3RECOMP_NO_BLOCKS=1: the build's translations left out, everything run by the interpreter)
     const bool noBlocks = getenv("CPS3RECOMP_NO_BLOCKS") != nullptr;
-    for (size_t t = 0; t < g_blockTableCount && !noBlocks; t++) {
-        for (size_t i = 0; i < g_blockTables[t].count; i++) {
-            const BlockDesc &d = g_blockTables[t].blocks[i];
+    for (size_t t = 0; t < tableCount && !noBlocks; t++) {
+        for (size_t i = 0; i < tables[t].count; i++) {
+            const BlockDesc &d = tables[t].blocks[i];
             uint32_t offset;
             Region *r = RegionFor(rt, d.pc, offset);
             uint64_t slots;
@@ -1110,9 +1206,9 @@ void Attach(Machine &m, const Options &options) {
 
     // Functions of several blocks: an entry of their own at their first block, found before the block's
     if (!getenv("CPS3RECOMP_NO_FUNCTIONS") && !noBlocks) {
-        for (size_t t = 0; t < g_blockTableCount; t++) {
-            for (size_t i = 0; i < g_blockTables[t].functionCount; i++) {
-                const FunctionDesc &f = g_blockTables[t].functions[i];
+        for (size_t t = 0; t < tableCount; t++) {
+            for (size_t i = 0; i < tables[t].functionCount; i++) {
+                const FunctionDesc &f = tables[t].functions[i];
                 uint32_t offset;
                 Region *r = RegionFor(rt, f.pc, offset);
                 uint64_t slots;
@@ -1157,7 +1253,7 @@ void Attach(Machine &m, const Options &options) {
     if (const char *v = getenv("CPS3RECOMP_LIFT_CHECK")) {
         rt.liftCheckEvery = static_cast<unsigned>(std::max(1, atoi(v)));
     }
-    if (!getenv("CPS3RECOMP_NO_LIFTS")) {
+    if (first && !getenv("CPS3RECOMP_NO_LIFTS")) {
         for (const Lift &lift : g_lifts) {
             uint32_t offset;
             if (Region *r = RegionFor(rt, lift.address, offset)) {
@@ -1171,7 +1267,84 @@ void Attach(Machine &m, const Options &options) {
         }
     }
     m.Cpu().SetRecompDispatcher(Dispatch, &rt);
+    SaveGlobals(*board);
 }
+} // namespace
+
+// A second board (a stage board) run by translated code of its own: the registered set whose blocks its program holds
+// (most of a sample of them, read where they would be), in the first board's mode; none: it stays with the
+// interpreter. The first board is the one being run again afterwards.
+bool AttachSecond(Machine &m) {
+    // (CPS3RECOMP_NO_STAGE_BLOCKS=1: it stays with the interpreter, to compare)
+    if (g_boards.empty() || g_boards.front().machine == &m || getenv("CPS3RECOMP_NO_STAGE_BLOCKS")) {
+        return false;
+    }
+    Board &first = g_boards.front();
+    const RegisteredSet *best = nullptr;
+    size_t bestScore = 0;
+    const uint8_t *program = m.ProgramBytes(), *bios = m.BiosBytes();
+    for (const RegisteredSet &set : Registered()) {
+        size_t tried = 0, same = 0;
+        for (size_t t = 0; t < set.count && tried < 400; t++) {
+            for (size_t i = 0; i < set.tables[t].count && tried < 400; i += 7) {
+                const BlockDesc &d = set.tables[t].blocks[i];
+                const uint8_t *at = d.pc >= 0x06000000u && d.pc < 0x07000000u ? program + (d.pc - 0x06000000u)
+                                    : d.pc < 0x80000u                          ? bios + d.pc
+                                                                               : nullptr;
+                if (!at) {
+                    continue;
+                }
+                tried++;
+                same += memcmp(at, d.code, d.numInstrs * 2u) == 0;
+            }
+        }
+        if (tried && same * 10 >= tried * 9 && same > bestScore) {
+            best = &set;
+            bestScore = same;
+        }
+    }
+    if (!best) {
+        return false;
+    }
+    Options options;
+    options.mode = first.rt->opt.mode;
+    AttachTables(m, options, best->tables, best->count, false);
+    if (getenv("CPS3RECOMP_STAGE_LOG")) {
+        fprintf(stderr, "cps3recomp: a second board runs %s's translated code\n", best->name);
+    }
+    g_active->flashPlain = true; // (it has just started: its flash reads its data)
+    LoadGlobals(g_boards.front());
+    return true;
+}
+
+void Detach(Machine &m) {
+    for (auto it = g_boards.begin(); it != g_boards.end(); ++it) {
+        if (it->machine == &m && it != g_boards.begin()) {
+            if (g_active == &*it) {
+                LoadGlobals(g_boards.front());
+            }
+            m.Cpu().SetRecompDispatcher(nullptr, nullptr);
+            g_boards.erase(it);
+            return;
+        }
+    }
+}
+
+void Activate(Machine &m) {
+    if (g_active && g_active->machine == &m) {
+        return;
+    }
+    for (Board &b : g_boards) {
+        if (b.machine == &m) {
+            if (g_active) {
+                SaveGlobals(*g_active);
+            }
+            LoadGlobals(b);
+            return;
+        }
+    }
+}
+
 
 void StateLoaded() {
     if (g_rt) {
@@ -1200,6 +1373,10 @@ void PutDispatcherBack() {
 bool Finish() {
     if (!g_rt) {
         return true;
+    }
+    if (g_active != &g_boards.front()) {
+        SaveGlobals(*g_active);
+        LoadGlobals(g_boards.front()); // (the first board's report)
     }
     Runtime &rt = *g_rt;
     if (!rt.opt.recordPath.empty()) {
@@ -1261,7 +1438,12 @@ bool Finish() {
         }
     }
     machine::g_dirtyMap = nullptr;
-    g_rt.reset();
+    for (Board &b : g_boards) {
+        b.machine->Cpu().SetRecompDispatcher(nullptr, nullptr);
+    }
+    g_boards.clear();
+    g_active = nullptr;
+    g_rt = nullptr;
     return ok && liftsOk;
 }
 
