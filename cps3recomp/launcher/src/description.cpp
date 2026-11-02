@@ -17,6 +17,11 @@
 #include <system_error>
 #include <vector>
 
+// (a game whose sources use other sets beside its own says so: the definitive version's stages, games/sfiii3)
+#ifndef LAUNCHER_EXTRA_SETS_WORDS
+#define LAUNCHER_EXTRA_SETS_WORDS ""
+#endif
+
 namespace {
 
 cps3recomp::RomList rom_list() {
@@ -75,7 +80,7 @@ const launcher::Description& launcher::describe() {
         d.original = "in the arcade";
         d.file_heading = "ROM SET";
         d.file_intro = "Choose your own copy of the game: the arcade ROM set " LAUNCHER_ROM_SET " (" LAUNCHER_ROM_NAME
-                       "). Only this version works. It stays where it is: the launcher only reads it.\n\nWhile playing, Esc or F1 on "
+                       "). Only this version works. It stays where it is: the launcher only reads it." LAUNCHER_EXTRA_SETS_WORDS "\n\nWhile playing, Esc or F1 on "
                        "the keyboard, or the left stick's click (or Start and Select together) on a gamepad, opens the in-game menu: "
                        "save states, speed, and every feature.";
         d.file_empty = "None chosen. Drop " LAUNCHER_ROM_SET ".zip or its folder here, or choose the zip.";
