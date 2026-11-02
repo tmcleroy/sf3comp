@@ -80,7 +80,7 @@ bool Movie::Save(const std::string &path) const {
 }
 
 namespace {
-    constexpr uint32_t kStateVersion = 2; // (2: the colours made again from colour RAM, not kept)
+    constexpr uint32_t kStateVersion = 3; // (2: the colours made again from colour RAM, not kept; 3: the custom soundtrack's place)
 
     bool ReadFile(const std::string &path, std::vector<uint8_t> &data) {
         FILE *f = fopen(path.c_str(), "rb");
@@ -198,6 +198,15 @@ void RegisterPortFeatures() {
                                   "How large the window opens, in times the board's 224 lines (it can be made any size by "
                                   "dragging its edges; full screen is on the launcher's first page and F11).",
                                   0, {"3x", "2x", "4x", "5x", "6x"}});
+    // (custom_soundtrack: soundtrack.h; for a game whose sources follow its music driver: runtime/soundtrack.h)
+    if (TheGame().songCount) {
+        TheGame().features.push_back({"custom_soundtrack", "Sound", "Custom soundtrack",
+                                      "Plays your own music files in place of the board's music; the sound effects and voices are "
+                                      "the board's. Files named for the game's songs (songs.txt in the folder lists them) replace "
+                                      "those songs; a folder of any other music plays as a playlist, one file after another. The "
+                                      "folder is chosen on the launcher's game page. Shuffled: the playlist in a random order.",
+                                      kFeatureEnhanced, {"Off", "On", "On, shuffled"}});
+    }
 }
 
 Scaling DisplayScaling() {
@@ -313,6 +322,56 @@ std::string Port::ShaderPreset() const {
         }
     }
     return PathText(program / "shaders" / kShaderPresets[value - 1]);
+}
+
+// The custom soundtrack's folder: the one the launcher chose, or "soundtrack" beside settings.ini
+std::string Port::SoundtrackFolder() const {
+    if (!opt.soundtrack.empty()) {
+        return opt.soundtrack;
+    }
+    if (opt.settingsPath.empty()) {
+        return "";
+    }
+    return PathText(TextPath(opt.settingsPath).parent_path() / "soundtrack");
+}
+
+// The feature switched on or off (in the menu, or at the start): the folder looked in again
+void Port::SoundtrackFollow() {
+    const int value = TheGame().songCount ? FeatureValue("custom_soundtrack") : 0;
+    if (value == soundtrackValue) {
+        return;
+    }
+    soundtrackValue = value;
+    soundtrackOn = value > 0;
+    if (!soundtrackOn) {
+        machine->soundtrack.Replace({});
+        machine->soundtrack.state.song = -1; // (the board's music again, at once)
+        return;
+    }
+    const std::string folder = SoundtrackFolder();
+    if (folder.empty()) {
+        return;
+    }
+    // (the folder that is the game's own is made, with the list of the songs' names in it)
+    std::error_code error;
+    const std::filesystem::path dir = TextPath(folder);
+    if (opt.soundtrack.empty()) {
+        std::filesystem::create_directories(dir, error);
+    }
+    if (std::filesystem::is_directory(dir, error)) {
+        const std::string list = "The songs of " GAME_NAME " a custom soundtrack can play: name the file as the first column (or\n"
+                                 "the number, the second), with .ogg, .flac, .mp3 or .wav; or name it in soundtrack.ini.\n"
+                                 "(With no file named for a song, the folder's files play as a playlist instead.)\n\n" +
+                                 SongList(machine->soundtrack);
+        std::vector<uint8_t> have;
+        if (!ReadFile(PathText(dir / "songs.txt"), have) || std::string(have.begin(), have.end()) != list) {
+            WriteFile(PathText(dir / "songs.txt"), list.data(), list.size());
+        }
+    }
+    const int found = soundtrack.Open(folder, machine->soundtrack, value == 2);
+    if (opt.stats || getenv("CPS3RECOMP_SOUNDTRACK_LOG")) {
+        fprintf(stderr, "soundtrack: %d %s from %s\n", found, soundtrack.IsPlaylist() ? "files as a playlist" : "songs", folder.c_str());
+    }
 }
 
 // What the game's state comes to, for comparing runs: the CPU, its memory, the video and object memory, the
@@ -964,6 +1023,7 @@ void Port::PutBackState(const std::vector<uint8_t> &data, bool inMemory) {
 }
 
 void Port::Step(const uint16_t *players) {
+    SoundtrackFollow();
     memcpy(machine->players, players, sizeof(machine->players));
     if (TheGame().beforeFrame) {
         TheGame().beforeFrame(*machine);
@@ -2007,6 +2067,8 @@ int main(int argc, char **argv) {
     const auto begin = std::chrono::steady_clock::now();
     if (p.opt.headless) {
         std::vector<int16_t> sound;
+        std::vector<float> music, musicMade; // (--soundtrack-dump)
+        int musicRate = 0;
         // A picture as the window draws it (--present-test, --present-every): through the GPU path, read back, written
         // to `path`; in a window --present-size big, or one the picture's shape at 3 times its lines
         auto present = [&](const std::string &path, const std::vector<uint32_t> &shown, const port::Zoomed *zoomed) {
@@ -2050,6 +2112,16 @@ int main(int argc, char **argv) {
             if (!p.opt.audioDump.empty()) {
                 sound.insert(sound.end(), p.machine->audio.begin(), p.machine->audio.end());
             }
+            if (!p.opt.soundtrackDump.empty() && p.soundtrackOn) {
+                // (silence where nothing plays, so that the file's time is the game's; at the first song's rate)
+                p.soundtrack.Make(p.machine->soundtrack.state, !FastForward(), musicMade);
+                musicRate = musicRate ? musicRate : (musicMade.empty() ? 0 : p.soundtrack.Rate());
+                const size_t due = musicRate ? static_cast<size_t>(p.frame * (musicRate / Machine::kFramesPerSecond)) * 2 : 0;
+                if (music.size() + musicMade.size() < due) {
+                    music.resize(due - musicMade.size());
+                }
+                music.insert(music.end(), musicMade.begin(), musicMade.end());
+            }
             p.machine->audio.clear();
         }
         if (!p.opt.presentTest.empty()) {
@@ -2059,6 +2131,16 @@ int main(int argc, char **argv) {
             const bool isZoomed = p.Windowed(shown, zoomed);
             if (!present(p.opt.presentTest, shown, isZoomed ? &zoomed : nullptr)) {
                 result = 1;
+            }
+        }
+        if (!p.opt.soundtrackDump.empty() && musicRate) {
+            if (FILE *f = fopen(p.opt.soundtrackDump.c_str(), "wb")) {
+                const uint32_t bytes = static_cast<uint32_t>(music.size() * 4), rate = static_cast<uint32_t>(musicRate);
+                const uint32_t header[11] = {0x46464952, 36 + bytes, 0x45564157, 0x20746D66, 16,      0x00020003,
+                                             rate,       rate * 8,   0x00200008, 0x61746164, bytes};
+                fwrite(header, 4, 11, f);
+                fwrite(music.data(), 4, music.size(), f);
+                fclose(f);
             }
         }
         if (!p.opt.audioDump.empty()) {

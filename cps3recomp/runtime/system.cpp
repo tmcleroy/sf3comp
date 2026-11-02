@@ -188,6 +188,7 @@ void Machine::Serialize(Archive &ar) {
     board.Serialize(ar);
     m_pcm.Serialize(ar);
     ar.Pod(frame);
+    soundtrack.Serialize(ar);
 }
 
 } // namespace cps3recomp

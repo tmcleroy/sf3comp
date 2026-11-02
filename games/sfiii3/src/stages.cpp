@@ -218,29 +218,17 @@ namespace {
     }
 } // namespace
 
-namespace {
-    // Which of the sound chip's voices 3rd Strike's music has now: its sound driver keeps a record for each of its
-    // music's 16 voices (0x02078D0C on, 0x74 each) and for each of 8 sound effects' (0x020797EC on), which take voices 8-15
-    // from the music while they play. Its routine at 0x0613B1D8 (a note's pitch) is called for a voice as it is set,
-    // with the record in r14 and the voice's registers in r13: a hook there notes who has the voice.
-    std::array<bool, 16> g_music{};
-    void PitchHook(Guest &g) {
-        const uint32_t voice = ((g.R(13) & 0x1FFFFFFFu) - 0x040E0000u) / 0x20;
-        if (voice < 16) {
-            const uint32_t record = g.R(14);
-            g_music[voice] = record >= 0x02078D0Cu && record < 0x02078D0Cu + 16 * 0x74;
-        }
-    }
-} // namespace
+bool MusicVoice(int voice); // (music.cpp)
 
 // Each frame: the board for the choice made (loaded when the choice changes: a moment's pause)
 void StagesBeforeFrame(Machine &machine) {
     // (in a fight on the stage board's stage: its music, 3rd Strike's left out; the effects and voices are 3rd Strike's)
-    const bool music = g.loaded && g.fought && InMatch() && machine.StageBoard();
+    // (the custom soundtrack's file, when one plays, in place of both)
+    const bool music = g.loaded && g.fought && InMatch() && machine.StageBoard() && !machine.soundtrack.Playing();
     machine.stageSound = music;
     int silenced = 0;
     for (int v = 0; v < 16; v++) {
-        machine.board.silenced[v] = music && g_music[v];
+        machine.board.silenced[v] = (music || machine.soundtrack.Playing()) && MusicVoice(v);
         silenced += machine.board.silenced[v];
     }
     // (debugging aid, SFIII3_STAGE_SOUND=1: every 300 frames, the voices left out and the stage board's sound)
@@ -275,7 +263,6 @@ void RegisterStages(Game &game) {
         machine->composeNow = InMatch;
         machine->stageFramesNow = [] { return g.fought ? 1 : 4; }; // (on its way to its fight: four frames a frame)
     }
-    AddHook("Voice set (music or effect)", 0x0613B1D8, 8, 0xBA5502CCC81A1B0Eull, PitchHook);
 }
 
 } // namespace cps3recomp

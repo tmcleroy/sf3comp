@@ -105,6 +105,12 @@ const launcher::Description& launcher::describe() {
             return args;
         };
         d.saves_folder = true;
+        // (the custom soundtrack's files: port/soundtrack.h)
+        d.folders = {{"soundtrack", "Custom soundtrack",
+                      "Your own music, played in place of the board's music while the Custom soundtrack feature is on: a folder of music "
+                      "plays as a playlist, or files named as the songs.txt the game writes there replace those songs. None chosen: the "
+                      "soundtrack folder in the game's own folder.",
+                      "--soundtrack"}};
         d.online = {"--host", "--join", 7845, true,
                     "Two players, each on their own machine with the game, anywhere: one hosts and gives the other the code their game "
                     "shows; the other joins with it. Each presses Start to come in. The match has the host's settings and the "

@@ -358,6 +358,12 @@ int RunWindowed(Port &port) {
         }
     }
 
+    // The custom soundtrack (soundtrack.h): a stream of its own, at its files' rate, opened when it first plays
+    SDL_AudioStream *music = nullptr;
+    SDL_AudioSpec musicSpec{SDL_AUDIO_F32, 2, 0};
+    std::vector<float> musicMade;
+    bool musicSilent = false;
+
     std::vector<SDL_Gamepad *> gamepads;
     // The in-game menu: opened and closed by Esc, F1, a gamepad stick's click or its Start and Select
     // together (the game is left from its "Quit game"). While it is open the game stands still and the
@@ -803,6 +809,39 @@ int RunWindowed(Port &port) {
             SDL_PutAudioStreamData(audio, made.data(), static_cast<int>(made.size() * sizeof(int16_t)));
         }
         made.clear();
+        if (ran && port.soundtrackOn && port.soundtrack.Any()) {
+            // (fed as the game's sound is: the game's time's worth each frame, kept a frame or two ahead of the device)
+            port.soundtrack.Make(port.machine->soundtrack.state, !FastForward() && !port.hurry, musicMade);
+            if (!musicMade.empty()) {
+                const int rate = port.soundtrack.Rate();
+                if (!music) {
+                    musicSpec.freq = rate;
+                    music = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &musicSpec, nullptr, nullptr);
+                    if (music) {
+                        SDL_ResumeAudioStreamDevice(music);
+                    } else {
+                        fprintf(stderr, "Audio (soundtrack): %s\n", SDL_GetError());
+                    }
+                } else if (rate != musicSpec.freq) {
+                    musicSpec.freq = rate;
+                    SDL_SetAudioStreamFormat(music, &musicSpec, nullptr);
+                }
+            }
+            if (music && !musicMade.empty()) {
+                if (musicSilent != (port.menu.muted || audioLog)) {
+                    musicSilent = port.menu.muted || audioLog;
+                    SDL_SetAudioStreamGain(music, musicSilent ? 0.0f : 1.0f);
+                }
+                double waiting = SDL_GetAudioStreamQueued(music) / (8.0 * musicSpec.freq) / pace;
+                if (waiting > kAudioMost) {
+                    SDL_ClearAudioStream(music);
+                    waiting = 0;
+                }
+                const double ratio = (1.0 + std::clamp((waiting - kAudioWaiting) * 0.5, -0.02, 0.02)) * pace;
+                SDL_SetAudioStreamFrequencyRatio(music, static_cast<float>(ratio));
+                SDL_PutAudioStreamData(music, musicMade.data(), static_cast<int>(musicMade.size() * sizeof(float)));
+            }
+        }
 
         // (zoomed: the part of the picture the camera looks at, the readout's panels as they are)
         Zoomed zoomed;
@@ -832,6 +871,9 @@ int RunWindowed(Port &port) {
     }
     if (audio) {
         SDL_DestroyAudioStream(audio);
+    }
+    if (music) {
+        SDL_DestroyAudioStream(music);
     }
     // (on to a Multi game run's next game: its window where this one is; on macOS the launcher starts it, and must
     // be in front for it to come forward)

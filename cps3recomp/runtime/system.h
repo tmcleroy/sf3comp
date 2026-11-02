@@ -10,6 +10,7 @@
 #include "pcm.h"
 #include "renderer.h"
 #include "romset.h"
+#include "soundtrack.h"
 
 #include <cstdint>
 #include <memory>
@@ -89,6 +90,9 @@ public:
     uint8_t *ram() {
         return board.mainRam;
     }
+
+    // The custom soundtrack's place in the game's music (soundtrack.h): kept with save states
+    Soundtrack soundtrack;
 
     void Serialize(Archive &ar);
 

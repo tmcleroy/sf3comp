@@ -8,6 +8,7 @@
 #include "menu.h"
 #include "netplay.h"
 #include "present.h"
+#include "soundtrack.h"
 #include "zoom.h"
 
 #include <array>
@@ -168,6 +169,12 @@ struct Port {
     // (rapid fire: how long each player has held each button)
     uint32_t rapidHeld[cps3recomp::Machine::kMaxPlayers][16] = {};
     void RapidFire();
+    // The custom soundtrack (soundtrack.h): its files, played while the port's custom_soundtrack feature is on
+    SoundtrackPlayer soundtrack;
+    bool soundtrackOn = false;
+    int soundtrackValue = 0; // (the feature's choice: 1 on, 2 on with the playlist shuffled)
+    std::string SoundtrackFolder() const;
+    void SoundtrackFollow(); // (each frame: the feature switched on or off in the menu)
     int coinFrames = 0;   // frames left of the menu's coin
     int start2Frames = 0; // ... and of its press of player 2's Start
     int testFrames = 0;   // ... and of its press of the test switch

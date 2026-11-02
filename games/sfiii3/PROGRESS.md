@@ -70,6 +70,17 @@
 - Online play compiles but has never been tried (its service is cps2recomp's; the lobby is keyed by `sfiii3`).
 - The VS screen shows horizontal stripes: probably the game's wipe, not checked against the board.
 
+## Custom soundtrack
+
+The CPS-2 ports' custom soundtrack (cps2recomp's port/soundtrack.* and decoders, unchanged but for names), fed by
+3rd Strike's music driver as music.cpp reads it: the song table at the address kept at 0x02079C6C (49 songs, from
+1), track 0's record (0x02078D0C: +0 its place, +4 its start, +0x5E bit 0x80 stopped) saying which song plays and
+when it starts again. A file plays while its song does (the board's music voices left out, unheard: the game's state
+is the same, checked by hash with and without, and over rollbacks); with no file named for a song, the folder plays
+as a playlist through everything. Songs named so far from pictures at their starts (music.cpp); songs.txt lists them.
+Not listened to by a person: checked by the sound's loudness only (the music's voices silent under a file, the effects
+heard, the file's tone in --soundtrack-dump).
+
 ## Next
 
 1. Frame data: recovery and advantage against published data (startups agree with the recorded animations; active
@@ -81,7 +92,8 @@
    music and effects, and their samples are mixed in the data; the sound driver's own record of what each voice
    plays is to find), New Generation's stage number and its stage ends, the stage rule checked on every stage, the
    stage boards translated, a proper menu of stages by name.
-4. Custom soundtrack (needs the music requests, as 3).
+4. Custom soundtrack: done (below); to place the songs not heard yet (those songs.txt gives no name:
+   the stages of the characters not met in made-up play, the endings) and the stage songs' second halves.
 5. Translation coverage: more recorded play (every character, supers, the endings).
 6. Widescreen on every stage and screen; the objects the game culls at its 384 columns.
 7. Linux / Windows builds (cps2recomp's and fighting_vipers' tools/release as the model), then the other devices.
