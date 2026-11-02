@@ -23,6 +23,10 @@
 - The BIOS checks each program SIMM's flash ID (04 / AD) with the SH-2's DMA from the cache-through mirror
   0x26000000; the DMA reads past the cipher.
 
+- Widescreen (Game category: it changes play): 64 columns more each side (the renderer's margin: tilemaps drawn on,
+  objects and the text layer moved over); in a fight the camera's ends (02026CF4/CF6 right, CF8/CFA left) are
+  narrowed by 64 so the picture never shows past the stage. Seen on Ken's stage at both ends; other stages, the
+  objects the game leaves out at the edges (it culls to its 384 columns) and non-fight screens not looked at.
 - Straight to the opening (skip_intro, Enhanced): the first 760 frames (memory checks, region warning, Capcom's
   logo) fast-forwarded. Cheats: no damage (each player), infinite time.
 - Credits: byte 02007CE0 (free_play keeps it at 2). Round clock: byte 02011377 (seconds; infinite_time).

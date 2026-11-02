@@ -27,6 +27,9 @@ constexpr uint32_t kMatchState = 0x020154A7;
 constexpr uint32_t kSelectState[2] = {0x0201553D, 0x02015545};
 // The camera: the middle of the picture in the stage (signed words)
 constexpr uint32_t kCameraX = 0x02026CB0, kCameraY = 0x02026CB4;
+// ... and the ends it keeps the camera between in the stage (words, each twice; 272 and 748 on Ken's stage)
+constexpr uint32_t kCameraRight[2] = {0x02026CF4, 0x02026CF6};
+constexpr uint32_t kCameraLeft[2] = {0x02026CF8, 0x02026CFA};
 // The players' records (checked: life and position change as the fight's pictures do)
 constexpr uint32_t kPlayer[2] = {0x02068C6C, 0x02069104};
 // ... and in them

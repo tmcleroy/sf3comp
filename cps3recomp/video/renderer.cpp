@@ -98,15 +98,16 @@ void Renderer::DrawTilemapLine(const Machine &m, const uint32_t *regs, int line,
     if (lineScroll) {
         scrollX += static_cast<int>((m.SpriteRam(lineBase | ((mapLine + 16) & 0x3FF)) >> 16) & 0x3FF);
     }
+    scrollX -= margin; // (the columns added at the left show the map further left)
     const Clip row = {clip.left, clip.right, line, line};
     for (int x = clip.left / 16; x < clip.right / 16 + 2; x++) {
-        const uint32_t tile = m.SpriteRam(mapBase + ((tileLine & 63) << 6) + (((x + (scrollX >> 4)) & 63) ^ xFlipMask));
+        const uint32_t tile = m.SpriteRam(mapBase + ((tileLine & 63) << 6) + (((x + (scrollX >> 4)) & 63) ^ xFlipMask)); // (>> 4: rounding down)
         const uint32_t code = tile >> 17;
         const bool flipX = (((tile >> 12) & 1) ^ (xFlipMask & 1)) != 0;
         const bool flipY = (tile >> 11) & 1;
         const bool blend = (tile >> 10) & 1;
         const int granularity = ((tile >> 9) & 1) ? 64 : 256;
-        DrawTile(m, row, code, tile & 0x1FF, granularity, flipX, flipY, x * 16 - scrollX % 16, line - subLine, blend, 0x10000, 0x10000);
+        DrawTile(m, row, code, tile & 0x1FF, granularity, flipX, flipY, x * 16 - (scrollX & 15), line - subLine, blend, 0x10000, 0x10000);
     }
 }
 
@@ -128,7 +129,7 @@ void Renderer::DrawText(const Machine &m, uint32_t *pixels, int width, int heigh
             const uint8_t *chr = ss + 0x4000 + tile * 32 + (flipY ? 7 - sub : sub) * 4;
             const uint32_t base = (colour * 16) & 0x1FFFF;
             for (int copy = 0; copy < 2; copy++) {
-                const int sx = copy * 512 + x * 8 - rowScroll;
+                const int sx = copy * 512 + x * 8 - rowScroll + margin;
                 for (int px = 0; px < 8; px++) {
                     const int dx = sx + px;
                     if (dx < 0 || dx >= width) {
@@ -156,6 +157,7 @@ void Renderer::Draw(const Machine &m, std::vector<uint32_t> &pixels, int &width,
     if (height <= 0 || height > 256) {
         height = 224;
     }
+    width += 2 * margin;
     pixels.assign(static_cast<size_t>(width) * height, 0);
     m_buffer.assign(static_cast<size_t>(kBufferWidth) * kBufferHeight, 0);
 
@@ -223,6 +225,7 @@ void Renderer::Draw(const Machine &m, std::vector<uint32_t> &pixels, int &width,
             if (cx & 0x200) {
                 cx -= 0x400;
             }
+            cx += margin;
             for (int yy = 0; yy < countY; yy++) {
                 int cy = flipY ? y + static_cast<int>((yy * yinc) >> 16) : y - static_cast<int>((yy * yinc) >> 16);
                 cy = ((0x3FF - cy) - 17) & 0x3FF;

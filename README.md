@@ -8,7 +8,7 @@ The aim is one definitive Street Fighter III: **3rd Strike**'s gameplay, with th
 ports ([CPS-2 Recomp](https://github.com/tmcleroy/cps2recomp)): training mode, online play, widescreen and the rest.
 
 **Status:** early. 3rd Strike runs on the port's own CPS-3 machine (an interpreter for now; translation is coming),
-with the launcher, the in-game menu, save states, free play, the CPS-2 ports' display options, and a training mode
+with the launcher, the in-game menu, save states, free play, the CPS-2 ports' display options, widescreen, and a training mode
 (hit boxes, input display, combo readout, frame meter, the dummy), and online play with rollback between two
 machines (checked on one machine so far).
 

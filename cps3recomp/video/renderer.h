@@ -21,6 +21,9 @@ public:
     // Draws the frame into `pixels` (0x00BBGGRR, `width` x `height`, which the board's registers set: 384 x 224
     // or 496 x 224)
     void Draw(const machine::Machine &m, std::vector<uint32_t> &pixels, int &width, int &height);
+    // Columns added on each side (widescreen): the tilemaps drawn on into them, the objects and the text layer moved
+    // over by as much; 0 is the board's picture
+    int margin = 0;
 
 private:
     std::vector<uint32_t> m_buffer; // colour numbers, up to twice the screen each way (the whole-picture zoom)

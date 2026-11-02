@@ -172,6 +172,8 @@ namespace {
     }
 } // namespace
 
+void WidescreenState(Archive &ar);
+
 void TrainingBeforeFrame(Machine &m) {
     if (InMatch()) {
         for (int p = 0; p < 2; p++) {
@@ -235,6 +237,7 @@ void RegisterTraining(Game &game) {
     d.ownAids = {"hit_boxes", "full_meter", "full_meter_2"};
     session::Register(d);
     game.state = [](Archive &ar) {
+        WidescreenState(ar);
         ar.Pod(g);
         session::State(ar);
     };

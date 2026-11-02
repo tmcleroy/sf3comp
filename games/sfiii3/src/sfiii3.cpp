@@ -12,6 +12,7 @@
 namespace cps3recomp {
 
 void RegisterTraining(Game &game);
+void WidescreenBeforeFrame(Machine &m, bool fighting);
 void TrainingBeforeFrame(Machine &m);
 void TrainingAfterFrame(Machine &m);
 
@@ -41,12 +42,17 @@ namespace {
         if (FeatureOn("infinite_time") && clock > 0 && clock < 99) {
             SetRam8(sfiii3::kClock, 99);
         }
+        WidescreenBeforeFrame(m, (Ram8(sfiii3::kLocked[0]) == 0xFF || Ram8(sfiii3::kLocked[1]) == 0xFF) && Ram8(sfiii3::kMatchState) == 2);
         TrainingBeforeFrame(m);
     }
 } // namespace
 
 void RegisterGame() {
     Game &game = TheGame();
+    game.features.push_back({"widescreen", "Game", "Widescreen",
+                             "16:9: 64 more columns of the stage on each side. In a fight the camera stays 64 columns further from "
+                             "the stage's ends, so the corners come that much sooner than on the board.",
+                             0});
     game.features.push_back({"skip_intro", "Game", "Straight to the opening",
                              "The board's start-up (its memory checks, the region's warning and Capcom's logo) runs unseen, so the game "
                              "shows from its opening in about two seconds.",

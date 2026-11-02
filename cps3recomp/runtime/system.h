@@ -37,7 +37,7 @@ enum Button : uint16_t {
 
 // The picture's size (the board can also show 496 columns: PictureWidth)
 struct Video {
-    static constexpr int kWidth = 384, kHeight = 224, kMaxWidth = 496;
+    static constexpr int kWidth = 384, kHeight = 224, kMaxWidth = 624; // (496, the board's wide mode, with widescreen's columns)
 };
 
 // The board's settings memory, as the port keeps it in a file
@@ -67,6 +67,13 @@ public:
     }
     int PictureWidth() const {
         return m_width;
+    }
+    // Widescreen: columns the picture gets on each side (0: the board's)
+    void SetWideMargin(int margin) {
+        m_renderer.margin = margin;
+    }
+    int WideMargin() const {
+        return m_renderer.margin;
     }
     // The sound made since the port last took it: 16-bit stereo, left first, at Pcm::kRate
     std::vector<int16_t> audio;
