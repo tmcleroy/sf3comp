@@ -7,6 +7,7 @@
 #include "game.h"
 #include "lift.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <iterator>
@@ -249,10 +250,53 @@ namespace {
         return true;
     }
 
+
+    // A signed division by the game's own routine (0612D428), so that every quotient is its: r1 / r0
+    int32_t Quotient(Guest &g, int32_t dividend, int32_t divisor) {
+        g.R(1) = static_cast<uint32_t>(dividend);
+        g.R(0) = static_cast<uint32_t>(divisor);
+        g.Call(kDivide);
+        return static_cast<int32_t>(g.R(0));
+    }
+
+    // 0611E27C: a hit's damage as it is scaled. A fighter low on health takes less (its character's "guts": a table
+    // of six by how much health is left, a sixteenth of the bar each, or a nineteenth for the characters whose bar is
+    // 192), then the combo's scaling ((32 - the hits so far, +0x440) of 32 ... as the record's own ratio has it, +0xA4
+    // and +0xA6, the board's damage level); never less than 1. Leaves r1 at the damage's place in the record.
+    constexpr uint32_t kFullHealth = 0x02016B30, kGuts = 0x065EB574;
+    bool ScaleDamage(Guest &g) {
+        const uint32_t player = g.R(4);
+        const auto word = [&](uint32_t offset) { return static_cast<int32_t>(static_cast<int16_t>(g.Read16(player + offset))); };
+        if (word(kDamage) == 0) {
+            g.Return(8);
+            return true;
+        }
+        const int32_t full = static_cast<int16_t>(g.Read16(kFullHealth));
+        const int32_t health = word(kHealth);
+        if (health < Quotient(g, full * 10, 10)) {
+            // (guts: the less health left, the less damage)
+            int32_t level = full == 0xC0 ? Quotient(g, health, 19) : (health + (health < 0 ? 15 : 0)) >> 4;
+            level = std::min<int32_t>(static_cast<int16_t>(level), 5);
+            const int32_t character = word(0x3C0);
+            const int32_t guts = static_cast<int16_t>(g.Read16(kGuts + static_cast<uint32_t>(static_cast<int16_t>(character * 12)) + static_cast<uint32_t>(level) * 2));
+            g.Write16(player + kDamage, static_cast<uint16_t>(Quotient(g, static_cast<int16_t>(guts) * static_cast<int16_t>(word(kDamage)), word(0xA4))));
+        }
+        // (the combo's scaling, then the ratio)
+        g.Write16(player + kDamage, static_cast<uint16_t>(Quotient(g, static_cast<int32_t>(static_cast<uint32_t>(32 - word(0x440)) * static_cast<uint32_t>(word(kDamage))), word(0xA4))));
+        g.Write16(player + kDamage, static_cast<uint16_t>(Quotient(g, static_cast<int16_t>(word(0xA4)) * static_cast<int16_t>(word(kDamage)), word(0xA6))));
+        g.R(1) = player + kDamage;
+        if (word(kDamage) <= 0) {
+            g.Write16(player + kDamage, 1);
+        }
+        g.Return(60);
+        return true;
+    }
+
     const Lift kLifts[] = {
         {"NextRandom", 0x0611E0EE, 24, 0xF56C31F46D9EC36Aull, NextRandom, true},
         {"ClockTick", 0x060D7BAE, 0x30, 0xD096A0977F288F4Bull, ClockTick, true, 0x100FE},
         {"TakeDamage", 0x06124BC4, 0x40, 0x19433AC288C4268Aull, TakeDamage, true, 0x100FF},
+        {"ScaleDamage", 0x0611E27C, 0x3C, 0xB1FAE055D7A4391Bull, ScaleDamage, true, 0x1007D},
         {"ClockFlash", 0x060D7CB8, 0x48, 0x21663C64E30E0582ull, ClockFlash, true, 0x1007E},
     };
 
