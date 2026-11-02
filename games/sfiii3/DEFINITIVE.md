@@ -37,17 +37,17 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
   0x020221AB (setting those alone does not choose it).
 
 - New Generation's: the camera 0x0201BE84 (copies 0x0201BE7C, 0x0201BE94), its left edge 0x0201BE6E (copy
-  0x0201BEF0); its stage's ends are not kept beside it as in the later two (the words there are ±240 and 208): taken
-  as 3rd Strike's (272-748) for now. The clock 0x0200EB33 (copy 0x0201DB15, 54 frames a second), the players' health
+  0x0201BEF0); its stage's ends are beside it as in the later two (+0x44 and +0x48; on the rainy London stage in
+  its fighters' coordinates: below). The clock 0x0200EB33 (copy 0x0201DB15, 54 frames a second), the players' health
   0x0200D22B and 0x0200D603 (copies at +2, and the HUD's 0x0201DAF1 and 0x0201DB09; the records 0x0200D18C and
   0x0200D564, 0x3D8 apart). Its stage number: 0x02012CA3 (as 2nd Impact's:
-  copies at +0x0F and next to the clock at +0x11): 4 London, 8 the cliffs, 12 a snowy street seen.
+  copies at +0x0F and next to the clock at +0x11): numbered as 3rd Strike numbers its characters (below).
 - Both seen working: 3rd Strike's fight on New Generation's London stage, and on 2nd Impact's street stage chosen by
   its number (`--stage-number 4`).
 
 - In the game: the Display page's "Stages (experiment)" (games/sfiii3/src/stages.cpp, runtime/system.h's stage
-  board): every stage of New Generation (numbers 0-12) and 2nd Impact (0-14; 15 repeats 14), named for what they show
-  (whose each is: to name properly), from the
+  board): every stage of New Generation (numbers 0-12) and 2nd Impact (0-14; 15 repeats 14), named by whose stage each is
+  (below), from the
   sets beside the player's 3rd Strike set. Seen in pictures only.
 
 - 3rd Strike's sound, so far (for its music to give way to the stage game's): the driver is at 0x0613B000-0x0613BD00
