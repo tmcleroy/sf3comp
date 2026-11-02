@@ -33,6 +33,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <iterator>
 #include <string>
 #include <vector>
@@ -61,6 +62,8 @@ namespace {
     constexpr int kFadeFor = 75;                        //   frames of fading out (and as many in)
     constexpr int kScrollSpeeds[] = {64, 128, 256};     // (endless, scrolling) 256ths of a pixel a frame
     enum { kStageShuffle, kStageScroll };               // (endless_stage's first two choices; then the stages)
+    constexpr int kDropFor = 60;                        // (ring out) frames of the way down to the next stage
+    constexpr uint32_t kRingShownFor = 70;              // (ring out) frames the one thrown out is seen flying off
     constexpr int kOutPast = 40;          // (ring out) how far past its wall a fighter is out
     constexpr uint32_t kKnockedFor = 50;  // (ring out) frames after a hit that a fighter's wall lets it go
 
@@ -95,7 +98,9 @@ namespace {
         uint16_t hits[2] = {};
         uint32_t hitAt[2] = {};
         bool out[2] = {};
+        int drop = 0;           // (ring out) frames into the way down (0: none)
     } b;
+    std::vector<uint32_t> g_oldPicture; // (ring out) the old stage's last picture, going up and out as the next comes up
     std::vector<uint8_t> g_atChoice; // the machine at character select, both players in: where each match begins
     Spare g_next;
 
@@ -370,6 +375,33 @@ namespace {
     }
 } // namespace
 
+// After the frame (its picture made): the ring out's way down, the old stage going up and out of the picture as the
+// next comes up from below, the fighters with it
+void BattleAfterFrame(Machine &m) {
+    if (b.mode != kRingOut || b.drop == 0) {
+        return;
+    }
+    const size_t width = static_cast<size_t>(m.PictureWidth());
+    if (g_oldPicture.size() != width * Video::kHeight) {
+        b.drop = 0;
+        return;
+    }
+    // (eased: quick at first, slowing as it lands)
+    const double t = static_cast<double>(b.drop) / kDropFor;
+    const int up = static_cast<int>(Video::kHeight * (1.0 - (1.0 - t) * (1.0 - t)));
+    uint32_t *picture = m.Picture();
+    std::vector<uint32_t> next(picture, picture + width * Video::kHeight);
+    for (int y = 0; y < Video::kHeight; y++) {
+        const int from = y + up; // (rows of the old picture still in sight, then the new one's from its top)
+        const uint32_t *row = from < Video::kHeight ? &g_oldPicture[static_cast<size_t>(from) * width] : &next[static_cast<size_t>(from - Video::kHeight) * width];
+        memcpy(picture + static_cast<size_t>(y) * width, row, width * sizeof(uint32_t));
+    }
+    if (++b.drop > kDropFor) {
+        b.drop = 0;
+        g_oldPicture.clear();
+    }
+}
+
 bool BattleOn() {
     return b.mode != kNone;
 }
@@ -477,7 +509,13 @@ void BattleBeforeFrame(Machine &m) {
                 g_next.ready = ToRound(spare, static_cast<uint32_t>(g_next.frames), true);
             });
         }
-        if (g_next.ready && b.frames - b.decidedAt >= kShownFor) {
+        const uint32_t shown = b.mode == kRingOut ? kRingShownFor : kShownFor;
+        if (g_next.ready && b.frames - b.decidedAt >= shown) {
+            if (b.mode == kRingOut) {
+                // (the way down: the old stage's picture kept, to go up and out over the next one's)
+                g_oldPicture.assign(m.Picture(), m.Picture() + static_cast<size_t>(m.PictureWidth()) * Video::kHeight);
+                b.drop = 1;
+            }
             if (getenv("SFIII3_BATTLE_LOG")) {
                 fprintf(stderr, "battle: frame %u, the next match on (its machine run %d frames), %d %d\n", b.frames, g_next.frames, b.want[0], b.want[1]);
             }

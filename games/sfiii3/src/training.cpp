@@ -485,7 +485,10 @@ void TrainingBeforeFrame(Machine &m) {
     }
 }
 
+void BattleAfterFrame(Machine &m);
+
 void TrainingAfterFrame(Machine &m) {
+    BattleAfterFrame(m);
     ReadSteps();
     session::Frame(m);
 }
