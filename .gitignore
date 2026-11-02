@@ -8,3 +8,4 @@
 *.wav
 .DS_Store
 __pycache__/
+/cps3recomp/build/

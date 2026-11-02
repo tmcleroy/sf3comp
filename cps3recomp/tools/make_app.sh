@@ -2,28 +2,18 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Tommy McLeroy. Part of cps3recomp (sf3comp); from cps2recomp.
 #
-# Builds a macOS app bundle from the launcher and the port: make_app.sh GAME, or make_app.sh --collection
-# (the collection's launcher with every game built beside it in build/collection: make collection-app).
+# Builds a macOS app bundle from the launcher and the port: make_app.sh GAME (run from the repository's top).
 # The bundle holds the launcher (what opens), the game programs and SDL3. No game data: the player
 # points the launcher at their own ROM sets. A game program does contain code translated
-# from the game: whether a bundle is given to others is the port owner's decision. (A release's app is
-# made by tools/release/macos.sh, with SDL built in.)
+# from the game: whether a bundle is given to others is the port owner's decision. 
 set -e
 CFG="python3 $(dirname "$0")/gamecfg.py"
-if [ "$1" = "--collection" ]; then
-    B=${B:-build/collection}
-    NAME="CPS-2 Recomp"
-    APP_ID=io.github.tmcleroy.cps2recomp
-    LAUNCHER=cps2recomp-launcher
-    PROGRAMS=$(cd "$B" && for cfg in ../../games/*/game.cfg; do g=$(basename "$(dirname "$cfg")"); [ -f "$g" ] && echo "$g"; done)
-else
-    GAME=$1
-    B=${B:-build/$GAME}
-    NAME=$($CFG name "$GAME")
-    APP_ID=$($CFG app_id "$GAME")
-    LAUNCHER=$GAME-launcher
-    PROGRAMS=$GAME
-fi
+GAME=${1:-sfiii3}
+B=${B:-build/$GAME}
+NAME=$($CFG name "$GAME")
+APP_ID=$($CFG app_id "$GAME")
+LAUNCHER=$GAME-launcher
+PROGRAMS=$GAME
 APP="$B/$NAME.app"
 
 # (nothing to do when the bundle is newer than both programs and this script: `make` asks for it every time)
