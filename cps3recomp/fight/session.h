@@ -69,6 +69,7 @@ void Step(int player, const fight::StepView &view);
 void Contact(int victim, bool guarded);
 void Hit(int player, unsigned damage, bool chip = false);
 fight::Doing Now(int player);
+fight::Frames::Move LastMove(int player);
 
 // Around the port's machine's frame (the game's beforeFrame and frame), and its save states
 void BeforeFrame(Machine &machine);

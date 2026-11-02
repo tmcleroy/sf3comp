@@ -34,9 +34,12 @@
   refills, the dummy (the toolkit's: stand, crouch, jump, guard, record, replay), hit boxes, full meter. Seen working
   in a made-up fight's pictures only. Frame data is read once a frame from the records (not the game's own steps)
   and checked on one move so far: Alex's standing LP reads startup 5, active 2, recovery 8, and the training script's
-  recorded animation a444 has it hitting on frames 5-6 (a hit counts the frame after the box is out). A jump-in hit
-  showed -14 on hit earlier, before the attack boxes (whose lists are in the program's tables, read with Peek32) were
-  seen: to look at again. "Nobody knocked
+  recorded animation a444 has it hitting on frames 5-6 (a hit counts the frame after the box is out). Checked in bulk with
+  `games/sfiii3/framecheck.py` (SFIII3_MOVES=1 logs each move; the reference is the training script's recorded
+  animations, not in the repository): Alex's startups agree on every move recorded (123 of 123 in 12000 frames of
+  made-up play, the recordings' first hit frame counted from 0 being startup less one; a hit registers on the step its
+  box is out). Active differs when a move connects (the hit's freeze and the box taken away at the hit: the reference
+  counts its own way); whiffs agree. Recovery and advantage are not checked against anything yet. "Nobody knocked
   out" puts health back to full below a quarter (no hook on the game's knock-out yet). The player records, boxes, camera and meter places are facts from Grouflon's 3rd_training_lua (no licence:
   facts only, no code), made for the 990512 set; life and positions checked on this 990608 set, the rest seen to
   work in a fight's pictures only.

@@ -147,6 +147,9 @@ void Hit(int player, unsigned damage, bool chip) {
 fight::Doing Now(int player) {
     return g_frames.Now(player);
 }
+fight::Frames::Move LastMove(int player) {
+    return g_frames.LastMove(player);
+}
 
 void BeforeFrame(Machine &machine) {
     if (g_boot) {

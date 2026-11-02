@@ -23,8 +23,10 @@ namespace cps3recomp {
 
 namespace {
     struct State {
+        uint16_t moveAnim[2] = {};  // (the frame data log: each move's animation, from its first step)
+        uint32_t loggedAt[2] = {};
         uint16_t hits[2] = {}, marker[2] = {};
-        uint8_t health[2] = {}, blocking[2] = {};
+        uint8_t health[2] = {}, blocking[2] = {}, freeze[2] = {};
         bool reeling[2] = {}, guarding[2] = {};
     } g;
 
@@ -100,6 +102,9 @@ namespace {
             }
             return;
         }
+        // First what landed this frame on each player (the attacker's move connected this step, whatever its boxes say:
+        // a hit can take the box away the frame it lands)
+        bool landed[2] = {};
         for (int p = 0; p < 2; p++) {
             const uint32_t base = Player(p);
             const uint16_t hits = Ram16(base + sfiii3::kHitCount);
@@ -107,17 +112,24 @@ namespace {
             const bool guardStarted = Guarding(p) && !g.guarding[p];
             g.hits[p] = hits;
             if (hit) {
+                if (getenv("SFIII3_STEPS")) {
+                    fprintf(stderr, "contact: player %d hit\n", p + 1);
+                }
                 g.reeling[p] = true;
                 session::Contact(p, false);
             } else if (guardStarted) {
                 session::Contact(p, true);
             }
+            landed[1 - p] = hit || guardStarted;
             g.guarding[p] = Guarding(p);
             const uint8_t health = Ram8(base + sfiii3::kLife);
             if (health < g.health[p]) {
                 session::Hit(p, g.health[p] - health, g.guarding[p] && !hit);
             }
             g.health[p] = health;
+        }
+        for (int p = 0; p < 2; p++) {
+            const uint32_t base = Player(p);
             const bool idle = Idle(p);
             if (idle) {
                 g.reeling[p] = false;
@@ -130,13 +142,28 @@ namespace {
             view.attacking = Ram8(base + sfiii3::kAttacking) != 0;
             view.jumping = Signed16(base + sfiii3::kY) > 0;
             view.attackOut = AnyBox(p, 0x2C8, 4);
+            (void)landed;
             // (debugging aid, SFIII3_STEPS=1: what is read of each player, each frame)
             static const bool printSteps = getenv("SFIII3_STEPS") != nullptr;
             if (printSteps && p == 0) {
                 fprintf(stderr, "step: control %d canAct %d frozen %d attacking %d jumping %d attackOut %d anim %04X -> %d\n", view.control,
                         view.canAct, view.frozen, view.attacking, view.jumping, view.attackOut, Ram16(base + 0x202), static_cast<int>(session::Now(p)));
             }
+            const fight::Doing before = session::Now(p);
             session::Step(p, view);
+            // (debugging aid, SFIII3_MOVES=1: each move's character, animation, startup, active and recovery as measured,
+            // for tools/framecheck.py to compare with the training script's recorded animations)
+            static const bool logMoves = getenv("SFIII3_MOVES") != nullptr;
+            if (logMoves) {
+                if (before == fight::Doing::Free && session::Now(p) != fight::Doing::Free) {
+                    g.moveAnim[p] = Ram16(base + 0x202);
+                }
+                const fight::Frames::Move move = session::LastMove(p);
+                if (move.at && move.at != g.loggedAt[p]) {
+                    g.loggedAt[p] = move.at;
+                    printf("move %d %u %04x %u %u %u\n", p, Ram16(base + 0x3C0), g.moveAnim[p], move.startup, move.active, move.recovery);
+                }
+            }
         }
     }
 
