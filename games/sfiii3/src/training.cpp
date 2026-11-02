@@ -222,19 +222,30 @@ void RegisterTraining(Game &game) {
     d.choosing = [] { return !InMatch() && (Ram8(sfiii3::kSelectState[0]) >= 1 || Ram8(sfiii3::kSelectState[1]) >= 1) &&
                              (Ram8(sfiii3::kSelectState[0]) < 5 || Ram8(sfiii3::kSelectState[1]) < 5); };
     d.facingLeft = [](int p) { return Ram8(sfiii3::kPlayer[p] + sfiii3::kFacing) == 0; };
-    d.hud = [](Machine &, std::vector<HudLine> &, std::vector<HudBox> &boxes) {
+    d.hud = [](Machine &, std::vector<HudLine> &lines, std::vector<HudBox> &boxes) {
         if (FeatureOn("hit_boxes")) {
             Boxes(boxes);
+        }
+        if (FeatureOn("stun_readout")) {
+            // (under each health bar, at its outer end: taken / the most before a stun)
+            for (int p = 0; p < 2; p++) {
+                const uint32_t most = Ram8(sfiii3::kStunMost[p]), taken = Ram32(sfiii3::kStunMost[p] + 6) >> 24;
+                char text[32];
+                snprintf(text, sizeof(text), "STUN %u/%u", taken, most);
+                lines.push_back({p == 0 ? 0.10f : 0.90f, 0.115f, p == 0 ? -1 : 1, text, 255, 210, 80});
+            }
         }
     };
     d.features = {
         {"hit_boxes", session::kPage, "Hit boxes",
          "Each fighter's boxes over the picture: blue where it can be hit, red where it hits, yellow its throw, pink where it can be "
          "thrown, green the body that pushes."},
+        {"stun_readout", session::kPage, "Stun readout",
+         "Under each health bar: how much stun the player has taken, and how much stuns them (it drains when they are left alone)."},
         {"full_meter", session::kPage, "Full meter", "Player 1's super art meter is always full."},
         {"full_meter_2", session::kPage, "Full meter, player 2", "Player 2's super art meter is always full."},
     };
-    d.ownAids = {"hit_boxes", "full_meter", "full_meter_2"};
+    d.ownAids = {"hit_boxes", "stun_readout", "full_meter", "full_meter_2"};
     session::Register(d);
     game.state = [](Archive &ar) {
         WidescreenState(ar);
