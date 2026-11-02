@@ -374,14 +374,10 @@ namespace {
 } // namespace
 
 void WidescreenState(Archive &ar);
-void SurvivalState(Archive &ar);
-void SurvivalHud(std::vector<HudLine> &lines);
+void BattleState(Archive &ar);
+void BattleHud(std::vector<HudLine> &lines);
 void RingOutState(Archive &ar);
 void RingOutHud(std::vector<HudLine> &lines);
-void EndlessState(Archive &ar);
-void EndlessHud(std::vector<HudLine> &lines);
-void TeamState(Archive &ar);
-void TeamHud(std::vector<HudLine> &lines);
 
 void TrainingBeforeFrame(Machine &m) {
     if (InMatch()) {
@@ -513,10 +509,8 @@ void RegisterTraining(Game &game) {
                              (Ram8(sfiii3::kSelectState[0]) < 5 || Ram8(sfiii3::kSelectState[1]) < 5); };
     d.facingLeft = [](int p) { return Ram8(sfiii3::kPlayer[p] + sfiii3::kFacing) == 0; };
     d.hud = [](Machine &, std::vector<HudLine> &lines, std::vector<HudBox> &boxes) {
-        SurvivalHud(lines);
+        BattleHud(lines);
         RingOutHud(lines);
-        EndlessHud(lines);
-        TeamHud(lines);
         if (FeatureOn("hit_boxes")) {
             Boxes(boxes);
         }
@@ -638,10 +632,8 @@ void RegisterTraining(Game &game) {
     session::Register(d);
     game.state = [](Archive &ar) {
         WidescreenState(ar);
-        SurvivalState(ar);
+        BattleState(ar);
         RingOutState(ar);
-        EndlessState(ar);
-        TeamState(ar);
         ar.Pod(g);
         session::State(ar);
     };

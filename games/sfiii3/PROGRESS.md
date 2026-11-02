@@ -42,11 +42,14 @@
   (r4: song or effect, 16 callers); a stage song asked for (10-41, two a stage) is changed for the chosen stage's.
 - Stage viewer (training page): Machine::onlyStage draws the board's own stage objects and no text layer (or the
   stage board's picture alone); the stick moves both fighters together so the camera scrolls.
-- Endless battle (its own page, a command): a board reset and the way to character select as a session's, then the
-  game's own versus with both players the computer's (record byte 3) and a character at random each match (the
-  chosen byte); the players put back in with Start when out. Seen in pictures over four matches.
-- Survival (its own page; online it is off, and its best kept as it is): a one-player game whose health carries over (written as each round begins), a tenth back
-  per round won, the best run kept (survival_best); knock-outs read as health 0 or 255.
+- Survival, endless battle and team battle (games/sfiii3/src/battle.cpp, as cps2recomp's fight/battle.h): a board
+  reset to character select for two players, that machine kept, and each next match made on a spare machine
+  (runtime/spare.h, cps2recomp's) from it while the knock-out plays (six of its frames a frame, about 70 frames of
+  the port's), then put in the port's place: no screens between fights. Characters by kChosen, the stage by kStage,
+  the computer's sides by record byte 3, a match decided by kRoundsWon. Endless: no panel (the text layer not drawn),
+  no clock, the loser replaced, a side a person's while they touch it. Survival: the player's character kept with
+  its health (and a tenth back), a new opponent each time. Team: the loser's next on fresh, the winner with its
+  health. Seen in pictures and logs; not hand-played.
 - Credits: byte 02007CE0 (free_play keeps it at 2). Round clock: byte 02011377 (seconds; infinite_time).
 - The DMA-done interrupt (level 10) drives the game's queue of character and palette DMAs (handler 060004D0 calls
   06138230: state word 0207603C, queues at 0207803C / 0207844C). Its timing matters: with the board's clock read

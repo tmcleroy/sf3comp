@@ -108,7 +108,7 @@ set(PORT_SOURCES
     ${CR}/port/soundtrack.cpp ${CR}/port/decoders.cpp
     ${CR}/recomp-common/launcher/src/online.cpp ${CR}/recomp-common/launcher/src/run_program.cpp
     ${CR}/recomp-common/menu.cpp ${CR}/recomp-common/settings.cpp
-    ${CR}/runtime/game.cpp ${CR}/runtime/system.cpp ${CR}/runtime/soundtrack.cpp ${CR}/fight/frames.cpp ${CR}/fight/training.cpp ${CR}/fight/session.cpp ${GAME_SOURCES})
+    ${CR}/runtime/game.cpp ${CR}/runtime/system.cpp ${CR}/runtime/soundtrack.cpp ${CR}/runtime/spare.cpp ${CR}/fight/frames.cpp ${CR}/fight/training.cpp ${CR}/fight/session.cpp ${GAME_SOURCES})
 if (APPLE)
     enable_language(OBJCXX)
     list(APPEND PORT_SOURCES ${CR}/port/front_macos.mm)

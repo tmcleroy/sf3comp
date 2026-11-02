@@ -19,14 +19,11 @@ void RegisterBoard(Game &game);
 void BoardBeforeFrame(Machine &m);
 void StagesBeforeFrame(Machine &machine);
 void MusicBeforeFrame(Machine &machine);
-void SurvivalBeforeFrame(Machine &machine);
 void RingOutBeforeFrame(Machine &machine);
+void BattleBeforeFrame(Machine &machine);
+void RegisterBattle(Game &game);
+bool BattleOn();
 void RegisterRingOut(Game &game);
-void EndlessBeforeFrame(Machine &machine);
-void TeamBeforeFrame(Machine &machine);
-void RegisterTeam(Game &game);
-void RegisterEndless(Game &game);
-void RegisterSurvival(Game &game);
 void RegisterMusic(Game &game);
 void WidescreenBeforeFrame(Machine &m, bool fighting);
 void TrainingBeforeFrame(Machine &m);
@@ -69,12 +66,10 @@ namespace {
         }
         WidescreenBeforeFrame(m, (Ram8(sfiii3::kLocked[0]) == 0xFF || Ram8(sfiii3::kLocked[1]) == 0xFF) && Ram8(sfiii3::kMatchState) == 2);
         MusicBeforeFrame(m);
-        SurvivalBeforeFrame(m);
         RingOutBeforeFrame(m);
         StagesBeforeFrame(m);
         TrainingBeforeFrame(m);
-        EndlessBeforeFrame(m);
-        TeamBeforeFrame(m);
+        BattleBeforeFrame(m);
     }
 } // namespace
 
@@ -109,10 +104,9 @@ void RegisterGame() {
     RegisterLifts3rdStrike();
     RegisterStages(game);
     RegisterMusic(game);
-    RegisterSurvival(game);
     RegisterRingOut(game);
-    RegisterEndless(game);
-    RegisterTeam(game);
+    RegisterBattle(game);
+    game.noRunAhead = BattleOn; // (a mode with a spare machine: its frames are not run ahead)
     // The menu's pages for the ways of playing beyond the board's own (as the CPS-2 ports have them)
     game.pages.push_back({"Alternative modes", "", "Ways to play beyond the arcade game: training, survival, ring out, endless and "
                                                    "team battles.", true});
