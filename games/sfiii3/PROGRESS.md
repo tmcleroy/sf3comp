@@ -92,7 +92,9 @@
 
 - No one has seen it in a window, played it with a pad or keyboard, or heard it. Pictures and WAVs from headless runs
   only. The launcher's pictures were taken with no window.
-- Online play compiles but has never been tried (its service is cps2recomp's; the lobby is keyed by `sfiii3`).
+- Online play: played between the Mac and the Steam Deck by the user (2026-11-02), it works. The launcher's Online
+  page (recomp-common's single-game Online page, PR #48 there, merged with main for this copy).
+- (old note) Online play compiles but has never been tried (its service is cps2recomp's; the lobby is keyed by `sfiii3`).
 - The VS screen shows horizontal stripes: probably the game's wipe, not checked against the board.
 
 ## Custom soundtrack
@@ -127,7 +129,10 @@ heard, the file's tone in --soundtrack-dump).
    graphics SIMMs as its match begins (player 1's to colours 0x000-0x1FF and a copy at 0x200, player 2's to 0x400 and
    0x600); a custom colour is given for the graphics word it is read from (Machine::paletteColour), kept per
    character in palettes/<Name>.txt. Not yet: a library of saved sets, colours per colour button named.
-9. The alternative modes10. The alternative modes (tag team: cps2recomp's fight/alternative and battle,
+9. The alternative modes10. Team battle's tag style: done in a first form (battle.cpp: each side's next fighter's fight made on a spare, the
+   other side's record, the camera, clock and rounds carried over on a tag; the newcomer where its partner was). Not
+   yet as cps2recomp's: the jump off and the jump in, the call; a person's partner in co-op/2v2.
+11. The alternative modes (: cps2recomp's fight/alternative and battle,
    3000 lines tied to the CPS-2 games' memory), a music player and model viewer, the colour editor, the board's other settings.
 
 ## Decisions for the user

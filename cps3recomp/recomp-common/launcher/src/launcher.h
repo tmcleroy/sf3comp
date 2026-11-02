@@ -138,6 +138,11 @@ struct Description {
     // sidebar), and a dropped file goes to a page of the port's own only while that page is shown (else it is the
     // game file): for pages that are extras, not the way in
     bool open_on_game_page = false;
+    // Online play on a page of its own after Game (hosting, joining, the lobby, the waiting room, as a collection's
+    // Online page has them), rather than a card on the Game page. With Online::host_argument and join_argument.
+    bool online_page = false;
+    // The port's own pages after Game (and Online), before Features, rather than first
+    bool own_pages_after_game = false;
     // false: no Game page (and no game file, check or Display card): the port's pages have Play
     bool game_page = true;
 

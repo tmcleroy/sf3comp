@@ -128,6 +128,12 @@ const launcher::Description& launcher::describe() {
         d.online.arcade_argument = "--net-arcade";
         d.online.invite_argument = "--net-invite";
         d.online.invite_name_argument = "--net-invite-name";
+        // (the waiting room: the players whose Online page is open, to invite to a match)
+        static const std::string room = std::string(port::Netplay::kService) + "/v1/room";
+        d.online.room = room.c_str();
+        d.online.room_protocol = port::Netplay::kProtocol;
+        d.online.game = LAUNCHER_GAME_EXE;
+        d.online_page = true; // (hosting, joining, the lobby and the waiting room on a page of their own, after Game)
         d.display = {{"fullscreen", "Full screen", "F11 switches while playing.", false, nullptr},  // (a window unless asked)
                      {"widescreen", "Widescreen", "16:9: more of the stage at each side (the corners come a little sooner).", false, nullptr}};
         d.bindings = port::MakeBoundTable(2, "", false).table;

@@ -247,6 +247,12 @@ private:
     int room_protocol() const;
     // A game's id in the waiting room: a collection's game's, or the one game's Online::game
     std::string room_game(size_t which) const;
+    // A launcher of one game: its sidebar's pages in order, each a port's own page (its place in Description::pages) or
+    // -1 - a Page; and the port's own page at a place (-1: none)
+    std::vector<int> single_layout() const;
+    int port_page(int index) const;
+    int place_of(Page kind) const;
+    void single_online_page(float width);
     void follow_room(bool here);
     // A card's small capitals, with "Updates every 10 seconds" at the right, and a spinner beside it while `fetching`
     void live_label(const char* text, float width, bool fetching);

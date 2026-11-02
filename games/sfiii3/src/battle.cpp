@@ -103,7 +103,17 @@ namespace {
         int drop = 0;           // (ring out) frames into the way down (0: none)
         int8_t jumper = -1;     // (ring out) the winner, who jumps off the old stage and comes down onto the next
         int16_t jumpX = 0;      // ... where in the picture it was as it went (columns from the picture's middle)
+        // (team battle, the tag style) each fighter's health while it rests (0: down), the stage fought on, when each side
+        // may tag again, the characters each side's tag spare was made for, and the computer's last look
+        bool tagStyle = false;
+        uint8_t kept[2][kMost] = {};
+        uint8_t stageNow = 0;
+        uint32_t tagCool[2] = {};
+        int8_t madeFor[2][2] = {{-1, -1}, {-1, -1}};
+        uint16_t rest = 0;
+        bool startWas[2] = {};
     } b;
+    Spare g_tag[2]; // (the tag style) each side's next fighter's fight, made ready
     std::vector<uint32_t> g_oldPicture; // (ring out) the old stage's last picture, going up and out as the next comes up
     std::vector<uint8_t> g_atChoice; // the machine at character select, both players in: where each match begins
     Spare g_next;
@@ -162,6 +172,9 @@ namespace {
         if (StageWanted() >= 0) {
             SetRam8(sfiii3::kStage, static_cast<uint8_t>(StageWanted()));
         }
+        if (b.mode == kTeam && b.tagStyle && b.started) {
+            SetRam8(sfiii3::kStage, b.stageNow); // (a tag's fight: on the stage fought on)
+        }
         for (int p = 0; p < 2; p++) {
             const uint8_t state = Ram8(sfiii3::kSelectState[p]);
             if (state == 0) {
@@ -191,6 +204,8 @@ namespace {
         b.random ^= static_cast<uint32_t>(machine.frame * 2654435761u) | 1u;
         g_atChoice.clear();
         g_next.Clear();
+        g_tag[0].Clear();
+        g_tag[1].Clear();
         StageBehind(-1);
     }
     void StartSurvival(Machine &machine) {
@@ -223,7 +238,22 @@ namespace {
                 b.member[side][n] = chosen >= 0 ? static_cast<uint8_t>(chosen) : RandomCharacter();
             }
             b.want[side] = b.member[side][0];
+            for (int n = 0; n < kMost; n++) {
+                b.kept[side][n] = n < b.size ? sfiii3::kFullLife : 0;
+            }
         }
+        b.tagStyle = FeatureValue("team_style") == 1;
+    }
+
+    // (the tag style) a side's next fighter still standing, after the one on (-1: none)
+    int NextUp(int side) {
+        for (int k = 1; k < b.size; k++) {
+            const int n = (b.next[side] + k) % b.size;
+            if (b.kept[side][n] > 0) {
+                return n;
+            }
+        }
+        return -1;
     }
 
     // The match on decided: who goes on, and the next match begun on the spare
@@ -248,6 +278,22 @@ namespace {
             break;
         }
         case kTeam:
+            if (b.tagStyle) {
+                // (the one knocked out is down; the side's next standing comes on with the health it rested with)
+                b.kept[loser][b.next[loser]] = 0;
+                b.kept[winner][b.next[winner]] = b.health[winner] ? b.health[winner] : sfiii3::kFullLife;
+                const int next = NextUp(loser);
+                if (next < 0) {
+                    b.over = true;
+                    b.winner = static_cast<int8_t>(winner);
+                    b.overAt = b.frames;
+                    return;
+                }
+                b.next[loser] = static_cast<uint8_t>(next);
+                b.health[loser] = b.kept[loser][next];
+                b.want[loser] = b.member[loser][next];
+                break;
+            }
             if (++b.next[loser] >= b.size) {
                 b.over = true;
                 b.winner = static_cast<int8_t>(winner);
@@ -302,6 +348,7 @@ namespace {
             }
             b.wins[p] = Ram8(sfiii3::kRoundsWon[p]);
         }
+        b.stageNow = Ram8(sfiii3::kStage);
     }
 } // namespace
 
@@ -407,6 +454,125 @@ void BattleAfterFrame(Machine &m) {
     }
 }
 
+// The tag style: each side's next fighter's fight is made ready on a spare machine (that fighter against the one on
+// the other side, on this stage), a few frames each frame; a tag (Start, or the computer's choice, when the side's
+// fighter can act) puts it in the port's machine's place, and carries over from the machine it replaces what of the fight
+// goes on: the other side's fighter's record (where it is, what it is doing, its health and meter), the camera, the
+// clock and the rounds; the one tagged in comes on where its partner was, with the health it rested with.
+namespace {
+    constexpr uint32_t kRecordSize = 0x498;               // (a player's record: the second is that far on)
+    constexpr uint32_t kCameraBlock = 0x02026CA0, kCameraBlockSize = 0x60;
+    constexpr uint32_t kTagCool = 90;                     // frames after a tag before the side may tag again
+    constexpr int kTagSpareFrames = 3;                    // the tag spares' frames a frame each, on their way
+    constexpr uint16_t kRestEvery = 6;                    // a resting fighter gets back a point of health this often
+
+    bool CanAct(int side) {
+        const uint32_t base = sfiii3::kPlayer[side];
+        return (Ram16(base + sfiii3::kBusy) & 0xFF) == 0 && Ram8(base + sfiii3::kFreeze) == 0 && Ram8(base + sfiii3::kAttacking) == 0 &&
+               static_cast<int16_t>(Ram16(base + sfiii3::kY)) <= 0 && Ram8(base + sfiii3::kThrown) == 0;
+    }
+    void MakeTagSpares(Machine &m) {
+        for (int side = 0; side < 2; side++) {
+            const int next = NextUp(side);
+            if (next < 0) {
+                g_tag[side].Clear();
+                continue;
+            }
+            const int8_t mine = static_cast<int8_t>(b.member[side][next]), theirs = static_cast<int8_t>(b.want[1 - side]);
+            if (b.madeFor[side][side] != mine || b.madeFor[side][1 - side] != theirs || g_tag[side].state.empty()) {
+                g_tag[side].Clear();
+                g_tag[side].state = g_atChoice;
+                b.madeFor[side][side] = mine;
+                b.madeFor[side][1 - side] = theirs;
+            }
+            for (int n = 0; n < kTagSpareFrames && !g_tag[side].ready; n++) {
+                const uint8_t was[2] = {b.want[0], b.want[1]};
+                b.want[side] = static_cast<uint8_t>(mine);
+                b.want[1 - side] = static_cast<uint8_t>(theirs);
+                Spare &spare = g_tag[side];
+                RunSpare(m, spare, [&spare](Machine &machine) {
+                    spare.ready = ToRound(machine, static_cast<uint32_t>(spare.frames), true);
+                });
+                b.want[0] = was[0];
+                b.want[1] = was[1];
+            }
+        }
+    }
+    void Tag(Machine &m, int side) {
+        const int next = NextUp(side);
+        if (next < 0 || !g_tag[side].ready) {
+            return;
+        }
+        const int other = 1 - side;
+        // (what goes on: kept from the machine being replaced)
+        std::vector<uint8_t> record(kRecordSize), camera(kCameraBlockSize);
+        for (uint32_t n = 0; n < kRecordSize; n++) {
+            record[n] = Ram8(sfiii3::kPlayer[other] + n);
+        }
+        for (uint32_t n = 0; n < kCameraBlockSize; n++) {
+            camera[n] = Ram8(kCameraBlock + n);
+        }
+        const uint8_t clock = Ram8(sfiii3::kClock), won[2] = {Ram8(sfiii3::kRoundsWon[0]), Ram8(sfiii3::kRoundsWon[1])};
+        const uint16_t x = Ram16(sfiii3::kPlayer[side] + sfiii3::kX);
+        const uint8_t health = Ram8(sfiii3::kPlayer[side] + sfiii3::kLife);
+        b.kept[side][b.next[side]] = health > 0 && health <= sfiii3::kFullLife ? health : 1;
+        Promote(m, g_tag[side]);
+        for (uint32_t n = 0; n < kRecordSize; n++) {
+            SetRam8(sfiii3::kPlayer[other] + n, record[n]);
+        }
+        for (uint32_t n = 0; n < kCameraBlockSize; n++) {
+            SetRam8(kCameraBlock + n, camera[n]);
+        }
+        SetRam8(sfiii3::kClock, clock);
+        SetRam8(sfiii3::kRoundsWon[0], won[0]);
+        SetRam8(sfiii3::kRoundsWon[1], won[1]);
+        SetRam16(sfiii3::kPlayer[side] + sfiii3::kX, x);
+        SetRam8(sfiii3::kPlayer[side] + sfiii3::kLife, b.kept[side][next]);
+        b.next[side] = static_cast<uint8_t>(next);
+        b.want[side] = b.member[side][next];
+        b.tagCool[side] = b.frames + kTagCool;
+        b.wins[0] = won[0];
+        b.wins[1] = won[1];
+        if (getenv("SFIII3_BATTLE_LOG")) {
+            fprintf(stderr, "battle: frame %u, side %d tags in %s (health %u)\n", b.frames, side + 1, kCharacters[b.want[side] % kCharacterCount],
+                    b.kept[side][next]);
+        }
+    }
+    // Each frame of a tag-style fight: the spares made ready, a tag asked for (Start on a person's side; the game's side
+    // when its fighter is low and a partner has more), the resting ones' health coming back
+    void TagFrame(Machine &m, const uint16_t raw[2]) {
+        MakeTagSpares(m);
+        if (!Fought()) {
+            return;
+        }
+        for (int side = 0; side < 2; side++) {
+            const bool start = (raw[side] & kStart) != 0;
+            const bool pressed = start && !b.startWas[side];
+            b.startWas[side] = start;
+            const int next = NextUp(side);
+            if (next < 0 || b.frames < b.tagCool[side] || !CanAct(side)) {
+                continue;
+            }
+            const uint8_t health = Ram8(sfiii3::kPlayer[side] + sfiii3::kLife);
+            const bool computerTags = !Person(side) && health < sfiii3::kFullLife * 35 / 100 && b.kept[side][next] > health + 30;
+            if ((Person(side) && pressed) || computerTags) {
+                Tag(m, side);
+                return; // (one a frame)
+            }
+        }
+        if (++b.rest >= kRestEvery) {
+            b.rest = 0;
+            for (int side = 0; side < 2; side++) {
+                for (int n = 0; n < b.size; n++) {
+                    if (n != b.next[side] && b.kept[side][n] > 0 && b.kept[side][n] < sfiii3::kFullLife) {
+                        b.kept[side][n]++;
+                    }
+                }
+            }
+        }
+    }
+} // namespace
+
 bool BattleOn() {
     return b.mode != kNone;
 }
@@ -465,6 +631,7 @@ void BattleBeforeFrame(Machine &m) {
         }
         return;
     }
+    const uint16_t raw[2] = {m.players[0], m.players[1]};
     // A person takes an endless battle's fighter by touching its controls
     for (int p = 0; p < 2; p++) {
         if (b.mode == kEndless && (m.players[p] & (fight::kSticks | fight::kButtons))) {
@@ -495,6 +662,14 @@ void BattleBeforeFrame(Machine &m) {
                 }
             }
             SetRam8(base + sfiii3::kLife, b.out[p] ? 0 : sfiii3::kFullLife);
+        }
+    }
+    if (b.mode == kTeam && b.tagStyle && !b.decided) {
+        TagFrame(m, raw);
+        for (int p = 0; p < 2; p++) {
+            if (Person(p) && Fought()) {
+                m.players[p] = static_cast<uint16_t>(m.players[p] & ~kStart); // (Start is the tag's, not the game's)
+            }
         }
     }
     // A round decided: the match is
@@ -569,7 +744,14 @@ void BattleHud(std::vector<HudLine> &lines) {
                 for (char &c : name) {
                     c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
                 }
-                line += (n ? "  " : "") + (n < b.next[side] ? "(" + name + ")" : n == b.next[side] ? "[" + name + "]" : name);
+                if (b.tagStyle) {
+                    const bool down = b.kept[side][n] == 0 && n != b.next[side];
+                    char health[16];
+                    snprintf(health, sizeof(health), " %d%%", b.kept[side][n] * 100 / sfiii3::kFullLife);
+                    line += (n ? "  " : "") + (n == b.next[side] ? "[" + name + "]" : down ? "(" + name + ")" : name + health);
+                } else {
+                    line += (n ? "  " : "") + (n < b.next[side] ? "(" + name + ")" : n == b.next[side] ? "[" + name + "]" : name);
+                }
             }
             lines.push_back({side == 0 ? 0.03f : 0.97f, side == 0 ? 0.235f : 0.275f, side == 0 ? -1 : 1, line, 160, 220, 255});
         }
@@ -595,6 +777,11 @@ void BattleState(Archive &ar) {
     ar.Vec(g_next.state);
     ar.Pod(g_next.ready);
     ar.Pod(g_next.frames);
+    for (Spare &spare : g_tag) {
+        ar.Vec(spare.state);
+        ar.Pod(spare.ready);
+        ar.Pod(spare.frames);
+    }
 }
 
 void RegisterBattle(Game &game) {
@@ -660,6 +847,12 @@ void RegisterBattle(Game &game) {
                              "Two teams: knock a fighter down and the next of that team comes on with full health; the winner stays "
                              "on with the health it has left. The last team standing wins.",
                              StartTeam});
+    game.features.push_back({"team_style", "Team battle", "Style",
+                             "Knock-out: one fighter of each team at a time, the next coming on when one is knocked out. Tag: Start "
+                             "tags your next fighter in whenever yours can act (the computer tags when its fighter is low); each "
+                             "fighter keeps its own health, and a resting one gets some back. The battle is over when a team has "
+                             "nobody left.",
+                             0, {"Knock-out", "Tag"}});
     game.features.push_back({"team_size", "Team battle", "Fighters", "How many fighters each team has.", 0, {"2", "3"}});
     game.features.push_back({"team_opponent", "Team battle", "Team 2", "Who plays the second team: the computer, or player 2.", 0,
                              {"Computer", "Player 2"}});
