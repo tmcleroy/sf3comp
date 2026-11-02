@@ -116,8 +116,19 @@ namespace {
 
     void Boxes(std::vector<HudBox> &boxes) {
         const int cameraX = Signed16(sfiii3::kCameraX), cameraY = Signed16(sfiii3::kCameraY);
-        for (int p = 0; p < 2; p++) {
-            const uint32_t base = Player(p);
+        // (the players' records, then the projectiles': the game's object list 3, from the index at 0x02068A96 + 6, each
+        // a record of the players' shape 0x800 bytes apart from 0x02028990, the next's index at +0x1C; -1 ends it.
+        // From the training script; a record with no hurt box list is not in use)
+        std::vector<uint32_t> records = {Player(0), Player(1)};
+        int16_t index = static_cast<int16_t>(Ram16(0x02068A96 + 3 * 2));
+        for (int n = 0; n < 30 && index >= 0; n++) {
+            const uint32_t base = 0x02028990u + (static_cast<uint32_t>(index) << 11);
+            if (Ram32(base + 0x2A0) != 0) {
+                records.push_back(base);
+            }
+            index = static_cast<int16_t>(Ram16(base + 0x1C));
+        }
+        for (const uint32_t base : records) {
             const int px = Signed16(base + sfiii3::kX) - cameraX + Video::kWidth / 2;
             const int py = Video::kHeight - (Signed16(base + sfiii3::kY) - cameraY) - 23;
             const bool flipped = Ram8(base + sfiii3::kFacing) != 0;
