@@ -11,8 +11,8 @@
 - Sound: own 16-voice mixer (`cps3recomp/sound/pcm.cpp`), not listened to yet.
 - Frontend: cps2recomp's port/ (window, SDL_GPU presenter, shaders, menu, HUD, zoom, bindings, netplay, run-ahead,
   save states) on the board through `runtime/system.h`; recomp-common's launcher (`cps3recomp/launcher`).
-- Not yet: Linux/Windows release builds (Linux on ARM compiles and matches the Mac's hashes), the alternative modes
-  but survival, the viewers, the colour editor.
+- Not yet: Linux/Windows release builds (Linux on ARM compiles and matches the Mac's hashes), ring out and tag team,
+  the model viewer and music player, the colour editor.
 
 ## Game facts
 
@@ -38,6 +38,8 @@
   logo) fast-forwarded. Cheats: no damage, no stun (each player), one hit knocks out, infinite time.
 - Play as Gill (Game page, host's online): the chosen character's byte (0x02011387/88) set to Gill's 0 while no
   match is on; Gill vs Gill in a training session and a one-player game as Gill seen in pictures.
+- Stage viewer (training page): Machine::onlyStage draws the board's own stage objects and no text layer (or the
+  stage board's picture alone); the stick moves both fighters together so the camera scrolls.
 - Endless battle (its own page, a command): a board reset and the way to character select as a session's, then the
   game's own versus with both players the computer's (record byte 3) and a character at random each match (the
   chosen byte); the players put back in with Start when out. Seen in pictures over four matches.
@@ -111,7 +113,7 @@ heard, the file's tone in --soundtrack-dump).
    Linux on 64-bit ARM compiles and links (gold) in Docker, and its 1500-frame hash is the Mac's; x86_64 and Windows
    not tried, no release scripts yet.
 8. The alternative modes (ring out, tag team: cps2recomp's fight/alternative and battle,
-   3000 lines tied to the CPS-2 games' memory), stage and model viewers, the colour editor, the board's other settings.
+   3000 lines tied to the CPS-2 games' memory), a music player and model viewer, the colour editor, the board's other settings.
 
 ## Decisions for the user
 
