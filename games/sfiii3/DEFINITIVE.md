@@ -96,5 +96,7 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
 4. The second board in the save state (it is scenery today: a rollback redraws with it as it is then; the game's
    state hash is the same over rollbacks, the picture's not always).
 5. The menu: stages by game (today one long choice on the Display page, named by whose stage it is).
-6. Check the stage rule on every stage of NG and 2I (stage objects with a fighter's palette, effects). 3rd Strike's
+6. Check the stage rule on every stage of NG and 2I (stage objects with a fighter's palette, effects): all 28 seen
+   composed in one picture each (made-up play, frame 4500): the stage whole, its own fighters gone, 3rd Strike's
+   fighters, shadows and HUD over it. Effects and moving stage pieces over time not looked at. 3rd Strike's
    shadows over another stage darken it now (they were black).
