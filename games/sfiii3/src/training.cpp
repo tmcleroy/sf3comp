@@ -568,6 +568,13 @@ void RegisterTraining(Game &game) {
         const fight::Doing one = session::Now(0);
         const int dx = std::abs(Signed16(Player(0) + sfiii3::kX) - Signed16(Player(1) + sfiii3::kX));
         inRange = (one == fight::Doing::Startup || one == fight::Doing::Active) && dx < 280;
+        // (or a projectile of player 1's, its attack out, near: guarded standing or crouching as the dummy likes)
+        for (const uint32_t base : Projectiles()) {
+            if (Ram8(base + 2) == 0 && Ram32(base + 0x2C8) != 0 &&
+                std::abs(Signed16(base + sfiii3::kX) - Signed16(Player(1) + sfiii3::kX)) < 160) {
+                inRange = true;
+            }
+        }
         standing = Signed16(Player(0) + sfiii3::kY) > 0;
     };
     // Being thrown: the throw escape (light punch and light kick, tapped, as the throw takes hold: kThrown is set two
