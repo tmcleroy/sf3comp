@@ -15,6 +15,12 @@ set(GAME_DIR "${CMAKE_SOURCE_DIR}/games/${GAME}")
 set(WORK_DIR "${CMAKE_SOURCE_DIR}/work/${GAME}")
 set(CR "${CMAKE_SOURCE_DIR}/cps3recomp")
 
+# (Linux on 64-bit ARM: the translated code makes a program of over 128 MB, past the reach of a call; GNU ld then
+# fails with "relocation truncated to fit", gold adds the long-branch stubs)
+if (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+    add_link_options(-fuse-ld=gold)
+endif ()
+
 find_package(ZLIB REQUIRED)
 if (APPLE)
     find_package(SDL3 3.4.16 REQUIRED CONFIG)
