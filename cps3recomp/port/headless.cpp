@@ -74,6 +74,21 @@ namespace {
     }
     // An object of the stage: a tilemap's lines, or an object with a stage's colours (palettes 0x80 and up: seen in 3rd
     // Strike and 2nd Impact; the fighters' are below, their shadows 0 with blending)
+    // Where a stage game keeps what the experiment holds (found in RAM traces: games/sfiii3/DEFINITIVE.md)
+    struct StageGame {
+        const char *set;
+        uint32_t camera[3], edge[2];  // the camera's middle (and copies), its left edge (none: 0)
+        uint32_t rightAt, leftAt;     // the stage's ends, if the game keeps them (else right, left)
+        int right, left;
+        uint32_t clock[2], life[4], stage;
+    };
+    const StageGame kStageGames[] = {
+        {"sfiii2n", {0x020221CC, 0x020221D4, 0x020221E4}, {0, 0}, 0x02022218, 0x0202221C, 0, 0, {0x02010167, 0x02023EF5},
+         {0x0200E5A3, 0x0200E5A5, 0x0200E9AF, 0x0200E9B1}, 0x020142E7},
+        {"sfiiin", {0x0201BE7C, 0x0201BE84, 0x0201BE94}, {0x0201BE6E, 0x0201BEF0}, 0, 0, 748, 272, {0x0200EB33, 0x0201DB15},
+         {0x0200D603, 0x0200D605, 0x0201DB09, 0}, 0},
+    };
+
     bool StageObject(const machine::Machine &m, uint32_t object) {
         const uint32_t *list = m.SpriteList();
         return (list[object * 4 + 2] & 3) == 0 || (list[object * 4] & 0x1FF) >= 0x80;
@@ -97,6 +112,7 @@ int main(int argc, char **argv) {
     // (--stage-cfg games/<id>/game.cfg --stage-rom SET: an experiment for the definitive version: that game run beside
     // this one, its camera following this one's, and the pictures made of its stage with this game's fighters over it)
     std::string stageCfg, stageRom;
+    int stageNumber = -1;
     std::vector<std::pair<uint32_t, uint8_t>> pokes;
     uint64_t traceFirst = 1, traceLast = 0;
     uint32_t traceLow = 0, traceHigh = 0;
@@ -166,6 +182,9 @@ int main(int argc, char **argv) {
             i++;
         } else if (a == "--stage-cfg") {
             stageCfg = v;
+            i++;
+        } else if (a == "--stage-number") {
+            stageNumber = atoi(v);
             i++;
         } else if (a == "--stage-rom") {
             stageRom = v;
@@ -260,6 +279,8 @@ int main(int argc, char **argv) {
     std::unique_ptr<machine::Machine> stage;
     Renderer stageRenderer;
     bool stageFought = false;
+    uint8_t stageLife = 0;
+    const StageGame *stageGame = nullptr;
     if (!stageCfg.empty()) {
         const auto cfg = ReadCfg(stageCfg);
         RomList stageList;
@@ -274,6 +295,15 @@ int main(int argc, char **argv) {
         stageSet = std::make_unique<RomSet>();
         if (!LoadRomSet(stageRom, stageList, *stageSet, error)) {
             fprintf(stderr, "the stage's set: %s\n", error.c_str());
+            return 1;
+        }
+        for (const StageGame &g : kStageGames) {
+            if (stageList.set == g.set) {
+                stageGame = &g;
+            }
+        }
+        if (!stageGame) {
+            fprintf(stderr, "no stage facts for %s\n", stageList.set.c_str());
             return 1;
         }
         stage = std::make_unique<machine::Machine>(*stageSet);
@@ -301,21 +331,31 @@ int main(int argc, char **argv) {
             // (the same made-up play takes it into a fight; its camera then follows this game's, from one stage's ends to
             // the other's: words at 0x020221CC/D4/E4 and ends at 0x02022218 in 2nd Impact, 0x02026CA8/B0/C0 and 0x02026CF4
             // in 3rd Strike)
-            // (its fight kept going: no clock, nobody hurt; once in it, nobody touches the controls. 2nd Impact's places:
-            // the clock 0x02010167 and 0x02023EF5, the players' health 0x0200E5A3/E5A5 and 0x0200E9AF/E9B1)
-            const bool fighting = stage->mainRam[0x10167] > 0 && stage->mainRam[0x10167] <= 99 && stage->mainRam[0xE5A3] > 0;
-            if (fighting) {
+            // (its fight kept going: no clock, nobody hurt; once in it, nobody touches the controls; its camera following
+            // this game's from one stage's ends to the other's)
+            const StageGame &g = *stageGame;
+            uint8_t *theirRam = stage->mainRam;
+            const bool fighting = theirRam[g.clock[0] & 0x7FFFF] > 0 && theirRam[g.clock[0] & 0x7FFFF] <= 99 && theirRam[g.life[0] & 0x7FFFF] > 0;
+            if (fighting && !stageFought) {
                 stageFought = true;
+                stageLife = theirRam[g.life[0] & 0x7FFFF];
             }
             stage->inputs = stageFought ? 0xFFFFFFFFu : ~inputs;
             stage->extra = stageFought ? 0xFFFFFFFFu : ~extra;
             if (stageFought) {
-                for (const uint32_t at : {0x10167u, 0x23EF5u}) {
-                    stage->mainRam[at] = 99;
+                for (const uint32_t at : g.clock) {
+                    if (at) {
+                        theirRam[at & 0x7FFFF] = 99;
+                    }
                 }
-                for (const uint32_t at : {0xE5A3u, 0xE5A5u, 0xE9AFu, 0xE9B1u}) {
-                    stage->mainRam[at] = 160;
+                for (const uint32_t at : g.life) {
+                    if (at) {
+                        theirRam[at & 0x7FFFF] = stageLife;
+                    }
                 }
+            }
+            if (g.stage && stageNumber >= 0 && !stageFought) {
+                theirRam[g.stage & 0x7FFFF] = static_cast<uint8_t>(stageNumber);
             }
             auto word = [](uint8_t *ram, uint32_t at) { return static_cast<int16_t>((ram[at & 0x7FFFF] << 8) | ram[(at + 1) & 0x7FFFF]); };
             auto setWord = [](uint8_t *ram, uint32_t at, int v) {
@@ -323,11 +363,18 @@ int main(int argc, char **argv) {
                 ram[(at + 1) & 0x7FFFF] = static_cast<uint8_t>(v);
             };
             const int camera = word(m.mainRam, 0x02026CB0), right = word(m.mainRam, 0x02026CF4), left = word(m.mainRam, 0x02026CF8);
-            const int theirRight = word(stage->mainRam, 0x02022218), theirLeft = word(stage->mainRam, 0x0202221C);
-            if (right > left && theirRight > theirLeft) {
+            const int theirRight = g.rightAt ? word(theirRam, g.rightAt) : g.right, theirLeft = g.leftAt ? word(theirRam, g.leftAt) : g.left;
+            if (stageFought && right > left && theirRight > theirLeft) {
                 const int theirs = theirLeft + (camera - left) * (theirRight - theirLeft) / (right - left);
-                for (const uint32_t at : {0x020221CCu, 0x020221D4u, 0x020221E4u}) {
-                    setWord(stage->mainRam, at, theirs);
+                for (const uint32_t at : g.camera) {
+                    if (at) {
+                        setWord(theirRam, at, theirs);
+                    }
+                }
+                for (const uint32_t at : g.edge) {
+                    if (at) {
+                        setWord(theirRam, at, theirs - 192);
+                    }
                 }
             }
             stage->RunFrame();

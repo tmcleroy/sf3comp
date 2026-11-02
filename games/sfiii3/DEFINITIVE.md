@@ -31,6 +31,13 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
   Copies of the number the game makes from it: 0x02010178, 0x0200EC69, 0x020142F6, 0x020155D1, 0x02022164,
   0x020221AB (setting those alone does not choose it).
 
+- New Generation's: the camera 0x0201BE84 (copies 0x0201BE7C, 0x0201BE94), its left edge 0x0201BE6E (copy
+  0x0201BEF0); its stage's ends are not kept beside it as in the later two (the words there are ±240 and 208): taken
+  as 3rd Strike's (272-748) for now. The clock 0x0200EB33 (copy 0x0201DB15, 54 frames a second), player 1's health
+  0x0200D603 (copies 0x0200D605, 0x0201DB09; the record 0x0200D564). Player 2's and the stage number: to find.
+- Both seen working: 3rd Strike's fight on New Generation's London stage, and on 2nd Impact's street stage chosen by
+  its number (`--stage-number 4`).
+
 ## To do
 
 1. The stage board on the stage chosen (2nd Impact: its stage byte, above; New Generation's to find), its way to a
