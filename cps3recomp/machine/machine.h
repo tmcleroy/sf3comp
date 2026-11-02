@@ -46,6 +46,9 @@ struct VideoRegisters {
     uint32 crtc[8] = {};          // 040C0060: the screen's timing and the whole picture's zoom
 };
 
+// The program SIMMs' flash chips all read their data (none is giving its IDs): their reads are the program's bytes
+extern bool g_flashPlain;
+
 class Machine {
 public:
     static constexpr uint32 kCpuClock = 25000000;            // 6.25 MHz times 4
@@ -79,6 +82,14 @@ public:
     uint16 RawRead16(uint32 address);
     uint32 RawRead32(uint32 address);
     void AcknowledgeExternalInterrupt(SH2 &cpu);
+    // The cartridge's ROM and the program SIMMs as the CPU reads them (deciphered), as big-endian bytes: what the
+    // translated code reads directly and is made from (runtime/block_native.h)
+    const uint8 *BiosBytes() const {
+        return m_biosBytes.data();
+    }
+    const uint8 *ProgramBytes() const {
+        return m_programBytes.data();
+    }
 
     SH2 &Cpu() {
         return m_cpu;
@@ -140,6 +151,8 @@ public:
 
 private:
     const RomSet &m_rom;
+    std::vector<uint8> m_biosBytes, m_programBytes;
+    void UpdateFlashPlain();
     SH2 m_cpu;
     uint64 m_frame = 0;
     uint64 m_now = 0;       // CPU cycles since reset

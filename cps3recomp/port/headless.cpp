@@ -3,7 +3,7 @@
 //
 // The game with no window, for checks and pictures:
 //   <game>-headless ROMSET [--frames N] [--shot FRAME:file.png]... [--shots EVERY:prefix] [--hold FIRST-LAST:BUTTONS]...
-//                   [--hash] [--eeprom file]
+//                   [--hash] [--cpu native|free|interp] [--record-blocks FILE] [--stats] [--check N]
 // BUTTONS: a list of coin1 coin2 start1 start2 service test, p1up p1down p1left p1right p1lp p1mp p1hp p1lk p1mk p1hk,
 // and p2 alike, joined with +.
 #include "game_cfg.h"
@@ -12,6 +12,7 @@
 #include "renderer.h"
 #include "romset.h"
 #include "pcm.h"
+#include "recomp.h"
 
 #include <chrono>
 #include <cstdio>
@@ -57,6 +58,8 @@ int main(int argc, char **argv) {
     std::map<uint64_t, std::string> shots;
     std::vector<Hold> holds;
     bool hash = false;
+    std::string cpu = "native";
+    Options recompOptions;
     std::string dumpDir;
     for (int i = 2; i < argc; i++) {
         const std::string a = argv[i];
@@ -103,8 +106,25 @@ int main(int argc, char **argv) {
             i++;
         } else if (a == "--hash") {
             hash = true;
+        } else if (a == "--cpu") {
+            cpu = v;
+            i++;
+        } else if (a == "--record-blocks") {
+            recompOptions.recordPath = v;
+            i++;
+        } else if (a == "--stats") {
+            recompOptions.stats = true;
+        } else if (a == "--check") {
+            recompOptions.checkEvery = static_cast<unsigned>(strtoul(v, nullptr, 10));
+            i++;
         }
     }
+    if (cpu != "native" && cpu != "free" && cpu != "interp") {
+        fprintf(stderr, "--cpu: native (the translated code; default), free (the interpreter run as the translation runs: its "
+                        "reference) or interp (the interpreter alone, no dispatcher)\n");
+        return 1;
+    }
+    recompOptions.mode = cpu == "free" ? Mode::Free : Mode::Native;
 
     RomList list;
     list.set = GAME_ROM_SET;
@@ -140,6 +160,9 @@ int main(int argc, char **argv) {
     }
     machine::Machine m(rom);
     m.Reset();
+    if (cpu != "interp") {
+        Attach(m, recompOptions);
+    }
     Renderer renderer;
     Pcm pcm(m);
     std::vector<int16_t> audio;
@@ -180,6 +203,9 @@ int main(int argc, char **argv) {
     fprintf(stderr, "%llu frames in %.2f s (%.1f fps), PC %08X\n", static_cast<unsigned long long>(frames), seconds, frames / seconds, m.Cpu().PC);
     if (!wavPath.empty()) {
         WriteWav(wavPath.c_str(), audio, Pcm::kRate);
+    }
+    if (!Finish()) {
+        return 2; // (the check found differences)
     }
     return 0;
 }

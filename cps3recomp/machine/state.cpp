@@ -74,6 +74,7 @@ void Machine::Serialize(Archive &ar) {
     ar.Pod(m_dmaDoneAt);
     ar.Pod(m_spriteDmaDoneAt);
     ar.Pod(m_flash);
+    UpdateFlashPlain(); // (what the translated code reads directly: runtime/block_native.h)
     ar.Pod(voices);
     ar.Pod(keyOn);
     ar.Pod(eeprom);

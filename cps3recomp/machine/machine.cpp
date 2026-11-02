@@ -54,6 +54,25 @@ Machine::Machine(const RomSet &rom)
     m_rgb.assign(0x20000, 0);
     m_ssRam.assign(0x8000, 0);
     m_spriteList.assign(0x2000 / 4, 0);
+    auto bytes = [](const std::vector<uint32> &words, std::vector<uint8> &out) {
+        out.resize(words.size() * 4);
+        for (size_t i = 0; i < words.size(); i++) {
+            Put32(&out[i * 4], words[i]);
+        }
+    };
+    bytes(m_rom.bios, m_biosBytes);
+    bytes(m_rom.program, m_programBytes);
+}
+
+bool g_flashPlain = true;
+
+void Machine::UpdateFlashPlain() {
+    g_flashPlain = true;
+    for (int simm = 1; simm <= 2; simm++) {
+        for (int chip = 0; chip < 4; chip++) {
+            g_flashPlain = g_flashPlain && m_flash[simm][chip].mode == FlashChip::Normal;
+        }
+    }
 }
 
 void Machine::Reset() {
@@ -70,6 +89,7 @@ void Machine::Reset() {
             chip = {};
         }
     }
+    UpdateFlashPlain();
     m_now = m_frameStart = m_spillover = 0;
     m_frame = 0;
     m_cpu.Reset(true);
@@ -703,6 +723,7 @@ void Machine::WriteProgramFlash(uint32 a, uint32 v, uint32 mask) {
             m_flash[simm][chip].Write(offset, static_cast<uint8>(v >> shift));
         }
     }
+    UpdateFlashPlain();
 }
 
 // The graphics SIMMs, through a bank of 4 MB: a pair of chips, the first giving bits 24-31 and 8-15, the second

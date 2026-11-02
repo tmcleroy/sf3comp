@@ -11,6 +11,7 @@
 #include "png_write.h"
 #include "present.h"
 #include "port.h"
+#include "../runtime/recomp.h"
 #include "../recomp-common/folders.h"
 #include "../recomp-common/proxy.h"
 #include "../recomp-common/settings.h"
@@ -228,8 +229,14 @@ bool Port::Init(std::string &error) {
     RegisterGame();
     RegisterPortFeatures();
     LoadFeatures(opt.settingsPath, opt.features);
+    // The game's SH-2 code: translated (native), the interpreter run the same way block by block (free: the
+    // translation's reference), or the interpreter an instruction at a time (interp)
     if (opt.cpu.empty()) {
-        opt.cpu = "interp";
+        opt.cpu = "native";
+    }
+    if (opt.cpu != "native" && opt.cpu != "free" && opt.cpu != "interp") {
+        error = "--cpu: native, free or interp";
+        return false;
     }
     if (!opt.eepromPath.empty()) {
         std::vector<uint8_t> data;
@@ -238,6 +245,13 @@ bool Port::Init(std::string &error) {
         }
     }
     machine->Reset();
+    if (opt.cpu != "interp") {
+        cps3recomp::Options recomp;
+        recomp.mode = opt.cpu == "free" ? cps3recomp::Mode::Free : cps3recomp::Mode::Native;
+        recomp.recordPath = opt.recordEntries;
+        recomp.stats = opt.stats;
+        cps3recomp::Attach(machine->board, recomp);
+    }
     if (!opt.moviePlay.empty() && !playMovie.Load(opt.moviePlay)) {
         error = "cannot read the movie " + opt.moviePlay;
         return false;
@@ -916,6 +930,7 @@ bool Port::LoadState(const std::string &path, std::string &error) {
         if (TheGame().state) {
             TheGame().state(ar);
         }
+        cps3recomp::StateLoaded();
     }
     if (!ar.Ok() || !known) {
         error = path + " is not a state this build wrote";
@@ -941,6 +956,7 @@ void Port::PutBackState(const std::vector<uint8_t> &data) {
     if (TheGame().state) {
         TheGame().state(ar);
     }
+    cps3recomp::StateLoaded();
 }
 
 void Port::Step(const uint16_t *players) {
@@ -2062,6 +2078,9 @@ int main(int argc, char **argv) {
         }
     }
     p.Finish();
+    if (!cps3recomp::Finish()) {
+        return 4;
+    }
     if (p.net && !p.net->ended.empty()) {
         // (why the match ended, if it did before the player left it)
         if (p.net->failed) {
