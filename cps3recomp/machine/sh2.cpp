@@ -224,6 +224,11 @@ inline void SH2::NoteWriter(uint32 a) {
 void SH2::Write8(uint32 a, uint8 v) {
     ++g_activity;
     NoteWriter(a);
+    // (debugging aid, CPS3RECOMP_WATCH_WRITE8=address: byte writes there by interpreted code)
+    static const uint32 watch8 = getenv("CPS3RECOMP_WATCH_WRITE8") ? static_cast<uint32>(strtoul(getenv("CPS3RECOMP_WATCH_WRITE8"), nullptr, 16)) : 1;
+    if (((a ^ watch8) & 0x07FFFFFFu) == 0) [[unlikely]] {
+        fprintf(stderr, "write8 %08X = %02X at PC %08X PR %08X\n", a, v, PC, PR);
+    }
     if ((a & kMainRamMask) == kMainRam) [[likely]] {
         uint8 *p = &m_machine.mainRam[a & 0x7FFFFu];
         *p = v;
@@ -252,6 +257,11 @@ void SH2::Write16(uint32 a, uint16 v) {
     a &= ~1u;
     ++g_activity;
     NoteWriter(a);
+    // (debugging aid, CPS3RECOMP_WATCH_WRITE16=address: word writes there by interpreted code)
+    static const uint32 watch16 = getenv("CPS3RECOMP_WATCH_WRITE16") ? static_cast<uint32>(strtoul(getenv("CPS3RECOMP_WATCH_WRITE16"), nullptr, 16)) : 1;
+    if (((a ^ watch16) & 0x07FFFFFFu) == 0) [[unlikely]] {
+        fprintf(stderr, "write16 %08X = %04X at PC %08X PR %08X\n", a, v, PC, PR);
+    }
     if ((a & kMainRamMask) == kMainRam) [[likely]] {
         uint8 *p = &m_machine.mainRam[a & 0x7FFFFu];
         Put16(p, v);

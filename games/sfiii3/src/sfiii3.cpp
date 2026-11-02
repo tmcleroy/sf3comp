@@ -66,7 +66,6 @@ namespace {
         }
         WidescreenBeforeFrame(m, (Ram8(sfiii3::kLocked[0]) == 0xFF || Ram8(sfiii3::kLocked[1]) == 0xFF) && Ram8(sfiii3::kMatchState) == 2);
         MusicBeforeFrame(m);
-        RingOutBeforeFrame(m);
         StagesBeforeFrame(m);
         TrainingBeforeFrame(m);
         BattleBeforeFrame(m);
@@ -104,7 +103,6 @@ void RegisterGame() {
     RegisterLifts3rdStrike();
     RegisterStages(game);
     RegisterMusic(game);
-    RegisterRingOut(game);
     RegisterBattle(game);
     game.noRunAhead = BattleOn; // (a mode with a spare machine: its frames are not run ahead)
     // The menu's pages for the ways of playing beyond the board's own (as the CPS-2 ports have them)
@@ -113,7 +111,7 @@ void RegisterGame() {
     game.pages.push_back({"Training mode", "Alternative modes", "A fight with no clock that nobody loses, and the aids for practising in it."});
     game.pages.push_back({"Dummy", "Training mode", "What player 2 does in a training session."});
     game.pages.push_back({"Survival", "Alternative modes", "A one-player game on the health you have left. How many rounds can you win?"});
-    game.pages.push_back({"Ring out", "Alternative modes", "No health: hit your opponent against an end of the stage to knock them out."});
+    game.pages.push_back({"Ring out", "Alternative modes", "No health: knock your opponent back over an end of the stage, and the next comes on."});
     game.pages.push_back({"Endless battle", "Alternative modes", "Two fighters the game plays, for as long as you like. Touch the controls "
                                                                  "to take one over."});
     game.pages.push_back({"Team battle", "Alternative modes", "Two teams: lose a round and the next of your team comes on. The last team "

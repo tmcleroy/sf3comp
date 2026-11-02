@@ -9,6 +9,9 @@
 //                   (and a tenth back); over at the first knock-down, with the count of opponents beaten.
 //   Endless battle  two fighters the game plays, with no panel and no clock; the one knocked down is replaced. A
 //                   person takes a fighter over by touching the controls, and gives it back by leaving them alone.
+//   Ring out        the player against one opponent after another, with no health: a stage's ends are open to a
+//                   fighter knocked back, and whoever goes over one is thrown out and loses; the next opponent
+//                   comes on (the opponents rung out are the score). Over when the player is rung out.
 //   Team battle     two teams of two or three, chosen on the menu: one fighter of each side at a time, the one
 //                   knocked down out and the next of that side in, with full health; the winner stays on with
 //                   the health it has left. Over when a side has nobody left. Side 2 is a person or the game.
@@ -20,6 +23,7 @@
 // going up, kRoundsWon) is the match's end: the next is made then, and takes the machine's place a moment later.
 #include "fight.h"
 #include "game.h"
+#include "lift.h"
 #include "session.h"
 #include "sfiii3.h"
 #include "recomp.h"
@@ -43,8 +47,10 @@ namespace {
     constexpr uint32_t kTakenFor = 600;   // frames a person keeps an endless battle's fighter after letting go
     constexpr int kSpareFramesAFrame = 6; // the next match's machine, run so many frames a frame on its way
     constexpr uint32_t kShownFor = 240;   // frames of the knock-out (and the end's line) before the next is put on
+    constexpr int kOutPast = 40;          // (ring out) how far past its wall a fighter is out
+    constexpr uint32_t kKnockedFor = 50;  // (ring out) frames after a hit that a fighter's wall lets it go
 
-    enum Mode : uint8_t { kNone, kSurvival, kEndless, kTeam };
+    enum Mode : uint8_t { kNone, kSurvival, kEndless, kTeam, kRingOut };
 
     struct State {
         Mode mode = kNone;
@@ -65,7 +71,11 @@ namespace {
         bool over = false;
         int8_t winner = -1;
         uint32_t overAt = 0;
-        uint16_t won = 0; // (survival) opponents beaten
+        uint16_t won = 0; // (survival, ring out) opponents beaten
+        // (ring out) the hits each side has taken at the last frame, the frame it was last hit, rung out this match
+        uint16_t hits[2] = {};
+        uint32_t hitAt[2] = {};
+        bool out[2] = {};
     } b;
     std::vector<uint8_t> g_atChoice; // the machine at character select, both players in: where each match begins
     Spare g_next;
@@ -88,7 +98,8 @@ namespace {
     bool Person(int p) {
         switch (b.mode) {
         case kEndless: return b.touched[p] && b.frames - b.touched[p] < kTakenFor;
-        case kSurvival: return p == 0;
+        case kSurvival:
+        case kRingOut: return p == 0;
         case kTeam: return p == 0 || FeatureValue("team_opponent") == 1;
         default: return true;
         }
@@ -147,6 +158,10 @@ namespace {
         Begin(machine, kSurvival);
         b.want[1] = RandomCharacter();
     }
+    void StartRingOut(Machine &machine) {
+        Begin(machine, kRingOut);
+        b.want[1] = RandomCharacter();
+    }
     void StartEndless(Machine &machine) {
         Begin(machine, kEndless);
         b.stage = static_cast<uint8_t>(Next() % kCharacterCount);
@@ -200,6 +215,20 @@ namespace {
             }
             b.want[loser] = b.member[loser][b.next[loser]];
             break;
+        case kRingOut:
+            if (loser == 0) {
+                b.over = true;
+                b.winner = 1;
+                b.overAt = b.frames;
+                return;
+            }
+            b.won++;
+            if (b.won > FeatureValue("ringout_best") && !RunningAhead()) {
+                SetFeatureValue("ringout_best", std::min<int>(b.won, 99));
+            }
+            b.health[0] = 0;
+            b.want[1] = RandomCharacter();
+            break;
         case kSurvival:
             if (loser == 0) {
                 b.over = true;
@@ -223,12 +252,35 @@ namespace {
     // The machine as a match begins on it: the carried health, the computer's sides
     void MatchBegins() {
         for (int p = 0; p < 2; p++) {
+            b.out[p] = false;
+            b.hits[p] = Ram16(sfiii3::kPlayer[p] + sfiii3::kHitCount);
+            b.hitAt[p] = 0;
             if (b.health[p] > 0 && b.health[p] < sfiii3::kFullLife) {
                 SetRam8(sfiii3::kPlayer[p] + sfiii3::kLife, b.health[p]);
             }
             b.wins[p] = Ram8(sfiii3::kRoundsWon[p]);
         }
     }
+} // namespace
+
+// The walls (0x0611DFB8: a player's record in r4, the wall in r5, which side in r6; it puts the player back inside
+// the wall, notes that it is against it (+0x3C9, +0x3CA) and by how much it went over (+0x3D6), and returns 0 in r0
+// when it did nothing). In a ring out a fighter knocked back (hit within kKnockedFor frames) is let through.
+namespace {
+    bool WallLift(Guest &g) {
+        if (b.mode != kRingOut || !b.started || !Fought() || b.decided) {
+            return false; // (and never for a spare's machine, on its way to its round)
+        }
+        for (int p = 0; p < 2; p++) {
+            if (g.R(4) == sfiii3::kPlayer[p] && b.hitAt[p] && b.frames - b.hitAt[p] < kKnockedFor) {
+                g.R(0) = 0;
+                g.Return(40);
+                return true;
+            }
+        }
+        return false;
+    }
+    const Lift kWallLift[] = {{"Wall (let go in a ring out)", 0x0611DFB8, 8, 0x2E0F9B3860C660B1ull, WallLift}};
 } // namespace
 
 bool BattleOn() {
@@ -247,9 +299,9 @@ void BattleBeforeFrame(Machine &m) {
     SetRam8(sfiii3::kCredits, std::max<uint8_t>(Ram8(sfiii3::kCredits), 2));
     if (b.mode == kEndless) {
         m.hidePanel = true; // (no bars, no clock: the game's panel is its text layer)
-        if (Ram8(sfiii3::kClock) > 0 && Ram8(sfiii3::kClock) < 99) {
-            SetRam8(sfiii3::kClock, 99);
-        }
+    }
+    if ((b.mode == kEndless || b.mode == kRingOut) && Ram8(sfiii3::kClock) > 0 && Ram8(sfiii3::kClock) < 99) {
+        SetRam8(sfiii3::kClock, 99); // (no clock: a round is ended by a knock-out, or a ring out)
     }
     if (b.over) {
         // (the battle won or the run over: said for a while, then the mode ends and the board starts over)
@@ -270,13 +322,14 @@ void BattleBeforeFrame(Machine &m) {
         }
         // (in survival player 1 chooses its own character, and keeps it)
         const uint16_t mine = m.players[0];
-        const bool fought = ToRound(m, b.frames, b.mode != kSurvival);
-        if (b.mode == kSurvival) {
+        const bool chooses = b.mode == kSurvival || b.mode == kRingOut;
+        const bool fought = ToRound(m, b.frames, !chooses);
+        if (chooses) {
             m.players[0] = mine;
         }
         if (fought) {
             b.started = true;
-            if (b.mode == kSurvival) {
+            if (chooses) {
                 b.want[0] = static_cast<uint8_t>(Ram16(sfiii3::kPlayer[0] + 0x3C0) % kCharacterCount);
             }
             MatchBegins();
@@ -293,6 +346,26 @@ void BattleBeforeFrame(Machine &m) {
         }
         if (!Person(p)) {
             m.players[p] = 0;
+        }
+    }
+    // Ring out: no health lost; a fighter knocked back over a stage's end (its wall let go: WallLift) is out
+    if (b.mode == kRingOut && Locked()) {
+        const int left = static_cast<int16_t>(Ram16(sfiii3::kCameraLeft[0])) - 164, right = static_cast<int16_t>(Ram16(sfiii3::kCameraRight[0])) + 164;
+        for (int p = 0; p < 2; p++) {
+            const uint32_t base = sfiii3::kPlayer[p];
+            const uint16_t hits = Ram16(base + sfiii3::kHitCount);
+            if (hits != b.hits[p]) {
+                b.hits[p] = hits;
+                b.hitAt[p] = b.frames;
+            }
+            const int x = static_cast<int16_t>(Ram16(base + sfiii3::kX));
+            if (!b.out[0] && !b.out[1] && Fought() && (x < left - kOutPast || x > right + kOutPast)) {
+                b.out[p] = true;
+                if (getenv("SFIII3_BATTLE_LOG")) {
+                    fprintf(stderr, "battle: frame %u, side %d thrown out at %d (walls %d %d)\n", b.frames, p + 1, x, left, right);
+                }
+            }
+            SetRam8(base + sfiii3::kLife, b.out[p] ? 0 : sfiii3::kFullLife);
         }
     }
     // A round decided: the match is
@@ -349,6 +422,13 @@ void BattleHud(std::vector<HudLine> &lines) {
             lines.push_back({0.5f, 0.40f, 0, b.winner == 0 ? "TEAM 1 WINS THE BATTLE" : "TEAM 2 WINS THE BATTLE", 255, 230, 60});
         }
         break;
+    case kRingOut:
+        snprintf(text, sizeof(text), "RING OUT  %u THROWN OUT  BEST %d", b.won, std::max<int>(b.won, FeatureValue("ringout_best")));
+        lines.push_back({0.5f, 0.235f, 0, text, 255, 160, 80});
+        if (b.out[0] || b.out[1]) {
+            lines.push_back({0.5f, 0.40f, 0, "RING OUT!", 255, 230, 60});
+        }
+        break;
     default: break; // (endless: nothing over it)
     }
 }
@@ -386,6 +466,14 @@ void RegisterBattle(Game &game) {
                              StartSurvival});
     game.features.push_back({"survival_best", "Survival", "Best", "The most opponents beaten in one survival. (Left puts it back.)",
                              kFeatureOwn, counts});
+
+    game.commands.push_back({"ringout_start", "Ring out", "Start",
+                             "Choose a character; then one opponent after another, with no health: knock your opponent back over an "
+                             "end of the stage to throw them out. Over the first time you are thrown out.",
+                             StartRingOut});
+    game.features.push_back({"ringout_best", "Ring out", "Best", "The most opponents thrown out in one go. (Left puts it back.)",
+                             kFeatureOwn, counts});
+    RegisterLifts(kWallLift, std::size(kWallLift));
 
     game.commands.push_back({"endless_start", "Endless battle", "Start",
                              "Two fighters played by the game: no bars, no clock, and the one knocked down is replaced. Press "
