@@ -364,13 +364,17 @@ void TrainingBeforeFrame(Machine &m) {
     session::BeforeFrame(m);
     // Played by the game: player 2's record says the computer works it (byte 3: 0 the computer, 1 a player; seen in
     // RAM compared between one- and two-player fights), set while a round is on
+    // (and player 1's too, to watch the game play itself)
     if (session::InSession() && InMatch()) {
-        const bool computer = FeatureOn("dummy_computer");
-        const uint8_t now = Ram8(Player(1) + 3);
-        if (computer && now != 0) {
-            SetRam8(Player(1) + 3, 0);
-        } else if (!computer && now == 0) {
-            SetRam8(Player(1) + 3, 1);
+        const bool watch = FeatureOn("training_watch");
+        for (int p = 0; p < 2; p++) {
+            const bool computer = watch || (p == 1 && FeatureOn("dummy_computer"));
+            const uint8_t now = Ram8(Player(p) + 3);
+            if (computer && now != 0) {
+                SetRam8(Player(p) + 3, 0);
+            } else if (!computer && now == 0) {
+                SetRam8(Player(p) + 3, 1);
+            }
         }
     }
     // Stunned (the stun timer, two bytes on from the most it takes, counts down from 130 or so), the dummy mashes: the
@@ -461,6 +465,9 @@ void RegisterTraining(Game &game) {
         {"training_stage", session::kPage, "Stage", "The stage a training session is fought on.", kFeatureMenuChoices,
          {"The game's choice", "Gill's", "Alex's", "Ryu's", "Yun's", "Dudley's", "Necro's", "Hugo's", "Ibuki's", "Elena's", "Oro's",
           "Yang's", "Ken's", "Sean's", "Urien's", "Akuma's", "Akuma's (red)", "Chun-Li's", "Makoto's", "Q's", "Twelve's", "Remy's"}},
+        {"training_watch", session::kPage, "Watch the game play itself",
+         "In a training session, both players are the game's computer player: a fight to watch, as long as it is on (health "
+         "comes back below a quarter, as in any session)."},
         {"dummy_computer", "Dummy", "Played by the game",
          "Player 2 is the game's own computer player, as in a one-player game (at the board's difficulty setting).", kFeatureExclusive},
         {"dummy_stun_mash", "Dummy", "Mashes out of stun",
@@ -500,7 +507,7 @@ void RegisterTraining(Game &game) {
         start.id = Ram16(base + 0x202);
         return start;
     };
-    d.ownAids = {"hit_boxes", "dummy_parry", "dummy_stun_mash", "dummy_computer", "parry_readout", "stun_readout", "full_meter", "full_meter_2"};
+    d.ownAids = {"hit_boxes", "dummy_parry", "dummy_stun_mash", "dummy_computer", "training_watch", "parry_readout", "stun_readout", "full_meter", "full_meter_2"};
     // The dummy's guard: player 1's move starting or able to hit, near enough (280 across: the distance a move can hit
     // from is not known; nearer missed more, farther no fewer); standing against an attack from the air (made-up play,
     // three seeds: 25 hits taken to 43 with the toolkit's own, which crouches always)
