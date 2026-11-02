@@ -372,6 +372,20 @@ void RegisterTraining(Game &game) {
         {"full_meter", session::kPage, "Full meter", "Player 1's super art meter is always full."},
         {"full_meter_2", session::kPage, "Full meter, player 2", "Player 2's super art meter is always full."},
     };
+    // (the frame data log: the character by its number in the record, 0x3C0; the move by its animation, 0x202)
+    d.moveStart = [](int p) {
+        static const char *const kNames[] = {"Gill", "Alex", "Ryu", "Yun", "Dudley", "Necro", "Hugo", "Ibuki", "Elena", "Oro", "Yang",
+                                             "Ken", "Sean", "Urien", "Akuma", "Gill", "Chun-Li", "Makoto", "Q", "Twelve", "Remy"};
+        const uint32_t base = Player(p);
+        const uint16_t who = Ram16(base + 0x3C0);
+        fight::MoveLog::Start start;
+        start.character = who < std::size(kNames) ? kNames[who] : "?";
+        const Machine *m = TheMachine();
+        start.input = fight::Notation(m ? m->players[p] : 0, Ram8(base + sfiii3::kFacing) == 0);
+        start.air = Signed16(base + sfiii3::kY) > 0;
+        start.id = Ram16(base + 0x202);
+        return start;
+    };
     d.ownAids = {"hit_boxes", "dummy_parry", "parry_readout", "stun_readout", "full_meter", "full_meter_2"};
     // Being thrown: the throw escape (light punch and light kick, tapped, as the throw takes hold: kThrown is set two
     // frames after the thrower's buttons)

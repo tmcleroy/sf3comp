@@ -18,6 +18,7 @@ namespace {
     constexpr uint16_t kAllButtons = kPunch1 | kPunch2 | kPunch3 | kKick1 | kKick2 | kKick3;
 
     fight::Frames g_frames;
+    fight::MoveLog g_log;
     fight::InputHistory g_inputs;
     fight::Combos g_combos;
     fight::Dummy g_dummy;
@@ -139,6 +140,9 @@ bool NoKnockOut() {
 
 void Step(int player, const fight::StepView &view) {
     g_frames.Step(player, view);
+    if (d.moveStart && FeatureOn("frame_log")) {
+        g_log.Step(player, g_frames, d.moveStart);
+    }
 }
 void Contact(int victim, bool guarded) {
     g_frames.Contact(victim, guarded);
@@ -268,12 +272,17 @@ void Register(const Description &description) {
                              "After a move: the step it can first hit on (startup), how many it can hit for (active) and how many follow "
                              "before the player can act (recovery). After a hit or a guarded one: who can act first, by how many steps "
                              "(+: the attacker)."});
+    if (d.moveStart) {
+        game.features.push_back({"frame_log", kPage, "Frame data log",
+                                 "Writes every move's frame data to frame_data.csv, beside the settings file: the character, what was "
+                                 "held as it began, startup, active, recovery and the advantage after a hit or a guarded one."});
+    }
     game.features.push_back({"frame_meter", kPage, "Frame meter",
                              "A row of cells for each player, one for every step of the game: green before a move can hit, red while it "
                              "can, blue after; yellow reeling from a hit, light blue from a guarded one; grey in the air."});
     game.features.push_back({"health_refill", kPage, "Health refills", "A player's health comes back when they have not been hit for a moment."});
     fight::RegisterDummy(d.dummy);
-    for (const char *name : {"damage_readout", "input_display", "frame_data", "frame_meter", "health_refill"}) {
+    for (const char *name : {"damage_readout", "input_display", "frame_data", "frame_log", "frame_meter", "health_refill"}) {
         TrainingAids({name});
     }
     for (const char *name : d.ownAids) {

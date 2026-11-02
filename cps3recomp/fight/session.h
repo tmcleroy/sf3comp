@@ -49,6 +49,8 @@ struct Description {
     float inputY = 0.30f, inputSpacing = 0.062f, framesY = 0.72f;
     int framesTop = 193;
     fight::DummyOptions dummy;
+    // For the frame data log (frame_log): what a move is as it starts (none: no log)
+    fight::MoveLog::StartFn moveStart = nullptr;
     // The game's own training features, and which of them are aids (working only in a session)
     std::vector<Feature> features;
     std::vector<const char *> ownAids;
