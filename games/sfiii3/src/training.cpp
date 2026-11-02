@@ -1,42 +1,68 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Tommy McLeroy
 //
-// 3rd Strike's training aids, on the toolkit's fight/ parts: health and meter kept up, hit boxes drawn through the
-// game's camera, an input display. (A first set: frame data, the dummy and the rest need the fighters' states read
-// with more care, and are next.)
+// 3rd Strike's training mode: the toolkit's session (fight/session.h) told where 3rd Strike keeps things, and what each
+// player does each frame, read from the players' records after the frame: a move or not, reeling, thrown, in the air;
+// hits and guards as the records count them; damage as the health goes down. Hit boxes through the game's camera, and
+// the super art meter kept full.
+//
+// Read once a frame, not at the game's own steps: a move's numbers are counted in frames, which is what 3rd Strike's
+// published frame data counts too. Not compared with that data yet.
 #include "fight.h"
 #include "game.h"
+#include "session.h"
 #include "sfiii3.h"
 #include "state.h"
 #include "system.h"
+
+#include <algorithm>
 
 namespace cps3recomp {
 
 namespace {
     struct State {
-        int idle[2] = {};
-        fight::InputHistory inputs;
+        uint16_t hits[2] = {}, marker[2] = {};
+        uint8_t health[2] = {}, blocking[2] = {};
+        bool reeling[2] = {}, guarding[2] = {};
     } g;
 
     int16_t Signed16(uint32_t address) {
         return static_cast<int16_t>(Ram16(address));
     }
+    uint32_t Player(int p) {
+        return sfiii3::kPlayer[p];
+    }
     bool InMatch() {
         return (Ram8(sfiii3::kLocked[0]) == 0xFF || Ram8(sfiii3::kLocked[1]) == 0xFF) && Ram8(sfiii3::kMatchState) == 2;
     }
-    // Free to act: not attacking, guarding, thrown, busy or frozen, and taking input
+    bool Guarding(int p) {
+        const uint8_t b = Ram8(Player(p) + sfiii3::kBlocking);
+        return b > 0 && b < 5;
+    }
+    // Free to act: not attacking, guarding, thrown, busy or frozen, and taking input (the training script's "idle")
     bool Idle(int p) {
-        const uint32_t base = sfiii3::kPlayer[p];
-        return Ram8(base + sfiii3::kAttacking) == 0 && !(Ram8(base + sfiii3::kBlocking) > 0 && Ram8(base + sfiii3::kBlocking) < 5) &&
-               Ram8(base + sfiii3::kThrown) == 0 && (Ram16(base + sfiii3::kBusy) & 0xFF) == 0 && Ram8(base + sfiii3::kFreeze) == 0 &&
-               Ram16(base + sfiii3::kInputCapacity) > 0;
+        const uint32_t base = Player(p);
+        return Ram8(base + sfiii3::kAttacking) == 0 && !Guarding(p) && Ram8(base + sfiii3::kThrown) == 0 &&
+               (Ram16(base + sfiii3::kBusy) & 0xFF) == 0 && Ram8(base + sfiii3::kFreeze) == 0 && Ram16(base + sfiii3::kInputCapacity) > 0;
+    }
+    // A box list's first box that is not empty
+    bool AnyBox(int p, uint32_t offset, int count) {
+        const uint32_t at = Ram32(Player(p) + offset);
+        if ((at & 0xFFF80000u) != 0x02000000u) {
+            return false;
+        }
+        for (int n = 0; n < count; n++) {
+            if (Ram32(at + n * 8) || Ram32(at + n * 8 + 4)) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    void Boxes() {
-        std::vector<HudBox> boxes;
+    void Boxes(std::vector<HudBox> &boxes) {
         const int cameraX = Signed16(sfiii3::kCameraX), cameraY = Signed16(sfiii3::kCameraY);
         for (int p = 0; p < 2; p++) {
-            const uint32_t base = sfiii3::kPlayer[p];
+            const uint32_t base = Player(p);
             const int px = Signed16(base + sfiii3::kX) - cameraX + Video::kWidth / 2;
             const int py = Video::kHeight - (Signed16(base + sfiii3::kY) - cameraY) - 23;
             const bool flipped = Ram8(base + sfiii3::kFacing) != 0;
@@ -52,72 +78,125 @@ namespace {
                         continue;
                     }
                     const int x = flipped ? px - left - width : px + left;
-                    static constexpr uint8_t kColour[5][3] = {{60, 120, 255}, {255, 40, 40}, {255, 60, 255}, {255, 230, 40}, {60, 230, 60}};
+                    static constexpr uint8_t kColour[5][3] = {{60, 120, 255}, {255, 40, 40}, {60, 220, 60}, {255, 230, 40}, {255, 60, 255}};
                     const uint8_t *c = kColour[list.kind];
                     boxes.push_back({x, py - bottom - height, width, height, c[0], c[1], c[2]});
                 }
             }
         }
-        SetBoxes(boxes);
     }
 
-    void BeforeFrame(Machine &m) {
+    // After every frame: what each player did, told to the session
+    void ReadSteps() {
         if (!InMatch()) {
+            for (int p = 0; p < 2; p++) {
+                g.hits[p] = Ram16(Player(p) + sfiii3::kHitCount);
+                g.health[p] = Ram8(Player(p) + sfiii3::kLife);
+                g.reeling[p] = g.guarding[p] = false;
+            }
             return;
         }
         for (int p = 0; p < 2; p++) {
-            const uint32_t base = sfiii3::kPlayer[p];
-            g.idle[p] = Idle(p) ? g.idle[p] + 1 : 0;
-            if (FeatureOn("refill_health") && g.idle[p] > 30 && Ram8(base + sfiii3::kLife) < sfiii3::kFullLife) {
-                SetRam8(base + sfiii3::kLife, static_cast<uint8_t>(std::min(Ram8(base + sfiii3::kLife) + 6, sfiii3::kFullLife)));
+            const uint32_t base = Player(p);
+            const uint16_t hits = Ram16(base + sfiii3::kHitCount);
+            const bool hit = hits != g.hits[p];
+            const bool guardStarted = Guarding(p) && !g.guarding[p];
+            g.hits[p] = hits;
+            if (hit) {
+                g.reeling[p] = true;
+                session::Contact(p, false);
+            } else if (guardStarted) {
+                session::Contact(p, true);
             }
+            g.guarding[p] = Guarding(p);
+            const uint8_t health = Ram8(base + sfiii3::kLife);
+            if (health < g.health[p]) {
+                session::Hit(p, g.health[p] - health, g.guarding[p] && !hit);
+            }
+            g.health[p] = health;
+            const bool idle = Idle(p);
+            if (idle) {
+                g.reeling[p] = false;
+            }
+            fight::StepView view;
+            const bool thrown = Ram8(base + sfiii3::kThrown) != 0;
+            view.control = thrown ? fight::StepView::Held : (g.reeling[p] || g.guarding[p]) ? fight::StepView::Reeling : fight::StepView::Own;
+            view.canAct = idle;
+            view.frozen = Ram8(base + sfiii3::kFreeze) != 0;
+            view.attacking = Ram8(base + sfiii3::kAttacking) != 0;
+            view.jumping = Signed16(base + sfiii3::kY) > 0;
+            view.attackOut = AnyBox(p, 0x2C8, 4);
+            session::Step(p, view);
+        }
+    }
+
+    bool FullMeter(int p) {
+        return FeatureOn(p == 0 ? "full_meter" : "full_meter_2");
+    }
+} // namespace
+
+void TrainingBeforeFrame(Machine &m) {
+    if (InMatch()) {
+        for (int p = 0; p < 2; p++) {
+            const uint32_t base = Player(p);
             const uint8_t most = Ram8(sfiii3::kMaxMeterCount[p]);
-            if (FeatureOn(p == 0 ? "full_meter" : "full_meter_2") && most && Ram8(sfiii3::kMeterCount[p]) != most &&
-                Ram8(sfiii3::kMeterCountShown[p]) != most) {
+            if (FullMeter(p) && most && Ram8(sfiii3::kMeterCount[p]) != most && Ram8(sfiii3::kMeterCountShown[p]) != most) {
                 SetRam8(sfiii3::kGauge[p], 0);
                 SetRam8(sfiii3::kMeterCount[p], most);
                 SetRam8(sfiii3::kMeterUpdate[p], 1);
             }
-        }
-    }
-
-    void AfterFrame(Machine &m) {
-        std::vector<HudLine> lines;
-        const bool match = InMatch();
-        if (match && FeatureOn("input_display")) {
-            for (int p = 0; p < 2; p++) {
-                g.inputs.Push(p, m.players[p], Ram8(sfiii3::kPlayer[p] + sfiii3::kFacing) == 0);
-                g.inputs.Hud(p, lines);
+            // (nobody knocked out in a session: health back to full below a quarter, until the game's knock-out has a
+            // hook)
+            if (session::NoKnockOut() && Ram8(base + sfiii3::kLife) < sfiii3::kFullLife / 4) {
+                SetRam8(base + sfiii3::kLife, sfiii3::kFullLife);
+                g.health[p] = sfiii3::kFullLife;
             }
         }
-        SetHud(lines);
-        if (match && FeatureOn("hit_boxes")) {
-            Boxes();
-        } else {
-            SetBoxes({});
+        if (session::NoClock()) {
+            SetRam8(sfiii3::kClock, 99);
         }
     }
-} // namespace
+    session::BeforeFrame(m);
+}
+
+void TrainingAfterFrame(Machine &m) {
+    ReadSteps();
+    session::Frame(m);
+}
 
 void RegisterTraining(Game &game) {
-    game.features.push_back({"refill_health", "Training", "Refill health", "Health comes back to full a moment after a combo ends."});
-    game.features.push_back({"full_meter", "Training", "Full meter", "Player 1's super art meter is always full."});
-    game.features.push_back({"full_meter_2", "Training", "Full meter, player 2", "Player 2's super art meter is always full."});
-    game.features.push_back({"hit_boxes", "Training", "Hit boxes",
-                             "Each fighter's boxes over the picture: blue where it can be hit, red where it hits, yellow its throw, green "
-                             "where it can be thrown, pink the body that pushes."});
-    game.features.push_back({"input_display", "Training", "Input display", "What each player holds, newest first, in numpad notation."});
-    game.state = [](Archive &ar) {
-        ar.Pod(g.idle);
-        ar.Pod(g.inputs);
+    session::Description d;
+    d.player[0] = sfiii3::kPlayer[0];
+    d.player[1] = sfiii3::kPlayer[1];
+    d.x = sfiii3::kX;
+    d.health = sfiii3::kLife;
+    d.healthFull = sfiii3::kFullLife;
+    d.credits = sfiii3::kCredits;
+    d.fighting = InMatch;
+    // (character select: 0 no player, 1 coming in, 2 choosing a character, 3-4 the super art, 5 chosen)
+    d.joined = [](int p) { return Ram8(sfiii3::kSelectState[p]) >= 2; };
+    d.chosen = [](int p) { return Ram8(sfiii3::kSelectState[p]) >= 3; };
+    d.choosing = [] { return !InMatch() && (Ram8(sfiii3::kSelectState[0]) >= 1 || Ram8(sfiii3::kSelectState[1]) >= 1) &&
+                             (Ram8(sfiii3::kSelectState[0]) < 5 || Ram8(sfiii3::kSelectState[1]) < 5); };
+    d.facingLeft = [](int p) { return Ram8(sfiii3::kPlayer[p] + sfiii3::kFacing) == 0; };
+    d.hud = [](Machine &, std::vector<HudLine> &, std::vector<HudBox> &boxes) {
+        if (FeatureOn("hit_boxes")) {
+            Boxes(boxes);
+        }
     };
-}
-
-void TrainingBeforeFrame(Machine &m) {
-    BeforeFrame(m);
-}
-void TrainingAfterFrame(Machine &m) {
-    AfterFrame(m);
+    d.features = {
+        {"hit_boxes", session::kPage, "Hit boxes",
+         "Each fighter's boxes over the picture: blue where it can be hit, red where it hits, yellow its throw, pink where it can be "
+         "thrown, green the body that pushes."},
+        {"full_meter", session::kPage, "Full meter", "Player 1's super art meter is always full."},
+        {"full_meter_2", session::kPage, "Full meter, player 2", "Player 2's super art meter is always full."},
+    };
+    d.ownAids = {"hit_boxes", "full_meter", "full_meter_2"};
+    session::Register(d);
+    game.state = [](Archive &ar) {
+        ar.Pod(g);
+        session::State(ar);
+    };
 }
 
 } // namespace cps3recomp

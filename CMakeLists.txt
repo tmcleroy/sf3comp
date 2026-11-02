@@ -71,7 +71,7 @@ set(PORT_SOURCES
     ${CR}/port/menu.cpp ${CR}/port/hud.cpp ${CR}/port/touch.cpp ${CR}/port/netplay.cpp
     ${CR}/recomp-common/launcher/src/online.cpp ${CR}/recomp-common/launcher/src/run_program.cpp
     ${CR}/recomp-common/menu.cpp ${CR}/recomp-common/settings.cpp
-    ${CR}/runtime/game.cpp ${CR}/runtime/system.cpp ${CR}/fight/frames.cpp ${CR}/fight/training.cpp ${GAME_SOURCES})
+    ${CR}/runtime/game.cpp ${CR}/runtime/system.cpp ${CR}/fight/frames.cpp ${CR}/fight/training.cpp ${CR}/fight/session.cpp ${GAME_SOURCES})
 if (APPLE)
     enable_language(OBJCXX)
     list(APPEND PORT_SOURCES ${CR}/port/front_macos.mm)

@@ -28,8 +28,13 @@
   06138230: state word 0207603C, queues at 0207803C / 0207844C). Its timing matters: with the board's clock read
   stale inside a CPU slice the queue stuck and the fighters were never loaded.
 
-- Training aids (games/sfiii3/src/training.cpp, on cps3recomp/fight/): refill health, full meter, hit boxes, input
-  display. The player records, boxes, camera and meter places are facts from Grouflon's 3rd_training_lua (no licence:
+- Training mode (games/sfiii3/src/training.cpp on cps3recomp/fight/session.cpp, cps2recomp's session without its
+  modes and battles): the menu's Start (board reset, way to character select worked unseen, player 1 choosing for
+  both), Start over (sides swapped or not), no clock, combo readout, input display, frame data and meter, health
+  refills, the dummy (the toolkit's: stand, crouch, jump, guard, record, replay), hit boxes, full meter. Seen working
+  in a made-up fight's pictures only. Frame data is read once a frame from the records (not the game's own steps)
+  and has not been compared with published frame data: a jump-in hit showed -14, which looks wrong. "Nobody knocked
+  out" puts health back to full below a quarter (no hook on the game's knock-out yet). The player records, boxes, camera and meter places are facts from Grouflon's 3rd_training_lua (no licence:
   facts only, no code), made for the 990512 set; life and positions checked on this 990608 set, the rest seen to
   work in a fight's pictures only.
 

@@ -22,6 +22,9 @@ constexpr uint32_t kClock = 0x02011377;
 // A round is on: a character locked in by either side (0xFF) and the match's state 2 (players can move)
 constexpr uint32_t kLocked[2] = {0x020154C6, 0x020154C8};
 constexpr uint32_t kMatchState = 0x020154A7;
+// Character select, each player: 0 no player, 1 coming in, 2 choosing a character, 3 the super art's coming, 4
+// choosing it, 5 chosen (and so through the match)
+constexpr uint32_t kSelectState[2] = {0x0201553D, 0x02015545};
 // The camera: the middle of the picture in the stage (signed words)
 constexpr uint32_t kCameraX = 0x02026CB0, kCameraY = 0x02026CB4;
 // The players' records (checked: life and position change as the fight's pictures do)
