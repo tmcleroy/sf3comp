@@ -47,6 +47,7 @@ namespace {
             uint8_t who = 0, startup = 0;
         } learned[256];
         uint32_t moveFrom[2] = {};
+        bool moveLow[2] = {}; // (made crouching: down held on the floor as it started)
         uint32_t learnedAt = 0;
     } g;
 
@@ -273,6 +274,8 @@ namespace {
             if (before == fight::Doing::Free && session::Now(p) != fight::Doing::Free) {
                 g.moveAnim[p] = Ram16(base + 0x202);
                 g.moveFrom[p] = g.frame;
+                const Machine *m = TheMachine();
+                g.moveLow[p] = m && (m->players[p] & kDown) && Signed16(base + sfiii3::kY) <= 0;
             }
             const fight::Frames::Move move = session::LastMove(p);
             if (move.at && move.at != g.loggedAt[p]) {
@@ -345,7 +348,7 @@ void TrainingBeforeFrame(Machine &m) {
         const int into = static_cast<int>(g.frame - g.moveFrom[0]);
         const bool due = startup == 0 || into >= startup - lead;
         if (session::Now(0) == fight::Doing::Startup && due && (g.parryTap == 0 || g.frame - g.parryTap > 24)) {
-            m.players[1] = (m.players[0] & kDown) ? kDown : (onRight ? kLeft : kRight);
+            m.players[1] = g.moveLow[0] ? kDown : (onRight ? kLeft : kRight);
             if (!RunningAhead()) {
                 g.parryTap = g.frame;
             }
@@ -418,7 +421,7 @@ void RegisterTraining(Game &game) {
         {"dummy_parry", "Dummy", "Parries",
          "Player 2 tries to parry player 1's attacks: it taps towards player 1 (or down for an attack made crouching). A move it has "
          "seen before it parries just before it can hit (it learns each move's startup as the frame data measures it); one it has "
-         "not, as it starts. In tests it parried about half of made-up play's attacks (a third without the learning)."},
+         "not, as it starts. In tests it parried about three in five of made-up play's attacks (a third without the learning)."},
         {"parry_readout", session::kPage, "Parry readout",
          "When a parry window opens (the stick forward, down, in the air, or up against a jump-in): whether the parry came, on which "
          "frame of the window, or how long after the window opened the hit came instead."},
