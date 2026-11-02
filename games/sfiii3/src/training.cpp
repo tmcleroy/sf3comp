@@ -40,7 +40,41 @@ namespace {
         } parry[2];
         uint32_t frame = 0;
         uint32_t parryTap = 0; // (the dummy's parry: the frame it last tapped)
+        // (... and each of player 1's moves' startup as measured, by character and animation, so that the next time it
+        // taps just before the move can hit; and when player 1's move now started)
+        struct Learned {
+            uint16_t anim = 0;
+            uint8_t who = 0, startup = 0;
+        } learned[256];
+        uint32_t moveFrom[2] = {};
+        uint32_t learnedAt = 0;
     } g;
+
+    // A move's startup as learned (0: not seen yet)
+    int LearnedStartup(uint8_t who, uint16_t anim) {
+        for (uint32_t n = 0, at = anim % std::size(g.learned); n < std::size(g.learned); n++, at = (at + 1) % std::size(g.learned)) {
+            const auto &one = g.learned[at];
+            if (one.startup == 0) {
+                return 0;
+            }
+            if (one.anim == anim && one.who == who) {
+                return one.startup;
+            }
+        }
+        return 0;
+    }
+    void Learn(uint8_t who, uint16_t anim, int startup) {
+        if (startup <= 0 || startup > 255) {
+            return;
+        }
+        for (uint32_t n = 0, at = anim % std::size(g.learned); n < std::size(g.learned); n++, at = (at + 1) % std::size(g.learned)) {
+            auto &one = g.learned[at];
+            if (one.startup == 0 || (one.anim == anim && one.who == who)) {
+                one = {anim, who, static_cast<uint8_t>(startup)};
+                return;
+            }
+        }
+    }
 
     int16_t Signed16(uint32_t address) {
         return static_cast<int16_t>(Ram16(address));
@@ -233,16 +267,21 @@ namespace {
             }
             const fight::Doing before = session::Now(p);
             session::Step(p, view);
-            // (debugging aid, SFIII3_MOVES=1: each move's character, animation, startup, active and recovery as measured,
-            // for tools/framecheck.py to compare with the training script's recorded animations)
-            static const bool logMoves = getenv("SFIII3_MOVES") != nullptr;
-            if (logMoves) {
-                if (before == fight::Doing::Free && session::Now(p) != fight::Doing::Free) {
-                    g.moveAnim[p] = Ram16(base + 0x202);
+            // Each move's animation as it starts, and its startup once measured (the dummy's parry learns them; and a
+            // debugging aid, SFIII3_MOVES=1, prints each move's character, animation, startup, active and recovery as
+            // measured, for tools/framecheck.py to compare with the training script's recorded animations)
+            if (before == fight::Doing::Free && session::Now(p) != fight::Doing::Free) {
+                g.moveAnim[p] = Ram16(base + 0x202);
+                g.moveFrom[p] = g.frame;
+            }
+            const fight::Frames::Move move = session::LastMove(p);
+            if (move.at && move.at != g.loggedAt[p]) {
+                g.loggedAt[p] = move.at;
+                if (p == 0) {
+                    Learn(static_cast<uint8_t>(Ram16(base + 0x3C0)), g.moveAnim[p], move.startup);
                 }
-                const fight::Frames::Move move = session::LastMove(p);
-                if (move.at && move.at != g.loggedAt[p]) {
-                    g.loggedAt[p] = move.at;
+                static const bool logMoves = getenv("SFIII3_MOVES") != nullptr;
+                if (logMoves) {
                     printf("move %d %u %04x %u %u %u\n", p, Ram16(base + 0x3C0), g.moveAnim[p], move.startup, move.active, move.recovery);
                 }
             }
@@ -300,7 +339,12 @@ void TrainingBeforeFrame(Machine &m) {
     // a parry window of about 10 frames; again after the window's cooldown (about 24) while the attack is still starting
     if (session::InSession() && FeatureOn("dummy_parry") && InMatch()) {
         const bool onRight = static_cast<int16_t>(Ram16(Player(1) + sfiii3::kX)) >= static_cast<int16_t>(Ram16(Player(0) + sfiii3::kX));
-        if (session::Now(0) == fight::Doing::Startup && (g.parryTap == 0 || g.frame - g.parryTap > 24)) {
+        // (a move seen before: the tap as it is about to hit, `lead` frames before; one not seen yet: as it starts)
+        static const int lead = getenv("SFIII3_PARRY_LEAD") ? atoi(getenv("SFIII3_PARRY_LEAD")) : 2;
+        const int startup = LearnedStartup(static_cast<uint8_t>(Ram16(Player(0) + 0x3C0)), g.moveAnim[0]);
+        const int into = static_cast<int>(g.frame - g.moveFrom[0]);
+        const bool due = startup == 0 || into >= startup - lead;
+        if (session::Now(0) == fight::Doing::Startup && due && (g.parryTap == 0 || g.frame - g.parryTap > 24)) {
             m.players[1] = (m.players[0] & kDown) ? kDown : (onRight ? kLeft : kRight);
             if (!RunningAhead()) {
                 g.parryTap = g.frame;
@@ -372,8 +416,9 @@ void RegisterTraining(Game &game) {
          {"The game's choice", "Gill's", "Alex's", "Ryu's", "Yun's", "Dudley's", "Necro's", "Hugo's", "Ibuki's", "Elena's", "Oro's",
           "Yang's", "Ken's", "Sean's", "Urien's", "Akuma's", "Akuma's (red)", "Chun-Li's", "Makoto's", "Q's", "Twelve's", "Remy's"}},
         {"dummy_parry", "Dummy", "Parries",
-         "Player 2 tries to parry player 1's attacks: it taps towards player 1 (or down for an attack made crouching) as an attack "
-         "starts. An early form: it catches attacks that hit within about 10 frames of starting (about a third of attacks in tests)."},
+         "Player 2 tries to parry player 1's attacks: it taps towards player 1 (or down for an attack made crouching). A move it has "
+         "seen before it parries just before it can hit (it learns each move's startup as the frame data measures it); one it has "
+         "not, as it starts. In tests it parried about half of made-up play's attacks (a third without the learning)."},
         {"parry_readout", session::kPage, "Parry readout",
          "When a parry window opens (the stick forward, down, in the air, or up against a jump-in): whether the parry came, on which "
          "frame of the window, or how long after the window opened the hit came instead."},
