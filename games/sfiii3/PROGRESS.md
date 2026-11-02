@@ -23,6 +23,11 @@
   06138230: state word 0207603C, queues at 0207803C / 0207844C). Its timing matters: with the board's clock read
   stale inside a CPU slice the queue stuck and the fighters were never loaded.
 
+- Training aids (games/sfiii3/src/training.cpp, on cps3recomp/fight/): refill health, full meter, hit boxes, input
+  display. The player records, boxes, camera and meter places are facts from Grouflon's 3rd_training_lua (no licence:
+  facts only, no code), made for the 990512 set; life and positions checked on this 990608 set, the rest seen to
+  work in a fight's pictures only.
+
 ## Gotchas
 
 - Addresses 0x2xxxxxxx are the cache-through mirror of 0x0xxxxxxx: main RAM is reached at 0x22000000 too.

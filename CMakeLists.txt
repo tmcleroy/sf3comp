@@ -58,7 +58,7 @@ set(PORT_SOURCES
     ${CR}/port/menu.cpp ${CR}/port/hud.cpp ${CR}/port/touch.cpp ${CR}/port/netplay.cpp
     ${CR}/recomp-common/launcher/src/online.cpp ${CR}/recomp-common/launcher/src/run_program.cpp
     ${CR}/recomp-common/menu.cpp ${CR}/recomp-common/settings.cpp
-    ${CR}/runtime/game.cpp ${CR}/runtime/system.cpp ${GAME_SOURCES})
+    ${CR}/runtime/game.cpp ${CR}/runtime/system.cpp ${CR}/fight/frames.cpp ${CR}/fight/training.cpp ${GAME_SOURCES})
 if (APPLE)
     enable_language(OBJCXX)
     list(APPEND PORT_SOURCES ${CR}/port/front_macos.mm)
@@ -68,7 +68,7 @@ add_dependencies(${GAME} game_cfg)
 if (WIN32)
     set_target_properties(${GAME} PROPERTIES WIN32_EXECUTABLE ON)
 endif ()
-target_include_directories(${GAME} PRIVATE ${CR}/runtime ${CR}/port "${WORK_DIR}" "${GAME_DIR}")
+target_include_directories(${GAME} PRIVATE ${CR}/runtime ${CR}/port ${CR}/fight "${WORK_DIR}" "${GAME_DIR}")
 target_link_libraries(${GAME} PRIVATE cps3machine SDL3::SDL3)
 if (APPLE)
     target_link_libraries(${GAME} PRIVATE "-framework AppKit")

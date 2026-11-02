@@ -8,7 +8,8 @@ The aim is one definitive Street Fighter III: **3rd Strike**'s gameplay, with th
 ports ([CPS-2 Recomp](https://github.com/tmcleroy/cps2recomp)): training mode, online play, widescreen and the rest.
 
 **Status:** early. 3rd Strike runs on the port's own CPS-3 machine (an interpreter for now; translation is coming),
-with the launcher, the in-game menu, save states, free play and the CPS-2 ports' display options.
+with the launcher, the in-game menu, save states, free play, the CPS-2 ports' display options, and the first training
+aids (hit boxes, input display, health and meter refills).
 
 **No game files are included.** You need your own ROM set (`sfiii3n`). Its cipher's keys are worked out from the set
 itself when the game starts; none are in this repository.

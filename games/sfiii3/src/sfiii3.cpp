@@ -8,8 +8,12 @@
 
 namespace cps3recomp {
 
+void RegisterTraining(Game &game);
+void TrainingBeforeFrame(Machine &m);
+void TrainingAfterFrame(Machine &m);
+
 namespace {
-    void BeforeFrame(Machine &) {
+    void BeforeFrame(Machine &m) {
         if (FeatureOn("free_play") && Ram8(sfiii3::kCredits) < 2) {
             SetRam8(sfiii3::kCredits, 2); // (two: a second player can always join)
         }
@@ -18,6 +22,7 @@ namespace {
         if (FeatureOn("infinite_time") && clock > 0 && clock < 99) {
             SetRam8(sfiii3::kClock, 99);
         }
+        TrainingBeforeFrame(m);
     }
 } // namespace
 
@@ -26,6 +31,8 @@ void RegisterGame() {
     game.features.push_back({"free_play", "Game", "Free play", "Start works without a coin.", kFeatureEnhanced});
     game.features.push_back({"infinite_time", "Cheats", "Infinite time", "The round's clock stands still."});
     game.beforeFrame = BeforeFrame;
+    game.frame = TrainingAfterFrame;
+    RegisterTraining(game);
 }
 
 } // namespace cps3recomp
