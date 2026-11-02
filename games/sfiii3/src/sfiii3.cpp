@@ -15,6 +15,8 @@ void RegisterTraining(Game &game);
 void RegisterLifts3rdStrike();
 void RegisterStages(Game &game);
 void RegisterSoundProbe();
+void RegisterBoard(Game &game);
+void BoardBeforeFrame(Machine &m);
 void StagesBeforeFrame(Machine &machine);
 void WidescreenBeforeFrame(Machine &m, bool fighting);
 void TrainingBeforeFrame(Machine &m);
@@ -27,6 +29,7 @@ namespace {
     bool g_skipping = false;
 
     void BeforeFrame(Machine &m) {
+        BoardBeforeFrame(m);
         if (FeatureOn("skip_intro") && m.frame < kOpening && !session::Booting()) {
             if (!g_skipping) {
                 g_skipping = true;
@@ -72,6 +75,7 @@ void RegisterGame() {
     RegisterLifts3rdStrike();
     RegisterStages(game);
     RegisterSoundProbe();
+    RegisterBoard(game);
 }
 
 } // namespace cps3recomp

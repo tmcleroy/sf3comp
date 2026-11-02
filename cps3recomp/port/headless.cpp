@@ -114,6 +114,7 @@ int main(int argc, char **argv) {
     std::string stageCfg, stageRom;
     int stageNumber = -1;
     std::vector<std::pair<uint32_t, uint8_t>> pokes;
+    std::string eepromPath;
     uint64_t traceFirst = 1, traceLast = 0;
     uint32_t traceLow = 0, traceHigh = 0;
     std::string tracePath;
@@ -214,6 +215,9 @@ int main(int argc, char **argv) {
                 at = *end == ',' ? end + 1 : end;
             }
             i++;
+        } else if (a == "--eeprom") {
+            eepromPath = v; // (the settings EEPROM to start with: 128 bytes, its words big-endian)
+            i++;
         } else if (a == "--hash") {
             hash = true;
         } else if (a == "--cpu") {
@@ -270,6 +274,17 @@ int main(int argc, char **argv) {
     }
     machine::Machine m(rom);
     m.Reset();
+    if (!eepromPath.empty()) {
+        if (FILE *f = fopen(eepromPath.c_str(), "rb")) {
+            uint8_t b[128] = {};
+            if (fread(b, 1, sizeof(b), f) == sizeof(b)) {
+                for (int n = 0; n < 32; n++) {
+                    m.eeprom[n] = (static_cast<uint32_t>(b[n * 4]) << 24) | (b[n * 4 + 1] << 16) | (b[n * 4 + 2] << 8) | b[n * 4 + 3];
+                }
+            }
+            fclose(f);
+        }
+    }
     if (cpu != "interp") {
         Attach(m, recompOptions);
     }
@@ -414,6 +429,14 @@ int main(int argc, char **argv) {
         if (frame == ramAt) {
             if (FILE *f = fopen(ramPath.c_str(), "wb")) {
                 fwrite(m.mainRam, 1, 0x80000, f);
+                fclose(f);
+            }
+            // (and beside it the settings EEPROM, its 32 words big-endian)
+            if (FILE *f = fopen((ramPath + ".eeprom").c_str(), "wb")) {
+                for (uint32_t w : m.eeprom) {
+                    const uint8_t b[4] = {static_cast<uint8_t>(w >> 24), static_cast<uint8_t>(w >> 16), static_cast<uint8_t>(w >> 8), static_cast<uint8_t>(w)};
+                    fwrite(b, 1, 4, f);
+                }
                 fclose(f);
             }
         }

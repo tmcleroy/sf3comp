@@ -27,6 +27,10 @@
   objects and the text layer moved over); in a fight the camera's ends (02026CF4/CF6 right, CF8/CFA left) are
   narrowed by 64 so the picture never shows past the stage. Seen on Ken's stage at both ends; other stages, the
   objects the game leaves out at the edges (it culls to its 384 columns) and non-fight screens not looked at.
+- The board's game settings (Board page: difficulty, damage, timer speed, rounds against the computer and between
+  two players): the settings EEPROM's bytes 0x21-0x24 (and their copy at 0x51-0x54), found by writing them and
+  reading the test menu; written before the board starts, so a reset takes a change; on a blank EEPROM (the first
+  start) the game's defaults go over them, so they take from the next start.
 - Straight to the opening (skip_intro, Enhanced): the first 760 frames (memory checks, region warning, Capcom's
   logo) fast-forwarded. Cheats: no damage (each player), infinite time.
 - Credits: byte 02007CE0 (free_play keeps it at 2). Round clock: byte 02011377 (seconds; infinite_time).
@@ -79,7 +83,7 @@
 6. Widescreen on every stage and screen; the objects the game culls at its 384 columns.
 7. Linux / Windows builds (cps2recomp's and fighting_vipers' tools/release as the model), then the other devices.
 8. The alternative modes (survival, endless battle, ring out), stage and model viewers, the colour editor, board
-   settings (the EEPROM's operator settings), as the CPS-2 ports have them.
+   as the CPS-2 ports have them.
 
 ## Decisions for the user
 
