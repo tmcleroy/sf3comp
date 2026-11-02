@@ -36,6 +36,8 @@ public:
     bool text = true;
     // Over the pixels given (another machine's picture, the same size): only what the objects drew replaces them
     bool overlay = false;
+    // Where nothing is drawn, this colour (0x01BBGGRR: the top byte says it is set; 0: the board's)
+    uint32_t backdrop = 0;
 
 private:
     std::vector<uint32_t> m_buffer; // colour numbers, up to twice the screen each way (the whole-picture zoom)

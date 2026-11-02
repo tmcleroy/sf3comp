@@ -293,7 +293,7 @@ void Renderer::Draw(const Machine &m, std::vector<uint32_t> &pixels, int &width,
         for (int col = 0; col < width; col++, sx += fx) {
             const uint32_t colour = source[std::min<uint32_t>(sx >> 16, kBufferWidth - 1)];
             if (!overlay || (colour & 0x1FFF)) { // (overlaid: where nothing was drawn, what the pixels had shows)
-                dest[col] = palette[colour & 0x1FFFF];
+                dest[col] = colour == 0 && backdrop ? backdrop & 0xFFFFFF : palette[colour & 0x1FFFF];
             } else if (colour) {
                 // (overlaid, a blend object over nothing of this board's: what the pixels had, made as much darker or
                 // lighter as that blend makes this board's colours)

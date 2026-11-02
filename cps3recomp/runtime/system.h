@@ -129,6 +129,10 @@ public:
     bool onlyStage = false;
     // No panel: the text layer, where the games draw their bars, clock and messages, left out of the picture
     bool hidePanel = false;
+    // Where nothing is drawn, this colour (Renderer::backdrop: 0x01BBGGRR, 0 the board's)
+    uint32_t backdrop = 0;
+    // Objects left out of the picture (a model viewer: the other fighter), as the game's sources say (none: all drawn)
+    bool (*hideObject)(const machine::Machine &board, uint32_t object) = nullptr;
     // How many of its frames the stage board runs this shown frame (none: one): more while it is on its way somewhere
     int (*stageFramesNow)() = nullptr;
     void (*beforeStage)(Machine &machine, machine::Machine &stage) = nullptr;

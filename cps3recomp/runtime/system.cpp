@@ -73,6 +73,7 @@ void Machine::RunFrame() {
     board.RunFrame();
     m_pcm.EndFrame(&audio);
     m_renderer.text = !hidePanel;
+    m_renderer.backdrop = backdrop;
     m_renderer.shift = worldShiftNow && m_renderer.margin ? std::clamp(worldShiftNow(), -m_renderer.margin, m_renderer.margin) : 0;
     if (drawing && m_stage && stageObject && ownStageObject && (!composeNow || composeNow())) {
         m_stageRenderer.margin = m_renderer.margin;
@@ -116,6 +117,14 @@ void Machine::RunFrame() {
         m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
             const Machine &me = *static_cast<Machine *>(self);
             return !me.ownStageObject(me.board, object);
+        };
+        m_renderer.Draw(board, m_picture, m_width, m_height);
+        m_renderer.drawGroup = nullptr;
+    } else if (drawing && hideObject) {
+        m_renderer.drawGroupContext = this;
+        m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
+            const Machine &me = *static_cast<Machine *>(self);
+            return !me.hideObject(me.board, object);
         };
         m_renderer.Draw(board, m_picture, m_width, m_height);
         m_renderer.drawGroup = nullptr;
