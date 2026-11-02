@@ -362,6 +362,17 @@ void TrainingBeforeFrame(Machine &m) {
         }
     }
     session::BeforeFrame(m);
+    // Played by the game: player 2's record says the computer works it (byte 3: 0 the computer, 1 a player; seen in
+    // RAM compared between one- and two-player fights), set while a round is on
+    if (session::InSession() && InMatch()) {
+        const bool computer = FeatureOn("dummy_computer");
+        const uint8_t now = Ram8(Player(1) + 3);
+        if (computer && now != 0) {
+            SetRam8(Player(1) + 3, 0);
+        } else if (!computer && now == 0) {
+            SetRam8(Player(1) + 3, 1);
+        }
+    }
     // Stunned (the stun timer, two bytes on from the most it takes, counts down from 130 or so), the dummy mashes: the
     // stick round and the buttons, a different one each frame
     if (session::InSession() && FeatureOn("dummy_stun_mash") && InMatch() && Ram8(sfiii3::kStunMost[1] + 2) != 0) {
@@ -450,6 +461,8 @@ void RegisterTraining(Game &game) {
         {"training_stage", session::kPage, "Stage", "The stage a training session is fought on.", kFeatureMenuChoices,
          {"The game's choice", "Gill's", "Alex's", "Ryu's", "Yun's", "Dudley's", "Necro's", "Hugo's", "Ibuki's", "Elena's", "Oro's",
           "Yang's", "Ken's", "Sean's", "Urien's", "Akuma's", "Akuma's (red)", "Chun-Li's", "Makoto's", "Q's", "Twelve's", "Remy's"}},
+        {"dummy_computer", "Dummy", "Played by the game",
+         "Player 2 is the game's own computer player, as in a one-player game (at the board's difficulty setting).", kFeatureExclusive},
         {"dummy_stun_mash", "Dummy", "Mashes out of stun",
          "Stunned, the dummy works the stick and the buttons as fast as it can, as a player does to get out sooner."},
         {"dummy_parry", "Dummy", "Parries",
@@ -479,7 +492,7 @@ void RegisterTraining(Game &game) {
         start.id = Ram16(base + 0x202);
         return start;
     };
-    d.ownAids = {"hit_boxes", "dummy_parry", "dummy_stun_mash", "parry_readout", "stun_readout", "full_meter", "full_meter_2"};
+    d.ownAids = {"hit_boxes", "dummy_parry", "dummy_stun_mash", "dummy_computer", "parry_readout", "stun_readout", "full_meter", "full_meter_2"};
     // Being thrown: the throw escape (light punch and light kick, tapped, as the throw takes hold: kThrown is set two
     // frames after the thrower's buttons)
     d.dummy.heldAction = [](int frame, uint16_t, uint16_t) -> uint16_t {
