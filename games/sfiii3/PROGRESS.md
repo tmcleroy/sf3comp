@@ -38,6 +38,8 @@
   logo) fast-forwarded. Cheats: no damage, no stun (each player), one hit knocks out, infinite time.
 - Play as Gill (Game page, host's online): the chosen character's byte (0x02011387/88) set to Gill's 0 while no
   match is on; Gill vs Gill in a training session and a one-player game as Gill seen in pictures.
+- Fight music (Game page, host's online: it changes the driver's RAM): the game asks for a song with 0x061394D0
+  (r4: song or effect, 16 callers); a stage song asked for (10-41, two a stage) is changed for the chosen stage's.
 - Stage viewer (training page): Machine::onlyStage draws the board's own stage objects and no text layer (or the
   stage board's picture alone); the stick moves both fighters together so the camera scrolls.
 - Endless battle (its own page, a command): a board reset and the way to character select as a session's, then the

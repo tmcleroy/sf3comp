@@ -58,6 +58,10 @@ void RegisterSoundProbe() {
         g_skip[0] = {"Skipped", static_cast<uint32_t>(strtoul(skip, nullptr, 16)), 8, strtoull(strchr(skip, ':') + 1, nullptr, 16), Skip, false, 0};
         RegisterLifts(g_skip, 1);
     }
+    // (SFIII3_SONG_PROBE=1: each start of a song asked of the driver, 0x061394D0 (r4 the song), with its number and who called)
+    if (getenv("SFIII3_SONG_PROBE")) {
+        AddHook("Song start", 0x061394D0, 8, 0x1BF90A4B22ACB049ull, [](Guest &g) { Probe("song", g); });
+    }
     if (!getenv("SFIII3_SOUND_PROBE")) {
         return;
     }

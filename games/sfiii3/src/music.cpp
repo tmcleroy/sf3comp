@@ -88,6 +88,19 @@ void MusicBeforeFrame(Machine &machine) {
     machine.soundtrack.Follow(song, song >= 0 && place == start, machine.frame);
 }
 
+namespace {
+    // Fight music: the stage's own, or another stage's. The game asks its driver for a song with 0x061394D0 (r4 the
+    // song or sound effect: called from 16 places in its code); a stage's music is the songs 10-41, two to a stage (the
+    // second later in the match), so a stage song asked for is changed for the chosen stage's, first or second as asked.
+    void StartSongHook(Guest &g) {
+        const int choice = FeatureValue("fight_music");
+        const uint32_t song = g.R(4) & 0xFFFF;
+        if (choice > 0 && song >= 10 && song <= 41) {
+            g.R(4) = static_cast<uint32_t>(10 + (choice - 1) * 2 + (song & 1));
+        }
+    }
+} // namespace
+
 void RegisterMusic(Game &game) {
     game.songCount = kMostSongs; // (the custom soundtrack offered; the songs are the table's: MusicBeforeFrame)
     // The songs and where they are heard: the screens' from made-up play (a picture at each song's start), the stages'
@@ -141,6 +154,13 @@ void RegisterMusic(Game &game) {
         machine->soundtrack.SetMusic(std::move(songs));
     }
     AddHook("Voice set (music or effect)", 0x0613B1D8, 8, 0xBA5502CCC81A1B0Eull, PitchHook);
+    AddHook("Song asked for", 0x061394D0, 8, 0x1BF90A4B22ACB049ull, StartSongHook);
+    game.features.push_back({"fight_music", "Game", "Fight music",
+                             "The music of a fight: its stage's own, or another stage's (both its halves, as the match goes on).",
+                             kFeatureMenuChoices,
+                             {"The stage's own", "New York (Alex, Ken)", "Russia (Necro, Twelve)", "Hugo's", "Chun-Li's", "Ryu's", "Ibuki's",
+                              "Makoto's", "Akuma's", "Elena's", "Brazil (Oro, Sean)", "Dudley's", "Hong Kong (Yun, Yang)", "Remy's",
+                              "Urien's", "Gill's", "Q's"}});
 }
 
 } // namespace cps3recomp
