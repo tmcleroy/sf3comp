@@ -40,6 +40,11 @@
   match is on; Gill vs Gill in a training session and a one-player game as Gill seen in pictures.
 - Fight music (Game page, host's online: it changes the driver's RAM): the game asks for a song with 0x061394D0
   (r4: song or effect, 16 callers); a stage song asked for (10-41, two a stage) is changed for the chosen stage's.
+- Animations (model.cpp): a character's record holds ten lists of animations (+0x1AC on, each a list of longs, each an
+  animation's address: Alex's 0x061DE53C on); an animation is cells of 16 bytes (the first word's high byte the
+  frames shown, below 0x100 a command, 0xFAFF holds; the fourth the picture); the record's +0x200 is the animation
+  playing, +0x204 its cell (in fours of bytes), +0x214 the frames left of it, +0x20C the step; 0x06089848 advances it.
+  The model viewer plays one chosen (A0..J159, the ones a character lacks passed over), or all in turn.
 - Stage viewer (training page): Machine::onlyStage draws the board's own stage objects and no text layer (or the
   stage board's picture alone); the stick moves both fighters together so the camera scrolls.
 - Survival, endless battle and team battle (games/sfiii3/src/battle.cpp, as cps2recomp's fight/battle.h): a board
