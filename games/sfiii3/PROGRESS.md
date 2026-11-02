@@ -42,8 +42,9 @@
   modes and battles): the menu's Start (board reset, way to character select worked unseen, player 1 choosing for
   both), Start over (sides swapped or not), no clock, combo readout, input display, frame data and meter, health
   refills, the dummy (the toolkit's: stand, crouch, jump, guard, record, replay), hit boxes, full meter, a stun readout (taken / the most), a parry readout (parried on which frame of the window, the wrong
-  window, too early or too late by so many: windows at 02026335.. per the training script; the "parried" case not seen in
-  made-up play, the others seen). Seen working
+  window, too early or too late by so many: windows at 02026335.. per the training script; all four outcomes seen), a dummy that parries
+  (an early form: it taps as player 1's attack starts; 17 of 46 attacks parried in made-up play, slow startups too early,
+  combos too late). Seen working
   in a made-up fight's pictures only. Frame data is read once a frame from the records (not the game's own steps)
   and checked on one move so far: Alex's standing LP reads startup 5, active 2, recovery 8, and the training script's
   recorded animation a444 has it hitting on frames 5-6 (a hit counts the frame after the box is out). Checked in bulk with

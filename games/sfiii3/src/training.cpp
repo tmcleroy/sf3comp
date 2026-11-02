@@ -39,6 +39,7 @@ namespace {
             uint16_t connection = 0;
         } parry[2];
         uint32_t frame = 0;
+        uint32_t parryTap = 0; // (the dummy's parry: the frame it last tapped)
     } g;
 
     int16_t Signed16(uint32_t address) {
@@ -280,6 +281,19 @@ void TrainingBeforeFrame(Machine &m) {
         }
     }
     session::BeforeFrame(m);
+    // The dummy parries: as player 1's attack starts, a tap towards player 1 (down for an attack made crouching) opens
+    // a parry window of about 10 frames; again after the window's cooldown (about 24) while the attack is still starting
+    if (session::InSession() && FeatureOn("dummy_parry") && InMatch()) {
+        const bool onRight = static_cast<int16_t>(Ram16(Player(1) + sfiii3::kX)) >= static_cast<int16_t>(Ram16(Player(0) + sfiii3::kX));
+        if (session::Now(0) == fight::Doing::Startup && (g.parryTap == 0 || g.frame - g.parryTap > 24)) {
+            m.players[1] = (m.players[0] & kDown) ? kDown : (onRight ? kLeft : kRight);
+            if (!RunningAhead()) {
+                g.parryTap = g.frame;
+            }
+        } else if (g.parryTap && g.frame - g.parryTap < 2) {
+            m.players[1] = 0; // (let go, so the next tap is a fresh one)
+        }
+    }
 }
 
 void TrainingAfterFrame(Machine &m) {
@@ -339,6 +353,9 @@ void RegisterTraining(Game &game) {
         {"hit_boxes", session::kPage, "Hit boxes",
          "Each fighter's boxes over the picture: blue where it can be hit, red where it hits, yellow its throw, pink where it can be "
          "thrown, green the body that pushes."},
+        {"dummy_parry", "Dummy", "Parries",
+         "Player 2 tries to parry player 1's attacks: it taps towards player 1 (or down for an attack made crouching) as an attack "
+         "starts. An early form: it catches attacks that hit within about 10 frames of starting (about a third of attacks in tests)."},
         {"parry_readout", session::kPage, "Parry readout",
          "When a parry window opens (the stick forward, down, in the air, or up against a jump-in): whether the parry came, on which "
          "frame of the window, or how long after the window opened the hit came instead."},
@@ -347,7 +364,7 @@ void RegisterTraining(Game &game) {
         {"full_meter", session::kPage, "Full meter", "Player 1's super art meter is always full."},
         {"full_meter_2", session::kPage, "Full meter, player 2", "Player 2's super art meter is always full."},
     };
-    d.ownAids = {"hit_boxes", "parry_readout", "stun_readout", "full_meter", "full_meter_2"};
+    d.ownAids = {"hit_boxes", "dummy_parry", "parry_readout", "stun_readout", "full_meter", "full_meter_2"};
     session::Register(d);
     game.state = [](Archive &ar) {
         WidescreenState(ar);
