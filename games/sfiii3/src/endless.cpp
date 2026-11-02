@@ -51,6 +51,9 @@ namespace {
 } // namespace
 
 void EndlessBeforeFrame(Machine &m) {
+    if (FeatureOn("endless") && session::InSession()) {
+        SetFeature("endless", false); // (a training session started: the endless battle is over)
+    }
     if (!FeatureOn("endless") || session::Booting()) {
         return;
     }
