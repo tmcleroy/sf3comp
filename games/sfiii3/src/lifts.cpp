@@ -179,9 +179,80 @@ namespace {
         return true;
     }
 
+
+    // --- a hit's damage ---
+    //
+    // A player's record (r4): +0x9E its health (a word, 160 full; -1 knocked out), +0xA0 the round's health at its
+    // start, +0xA2 the damage of the hit taking hold, +0x332 its stun, +0x324 -1 unless the hit is a throw's or the
+    // like, +0x340 set when it must not survive at nothing, +0x3F8 a pointer to its stun gauge (byte +0 stunned, word +2
+    // the most, word +8 what it has taken), +0x3FD knocked out, +0x448/+0x44A the damage kept for the combo readout.
+    constexpr uint32_t kHealth = 0x9E, kRoundHealth = 0xA0, kDamage = 0xA2, kStunTaken = 0x332, kThrowHit = 0x324;
+    constexpr uint32_t kNoSurviving = 0x340, kStunGauge = 0x3F8, kKnockedOut = 0x3FD;
+
+    // 06124BC4: the hit's damage and stun taken. Not for one already knocked out. The hit's effects are noted
+    // (0x0609E488, but for a light normal move's first frames) and the hit's other sources run (0x0611E510); then the
+    // damage comes off the health. A hit that leaves -1 or -2 on one with health at the round's start leaves it at
+    // nothing instead, unless it is a throw's; so does one on a fighter that may not survive. Below nothing it is
+    // knocked out (the first knock-out of the round noted, 0x0608F3FC); otherwise the stun goes on its gauge, and
+    // at the most the fighter is stunned. The hit's damage and stun are then cleared.
+    bool TakeDamage(Guest &g) {
+        const uint32_t player = g.R(4);
+        const auto word = [&](uint32_t offset) { return static_cast<int16_t>(g.Read16(player + offset)); };
+        const auto setWord = [&](uint32_t offset, int value) { g.Write16(player + offset, static_cast<uint16_t>(value)); };
+        if (g.Read8(player + kKnockedOut) == 0) {
+            if (word(kDamage) != 0) {
+                // (a light normal move in its first frames is left out)
+                const bool light = word(0x26) == 1 && word(0x28) <= 11 && word(0x2A) == 0;
+                if (!light) {
+                    g.R(4) = g.Read32(player + 0x14);
+                    g.R(5) = g.Read16(player + 0x334);
+                    g.Call(0x0609E488);
+                }
+            }
+            g.R(4) = player;
+            g.Call(0x0611E510);
+            setWord(0x44A, g.Read8(player + 0x448) != 0 ? word(kDamage) : 0);
+            g.Write8(player + 0x44D, 0);
+            setWord(kHealth, word(kHealth) - word(kDamage));
+            if (word(kThrowHit) == -1 && word(kRoundHealth) > 0 && word(kHealth) < 0 && word(kHealth) > -3) {
+                setWord(kHealth, 0); // (survived at nothing)
+            }
+            if (g.Read8(player + kNoSurviving) != 0 && word(kHealth) < 0) {
+                setWord(kHealth, 0);
+            }
+            if (word(kHealth) < 0) {
+                setWord(kHealth, -1); // (knocked out)
+                g.Write8(player + kKnockedOut, 1);
+                g.Write8(0x02068C6B, 1);
+                if (word(kThrowHit) != -1) {
+                    g.Write8(player + 0x41D, 1);
+                }
+                if (g.Read8(0x02068C66) == 0) {
+                    g.Call(0x0608F3FC); // (the round's first knock-out)
+                    g.Write8(0x02068C66, 1);
+                }
+            } else {
+                const uint32_t gauge = g.Read32(player + kStunGauge);
+                if (g.Read8(gauge) == 0) {
+                    const int taken = static_cast<int16_t>(g.Read16(gauge + 8) + word(kStunTaken));
+                    g.Write16(gauge + 8, static_cast<uint16_t>(taken));
+                    if (taken >= static_cast<int16_t>(g.Read16(gauge + 2))) {
+                        g.Write32(gauge + 8, 0); // (stunned: the gauge empty again)
+                        g.Write8(gauge, 1);
+                    }
+                }
+            }
+        }
+        setWord(kDamage, 0);
+        setWord(kStunTaken, 0);
+        g.Return(80);
+        return true;
+    }
+
     const Lift kLifts[] = {
         {"NextRandom", 0x0611E0EE, 24, 0xF56C31F46D9EC36Aull, NextRandom, true},
         {"ClockTick", 0x060D7BAE, 0x30, 0xD096A0977F288F4Bull, ClockTick, true, 0x100FE},
+        {"TakeDamage", 0x06124BC4, 0x40, 0x19433AC288C4268Aull, TakeDamage, true, 0x100FF},
         {"ClockFlash", 0x060D7CB8, 0x48, 0x21663C64E30E0582ull, ClockFlash, true, 0x1007E},
     };
 
