@@ -14,6 +14,9 @@
 // Code in the CPU's cache RAM (0xC0000000) and anywhere else outside the three regions is left to the interpreter.
 #include "recomp.h"
 
+#include "lift.h"
+#include "state.h"
+
 #include "block_native.h"
 #include "blocks.h"
 
@@ -24,6 +27,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -101,6 +105,7 @@ namespace {
         uint8_t start;       // instruction index within the block
         bool single;         // cannot be part of a block (illegal, sleep, trapa): one interpreter step
         bool fresh;          // found during this run (not in the build)
+        const Lift *lift;    // a lifted routine or a hook at this address (lift.h): asked before any code is run
     };
 
     struct Region {
@@ -157,9 +162,22 @@ namespace {
         Machine *machine = nullptr;
         uint64_t dispatches = 0, checked = 0, notComparable = 0, different = 0;
         unsigned reportsLeft = 8;
+
+        // Lifted routines (lift.h): CPS3RECOMP_NO_REWRITES=1 runs the game's own code for the rewrites;
+        // CPS3RECOMP_LIFT_CHECK=n runs both for every nth call of each and compares what they leave
+        struct LiftCheck {
+            uint64_t calls = 0, checked = 0, different = 0, scratchDifferent = 0, notComparable = 0, hardwareWrites = 0;
+            unsigned reportsLeft = 6;
+        };
+        bool noRewrites = false;
+        unsigned liftCheckEvery = 0;
+        std::map<const Lift *, LiftCheck> liftChecks;
+        bool inCheck = false; // a rewrite is being run for a check (its calls run in the interpreter)
+        unsigned inCall = 0;  // Guest::Call is running a routine
     };
 
     std::unique_ptr<Runtime> g_rt;
+    std::deque<Lift> g_lifts; // (a deque: entries point at them)
 
     bool IsUnconditionalDelayed(OpcodeType t) {
         switch (t) {
@@ -640,6 +658,9 @@ namespace {
     Entry *Lookup(Runtime &rt, Region &r, uint32_t offset, unsigned &block) {
         block = 0;
         for (Entry *e = r.table[offset >> 1]; e; e = e->next) {
+            if (e->lift) {
+                continue; // (the dispatcher's business, before this)
+            }
             if (e->head) {
                 // A block of a function other than its first: the function is entered there
                 const int64_t start = static_cast<int64_t>(offset) - e->function->blocks[e->block].offset;
@@ -652,6 +673,206 @@ namespace {
             }
         }
         return nullptr;
+    }
+
+    // --- lifted routines and hooks (lift.h) ---
+
+    // Is the code at `offset` the routine a lift was written from? Its bytes are not in the build: they are taken from
+    // memory the first time the hash matches, and compared with memory after that.
+    bool LiftHere(Runtime &rt, const Region &r, uint32_t offset, Entry &e) {
+        if (offset + e.size > r.size) {
+            return false;
+        }
+        if (!e.code) {
+            if (LiftHash(r.mem + offset, e.size) != e.lift->hash) {
+                return false;
+            }
+            e.code = rt.codeStore.emplace_back(r.mem + offset, r.mem + offset + e.size).data();
+        }
+        return SameCode(r.mem + offset, e.code, e.size);
+    }
+
+    using LiftCheck = Runtime::LiftCheck;
+
+    // A rewritten routine against the game's own code, for one call: the rewrite runs first (and to the routine's
+    // return, if it called on); then the whole machine is put back and the game's code is run by the interpreter
+    // until it returns; what the two left is compared. The game goes on from what its own code left. False if the
+    // rewrite declined the call.
+    //
+    // Not compared: the registers the lift names as free, MACH and MACL, and the stack below where the routine found
+    // it. A call where the game's code did not come back cannot be compared, and is counted.
+    bool CheckRewrite(Runtime &rt, SH2 &cpu, const Lift &lift, LiftCheck &check) {
+        static std::vector<uint8_t> machineBefore;
+        machineBefore.clear();
+        {
+            Archive ar(machineBefore, true);
+            rt.machine->Serialize(ar);
+        }
+        const Access::Registers before = Access::Get(cpu);
+        const uint64_t cycles = before.cycles;
+        static std::vector<machine::HardwareWrite> rewriteWrote, gameWrote;
+        rewriteWrote.clear();
+        gameWrote.clear();
+        // Runs the interpreter from where the CPU is to the routine's return: the address in PR at the call, with the
+        // stack as it was (or near it)
+        const uint32_t returnTo = before.PR, stack = before.R[15];
+        auto toReturn = [&]() {
+            for (uint32_t steps = 0; steps < 20'000'000; steps++) {
+                if (cpu.PC == returnTo && cpu.R[15] - stack + 0x1000 <= 0x2000 && !cpu.m_delaySlot) {
+                    return true;
+                }
+                cpu.m_intrFlags.pending = false; // (no interrupt in the middle: it would not be part of the routine)
+                (void)cpu.RecompInterpretNext();
+            }
+            return false;
+        };
+        machine::g_hardwareWrites = &rewriteWrote;
+        rt.inCheck = true;
+        Guest guest(cpu);
+        const bool taken = lift.fn(guest);
+        const bool rewriteReturned = taken && toReturn();
+        rt.inCheck = false;
+        machine::g_hardwareWrites = nullptr;
+        if (!taken) {
+            Archive ar(machineBefore, false);
+            rt.machine->Serialize(ar);
+            Access::Set(cpu, before);
+            return false;
+        }
+        const Access::Registers rewritten = Access::Get(cpu);
+        static std::vector<uint8_t> rewrittenRam;
+        rewrittenRam.assign(g_mainRam, g_mainRam + 0x80000);
+        const std::array<uint8_t, 0x1000> rewrittenCache = Access::Cache(cpu);
+
+        // The game's own code, from the same before
+        {
+            Archive ar(machineBefore, false);
+            rt.machine->Serialize(ar);
+        }
+        Access::Set(cpu, before);
+        machine::g_hardwareWrites = &gameWrote;
+        const bool returned = toReturn() && rewriteReturned;
+        machine::g_hardwareWrites = nullptr;
+        cpu.RecalcInterrupts();
+        cpu.m_cyclesExecuted = cycles + 100;
+        ++CPS3RECOMP_CODE_EPOCH; // (memory was put back and run over: translations are compared again)
+        if (!g_dirty.empty()) {
+            std::fill(g_dirty.begin(), g_dirty.end(), 1); // (the block check's shadow of main RAM: all of it again)
+        }
+        if (!returned) {
+            check.notComparable++;
+            if (check.reportsLeft) {
+                check.reportsLeft--;
+                fprintf(stderr, "rewrite %s: a call cannot be compared (one side did not come back)\n", lift.name);
+            }
+            return true;
+        }
+        check.checked++;
+        const Access::Registers now = Access::Get(cpu);
+        std::string what;
+        char text[200];
+        if (gameWrote != rewriteWrote) {
+            size_t i = 0;
+            while (i < gameWrote.size() && i < rewriteWrote.size() && gameWrote[i] == rewriteWrote[i]) {
+                i++;
+            }
+            snprintf(text, sizeof(text), " hardware writes %zu/%zu, the first to differ: no. %zu", gameWrote.size(), rewriteWrote.size(), i);
+            what += text;
+        }
+        check.hardwareWrites += gameWrote.size();
+        bool freeDiffer = false;
+        for (unsigned r = 0; r < 16; r++) {
+            if (now.R[r] != rewritten.R[r]) {
+                if ((lift.free >> r) & 1) {
+                    freeDiffer = true;
+                } else {
+                    snprintf(text, sizeof(text), " r%u %08X/%08X", r, now.R[r], rewritten.R[r]);
+                    what += text;
+                }
+            }
+        }
+        if (now.PC != rewritten.PC || now.PR != rewritten.PR || now.GBR != rewritten.GBR) {
+            snprintf(text, sizeof(text), " pc %08X/%08X pr %08X/%08X gbr %08X/%08X", now.PC, rewritten.PC, now.PR, rewritten.PR, now.GBR,
+                     rewritten.GBR);
+            what += text;
+        }
+        if ((now.SR ^ rewritten.SR) & 1) {
+            if ((lift.free >> 16) & 1) {
+                freeDiffer = true;
+            } else {
+                what += now.SR & 1 ? " T 1/0" : " T 0/1";
+            }
+        }
+        if ((now.SR ^ rewritten.SR) & 0x3F2) {
+            what += " SR";
+        }
+        unsigned shown = 0;
+        for (uint32_t i = 0; i < 0x80000; i++) {
+            if (g_mainRam[i] == rewrittenRam[i]) {
+                continue;
+            }
+            const uint32_t address = 0x02000000u + i, sp = stack & 0x1FFFFFFFu;
+            if (address < sp && sp - address <= 0x4000) {
+                continue; // (the stack below the routine's)
+            }
+            if (shown++ < 4) {
+                snprintf(text, sizeof(text), " [%08X] %02X/%02X", address, g_mainRam[i], rewrittenRam[i]);
+                what += text;
+            }
+        }
+        if (shown > 4) {
+            snprintf(text, sizeof(text), " (and %u more bytes)", shown - 4);
+            what += text;
+        }
+        if (Access::Cache(cpu) != rewrittenCache) {
+            what += " cache RAM";
+        }
+        if (!what.empty()) {
+            check.different++;
+            if (check.reportsLeft) {
+                check.reportsLeft--;
+                fprintf(stderr, "rewrite %s differs (the game's code/the rewrite):%s; called with r4-r7 %08X %08X %08X %08X from %08X\n", lift.name,
+                        what.c_str(), before.R[4], before.R[5], before.R[6], before.R[7], before.PR);
+            }
+        } else if (freeDiffer) {
+            check.scratchDifferent++;
+        }
+        return true;
+    }
+
+    // The lifts and hooks at `offset`: hooks run (and the game's code then does); a lift that takes the call runs in
+    // the routine's place (true: the CPU is past it)
+    bool RunLifts(Runtime &rt, SH2 &cpu, Region &r, uint32_t offset) {
+        for (Entry *e = r.table[offset >> 1]; e; e = e->next) {
+            if (!e->lift || !LiftHere(rt, r, offset, *e)) {
+                continue;
+            }
+            const Lift &lift = *e->lift;
+            Guest guest(cpu);
+            if (lift.hookFn) {
+                e->runs++;
+                lift.hookFn(guest);
+                continue;
+            }
+            if (lift.rewrite) {
+                if (rt.noRewrites) {
+                    continue;
+                }
+                LiftCheck &check = rt.liftChecks[&lift];
+                if (rt.liftCheckEvery && check.calls++ % rt.liftCheckEvery == 0) {
+                    if (!CheckRewrite(rt, cpu, lift, check)) {
+                        continue;
+                    }
+                    e->runs++;
+                    return true;
+                }
+            }
+            if (lift.fn && lift.fn(guest)) {
+                e->runs++;
+                return true;
+            }
+        }
+        return false;
     }
 
     bool Dispatch(SH2 &cpu, uint64_t target, void *ctx) {
@@ -691,6 +912,15 @@ namespace {
                 }
             }
             if (!e) {
+                // Lifted routines and hooks first (lift.h)
+                if (RunLifts(rt, cpu, *r, offset)) {
+                    ran = true;
+                    ++CPS3RECOMP_ACTIVITY;
+                    if (cpu.m_delaySlot || cpu.m_cyclesExecuted >= target) {
+                        return true;
+                    }
+                    continue;
+                }
                 e = Lookup(rt, *r, offset, block);
             }
             if (!e && !(e = Discover(rt, *r, offset))) {
@@ -748,7 +978,7 @@ namespace {
         for (auto &r : rt.regions) {
             for (size_t i = 0; i < r.table.size(); i++) {
                 for (Entry *e = r.table[i]; e; e = e->next) {
-                    if (!e->single && e->runs && !e->function && !e->head) {
+                    if (!e->single && e->runs && !e->function && !e->head && !e->lift) {
                         char addr[16];
                         snprintf(addr, sizeof(addr), "%08X ", r.base + static_cast<uint32_t>(i * 2));
                         lines.insert(addr + HexBytes(e->code, e->size));
@@ -787,6 +1017,13 @@ bool Call(SH2 &cpu, uint64_t target, int retBlock, uint32_t ret) {
     if (!rt.link || cpu.m_intrFlags.pending || cpu.m_cyclesExecuted >= target || lk.depth >= kMaxDepth || (pc & 1) ||
         !(r = RegionFor(rt, pc, offset))) {
         return false;
+    }
+    // (not where a lifted routine or a hook is: those are the dispatcher's)
+    for (Entry *l = r->table[offset >> 1]; l; l = l->next) {
+        if (l->lift) {
+            rt.callsNotLinked++;
+            return false;
+        }
     }
     unsigned block;
     Entry *e = Lookup(rt, *r, offset, block);
@@ -915,6 +1152,24 @@ void Attach(Machine &m, const Options &options) {
             }
         }
     }
+    // Lifted routines and hooks: an entry each at their address, asked before any code
+    rt.noRewrites = getenv("CPS3RECOMP_NO_REWRITES") != nullptr;
+    if (const char *v = getenv("CPS3RECOMP_LIFT_CHECK")) {
+        rt.liftCheckEvery = static_cast<unsigned>(std::max(1, atoi(v)));
+    }
+    if (!getenv("CPS3RECOMP_NO_LIFTS")) {
+        for (const Lift &lift : g_lifts) {
+            uint32_t offset;
+            if (Region *r = RegionFor(rt, lift.address, offset)) {
+                Entry &e = rt.entries.emplace_back();
+                e = {};
+                e.size = static_cast<uint16_t>(lift.size);
+                e.lift = &lift;
+                e.next = r->table[offset >> 1];
+                r->table[offset >> 1] = &e;
+            }
+        }
+    }
     m.Cpu().SetRecompDispatcher(Dispatch, &rt);
 }
 
@@ -956,6 +1211,9 @@ bool Finish() {
         for (auto &r : rt.regions) {
             for (size_t i = 0; i < r.table.size(); i++) {
                 for (Entry *e = r.table[i]; e; e = e->next) {
+                    if (e->lift) {
+                        continue;
+                    }
                     if (e->single) {
                         single += e->runs;
                     } else if (e->native && rt.opt.mode == Mode::Native) {
@@ -990,9 +1248,111 @@ bool Finish() {
         fprintf(stderr, "cps3recomp: check: %llu dispatches compared, %llu different, %llu not comparable (touched hardware)\n",
                 (unsigned long long)rt.checked, (unsigned long long)rt.different, (unsigned long long)rt.notComparable);
     }
+    bool liftsOk = true;
+    for (const auto &[lift, check] : rt.liftChecks) {
+        if (rt.liftCheckEvery) {
+            fprintf(stderr,
+                    "cps3recomp: rewrite %s: %llu calls, %llu compared, %llu different, %llu not comparable, %llu with free registers "
+                    "different, %llu hardware writes compared\n",
+                    lift->name, (unsigned long long)check.calls, (unsigned long long)check.checked, (unsigned long long)check.different,
+                    (unsigned long long)check.notComparable, (unsigned long long)check.scratchDifferent,
+                    (unsigned long long)check.hardwareWrites);
+            liftsOk = liftsOk && check.different == 0;
+        }
+    }
     machine::g_dirtyMap = nullptr;
     g_rt.reset();
-    return ok;
+    return ok && liftsOk;
+}
+
+// --- lifted routines and hooks (lift.h) ---
+
+uint32_t &Guest::R(unsigned n) {
+    return m_cpu.R[n & 15];
+}
+uint32_t Guest::PR() const {
+    return m_cpu.PR;
+}
+uint32_t Guest::PC() const {
+    return m_cpu.PC;
+}
+uint32_t Guest::GBR() const {
+    return m_cpu.GBR;
+}
+bool Guest::T() const {
+    return m_cpu.SR.T;
+}
+void Guest::SetT(bool t) {
+    m_cpu.SR.T = t ? 1 : 0;
+}
+uint8_t Guest::Read8(uint32_t address) {
+    return m_cpu.Read8(address);
+}
+uint16_t Guest::Read16(uint32_t address) {
+    return m_cpu.Read16(address);
+}
+uint32_t Guest::Read32(uint32_t address) {
+    return m_cpu.Read32(address);
+}
+void Guest::Write8(uint32_t address, uint8_t value) {
+    m_cpu.Write8(address, value);
+}
+void Guest::Write16(uint32_t address, uint16_t value) {
+    m_cpu.Write16(address, value);
+}
+void Guest::Write32(uint32_t address, uint32_t value) {
+    m_cpu.Write32(address, value);
+}
+void Guest::Call(uint32_t address) {
+    // (an address no code is at stands for "back in the caller")
+    constexpr uint32_t kBack = 0x0FFFFFF0;
+    Runtime &rt = *g_rt;
+    const uint32_t pr = m_cpu.PR, pc = m_cpu.PC;
+    m_cpu.PR = kBack;
+    m_cpu.PC = address;
+    rt.inCall++;
+    const uint64_t cyclesAtCall = m_cpu.m_cyclesExecuted;
+    for (uint32_t steps = 0;; steps++) {
+        m_cpu.m_intrFlags.pending = false;
+        if (m_cpu.PC == kBack && !m_cpu.m_delaySlot) {
+            break;
+        }
+        // The routine runs as the rest of the game does: translated code and the lifts of what it calls (while a
+        // rewrite is being checked: all by the interpreter, as the game's side of the check is)
+        if (rt.inCheck || m_cpu.m_delaySlot || !Dispatch(m_cpu, m_cpu.m_cyclesExecuted + (1ull << 40), &rt)) {
+            m_cpu.m_cyclesExecuted += m_cpu.RecompInterpretNext();
+        }
+        if (m_cpu.m_cyclesExecuted - cyclesAtCall > 100'000'000 || steps == 50'000'000) {
+            fprintf(stderr, "Guest::Call(%08X): the routine did not come back (does it wait for something?)\n", address);
+            abort();
+        }
+    }
+    rt.inCall--;
+    m_cpu.RecalcInterrupts();
+    m_cpu.PR = pr;
+    m_cpu.PC = pc;
+}
+void Guest::Return(uint64_t cycles) {
+    m_cpu.PC = m_cpu.PR;
+    m_cpu.m_cyclesExecuted += cycles;
+}
+
+uint64_t LiftHash(const uint8_t *data, size_t size) {
+    uint64_t h = 0xCBF29CE484222325ull;
+    for (size_t i = 0; i < size; i++) {
+        h = (h ^ data[i]) * 0x100000001B3ull;
+    }
+    return h;
+}
+
+void RegisterLifts(const Lift *lifts, size_t count) {
+    g_lifts.insert(g_lifts.end(), lifts, lifts + count);
+}
+
+void AddHook(const char *name, uint32_t address, uint32_t size, uint64_t hash, void (*fn)(Guest &guest)) {
+    Lift lift{name, address, size, hash, nullptr};
+    lift.hookFn = fn;
+    g_lifts.push_back(lift);
 }
 
 } // namespace cps3recomp
