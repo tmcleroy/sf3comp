@@ -64,7 +64,9 @@ namespace {
     enum { kStageShuffle, kStageScroll };               // (endless_stage's first two choices; then the stages)
     constexpr int kDropFor = 60;                        // (ring out) frames of the way down to the next stage
     constexpr uint32_t kRingShownFor = 70;              // (ring out) frames the one thrown out is seen flying off
-    constexpr int kOutPast = 40;          // (ring out) how far past its wall a fighter is out
+    constexpr int kOutPast = 40;                        // (ring out) how far past its wall a fighter is out
+    constexpr uint16_t kDropFrom = 200;                 // (ring out) the winner's height as the next match begins
+    constexpr uint32_t kJumpAt = 30;                    // (ring out) frames after the one out goes that the winner jumps
     constexpr uint32_t kKnockedFor = 50;  // (ring out) frames after a hit that a fighter's wall lets it go
 
     enum Mode : uint8_t { kNone, kSurvival, kEndless, kTeam, kRingOut };
@@ -99,6 +101,8 @@ namespace {
         uint32_t hitAt[2] = {};
         bool out[2] = {};
         int drop = 0;           // (ring out) frames into the way down (0: none)
+        int8_t jumper = -1;     // (ring out) the winner, who jumps off the old stage and comes down onto the next
+        int16_t jumpX = 0;      // ... where in the picture it was as it went (columns from the picture's middle)
     } b;
     std::vector<uint32_t> g_oldPicture; // (ring out) the old stage's last picture, going up and out as the next comes up
     std::vector<uint8_t> g_atChoice; // the machine at character select, both players in: where each match begins
@@ -259,6 +263,7 @@ namespace {
                 b.overAt = b.frames;
                 return;
             }
+            b.jumper = static_cast<int8_t>(winner);
             b.won++;
             if (b.won > FeatureValue("ringout_best") && !RunningAhead()) {
                 SetFeatureValue("ringout_best", std::min<int>(b.won, 99));
@@ -503,6 +508,14 @@ void BattleBeforeFrame(Machine &m) {
     }
     // The next match made ready on the spare, a few frames a frame, and put in this one's place when its knock-out
     // has played
+    if (b.decided && !b.over && b.mode == kRingOut && b.jumper >= 0) {
+        const uint32_t since = b.frames - b.decidedAt;
+        // (the winner jumps up, off the old stage, towards where it will land)
+        m.players[b.jumper] = since >= kJumpAt && since < kJumpAt + 4 ? kUp : 0;
+        if (b.jumper == 1) {
+            SetRam8(sfiii3::kPlayer[1] + 3, 1); // (its controls are these, not the computer's, for the jump)
+        }
+    }
     if (b.decided && !b.over) {
         for (int n = 0; n < kSpareFramesAFrame && !g_next.ready; n++) {
             RunSpare(m, g_next, [](Machine &spare) {
@@ -515,6 +528,10 @@ void BattleBeforeFrame(Machine &m) {
                 // (the way down: the old stage's picture kept, to go up and out over the next one's)
                 g_oldPicture.assign(m.Picture(), m.Picture() + static_cast<size_t>(m.PictureWidth()) * Video::kHeight);
                 b.drop = 1;
+                if (b.jumper >= 0) {
+                    b.jumpX = static_cast<int16_t>(static_cast<int16_t>(Ram16(sfiii3::kPlayer[b.jumper] + sfiii3::kX)) -
+                                                   static_cast<int16_t>(Ram16(sfiii3::kCameraX)));
+                }
             }
             if (getenv("SFIII3_BATTLE_LOG")) {
                 fprintf(stderr, "battle: frame %u, the next match on (its machine run %d frames), %d %d\n", b.frames, g_next.frames, b.want[0], b.want[1]);
@@ -522,6 +539,14 @@ void BattleBeforeFrame(Machine &m) {
             Promote(m, g_next);
             b.decided = false;
             MatchBegins();
+            if (b.mode == kRingOut && b.jumper >= 0) {
+                // (the winner comes down from above, where it was across the picture as it jumped off)
+                const uint32_t base = sfiii3::kPlayer[b.jumper];
+                const int camera = static_cast<int16_t>(Ram16(sfiii3::kCameraX));
+                SetRam16(base + sfiii3::kX, static_cast<uint16_t>(std::clamp(camera + b.jumpX, camera - 150, camera + 150)));
+                SetRam16(base + sfiii3::kY, kDropFrom);
+                b.jumper = -1;
+            }
         }
     }
 }
