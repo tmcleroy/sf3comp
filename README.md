@@ -33,10 +33,7 @@ work/, build/ generated from your ROM set, never committed
 
 ## Building
 
-```sh
-cmake -S . -B build/sfiii3 -G Ninja && ninja -C build/sfiii3
-./build/sfiii3/sfiii3-launcher                      # or: ./build/sfiii3/sfiii3 --rom path/to/sfiii3n.zip
-sh cps3recomp/tools/make_app.sh sfiii3              # macOS: build/sfiii3/Street Fighter III 3rd Strike.app
-```
+See [docs/BUILDING.md](docs/BUILDING.md): the game's code is translated from your own ROM set, then built with CMake;
+`tools/release/` makes the downloads for macOS, Linux and Windows.
 
 GPL-3.0. Not affiliated with Capcom.
