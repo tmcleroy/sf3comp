@@ -54,6 +54,7 @@ Machine::Machine(const RomSet &rom)
     m_rgb.assign(0x20000, 0);
     m_ssRam.assign(0x8000, 0);
     m_spriteList.assign(0x2000 / 4, 0);
+    m_spriteGroup.assign(0x2000 / 16, 0);
     auto bytes = [](const std::vector<uint32> &words, std::vector<uint8> &out) {
         out.resize(words.size() * 4);
         for (size_t i = 0; i < words.size(); i++) {
@@ -532,6 +533,7 @@ void Machine::SpriteDma() {
             m_spriteList[out + 1] = e2;
             m_spriteList[out + 2] = SpriteRam(at + j + 2);
             m_spriteList[out + 3] = SpriteRam(at + j + 3);
+            m_spriteGroup[out / 4] = static_cast<uint16>(i / 4);
             out += 4;
             m_spriteCount++;
         }

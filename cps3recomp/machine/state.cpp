@@ -99,6 +99,7 @@ void Machine::Serialize(Archive &ar) {
     ar.Pod(m_ppuRegs);
     ar.Pod(m_videoRegs);
     ar.Vec(m_spriteList);
+    ar.Vec(m_spriteGroup);
     ar.Pod(m_spriteCount);
     ar.Pod(m_spriteDma);
     ar.Pod(m_dmaStatus);

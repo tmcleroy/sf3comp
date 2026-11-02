@@ -158,7 +158,9 @@ void Renderer::Draw(const Machine &m, std::vector<uint32_t> &pixels, int &width,
         height = 224;
     }
     width += 2 * margin;
-    pixels.assign(static_cast<size_t>(width) * height, 0);
+    if (!overlay || pixels.size() != static_cast<size_t>(width) * height) {
+        pixels.assign(static_cast<size_t>(width) * height, 0);
+    }
     m_buffer.assign(static_cast<size_t>(kBufferWidth) * kBufferHeight, 0);
 
     // The whole picture's zoom (0x40 is none; up to 0x80, twice as much shown)
@@ -177,6 +179,9 @@ void Renderer::Draw(const Machine &m, std::vector<uint32_t> &pixels, int &width,
     static constexpr int kTiles[4] = {8, 1, 2, 4};
     for (uint32_t entry = 0; entry < std::min<uint32_t>(m.SpriteCount(), 0x2000 / 16); entry++) {
         const uint32_t v1 = list[entry * 4], v2 = list[entry * 4 + 1], v3 = list[entry * 4 + 2];
+        if (drawGroup && !drawGroup(drawGroupContext, m.SpriteGroups()[entry], entry)) {
+            continue;
+        }
         const uint32_t code = v1 >> 17;
         const bool flipX = (v1 >> 12) & 1, flipY = (v1 >> 11) & 1, blend = (v1 >> 10) & 1;
         const int granularity = ((v1 >> 9) & 1) ? 64 : 256;
@@ -246,10 +251,15 @@ void Renderer::Draw(const Machine &m, std::vector<uint32_t> &pixels, int &width,
         uint32_t *dest = &pixels[static_cast<size_t>(row) * width];
         uint32_t sx = 0;
         for (int col = 0; col < width; col++, sx += fx) {
-            dest[col] = palette[source[std::min<uint32_t>(sx >> 16, kBufferWidth - 1)] & 0x1FFFF];
+            const uint32_t colour = source[std::min<uint32_t>(sx >> 16, kBufferWidth - 1)];
+            if (!overlay || colour) { // (overlaid: where nothing was drawn, what the pixels had shows)
+                dest[col] = palette[colour & 0x1FFFF];
+            }
         }
     }
-    DrawText(m, pixels.data(), width, height);
+    if (text) {
+        DrawText(m, pixels.data(), width, height);
+    }
 }
 
 } // namespace cps3recomp

@@ -14,11 +14,13 @@
 #include "pcm.h"
 #include "recomp.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 #include <zlib.h>
@@ -47,6 +49,37 @@ namespace {
     };
 } // namespace
 
+namespace {
+    std::map<std::string, std::string> ReadCfg(const std::string &path) {
+        std::map<std::string, std::string> cfg;
+        FILE *f = fopen(path.c_str(), "r");
+        char line[4096];
+        while (f && fgets(line, sizeof(line), f)) {
+            std::string text = line;
+            if (text.empty() || text[0] == '#' || text.find('=') == std::string::npos) {
+                continue;
+            }
+            auto trim = [](std::string t) {
+                t.erase(0, t.find_first_not_of(" \t\r\n"));
+                t.erase(t.find_last_not_of(" \t\r\n") + 1);
+                return t;
+            };
+            const size_t eq = text.find('=');
+            cfg[trim(text.substr(0, eq))] = trim(text.substr(eq + 1));
+        }
+        if (f) {
+            fclose(f);
+        }
+        return cfg;
+    }
+    // An object of the stage: a tilemap's lines, or an object with a stage's colours (palettes 0x80 and up: seen in 3rd
+    // Strike and 2nd Impact; the fighters' are below, their shadows 0 with blending)
+    bool StageObject(const machine::Machine &m, uint32_t object) {
+        const uint32_t *list = m.SpriteList();
+        return (list[object * 4 + 2] & 3) == 0 || (list[object * 4] & 0x1FF) >= 0x80;
+    }
+} // namespace
+
 int main(int argc, char **argv) {
     if (argc < 2) {
         fprintf(stderr, "usage: %s ROMSET [--frames N] [--shot FRAME:file.png] [--shots EVERY:prefix] [--hold FIRST-LAST:BUTTONS] [--hash]\n", argv[0]);
@@ -58,6 +91,14 @@ int main(int argc, char **argv) {
     std::map<uint64_t, std::string> shots;
     std::vector<Hold> holds;
     bool hash = false;
+    // (--groups FRAME:prefix: at that frame, a picture of each group of the object list alone, for finding which
+    // groups are the stage and which the fighters)
+    uint64_t groupsAt = ~0ull, ramAt = ~0ull;
+    // (--stage-cfg games/<id>/game.cfg --stage-rom SET: an experiment for the definitive version: that game run beside
+    // this one, its camera following this one's, and the pictures made of its stage with this game's fighters over it)
+    std::string stageCfg, stageRom;
+    std::string ramPath; // (--dump-ram FRAME:file: main RAM after that frame)
+    std::string groupsPrefix;
     std::string cpu = "native";
     Options recompOptions;
     std::string dumpDir;
@@ -103,6 +144,26 @@ int main(int argc, char **argv) {
             i++;
         } else if (a == "--dump") {
             dumpDir = v;
+            i++;
+        } else if (a == "--groups") {
+            const char *colon = strchr(v, ':');
+            if (colon) {
+                groupsAt = strtoull(v, nullptr, 10);
+                groupsPrefix = colon + 1;
+            }
+            i++;
+        } else if (a == "--dump-ram") {
+            const char *colon = strchr(v, ':');
+            if (colon) {
+                ramAt = strtoull(v, nullptr, 10);
+                ramPath = colon + 1;
+            }
+            i++;
+        } else if (a == "--stage-cfg") {
+            stageCfg = v;
+            i++;
+        } else if (a == "--stage-rom") {
+            stageRom = v;
             i++;
         } else if (a == "--hash") {
             hash = true;
@@ -165,6 +226,28 @@ int main(int argc, char **argv) {
     }
     Renderer renderer;
     Pcm pcm(m);
+    std::unique_ptr<RomSet> stageSet;
+    std::unique_ptr<machine::Machine> stage;
+    Renderer stageRenderer;
+    if (!stageCfg.empty()) {
+        const auto cfg = ReadCfg(stageCfg);
+        RomList stageList;
+        stageList.set = cfg.count("rom_set") ? cfg.at("rom_set") : "";
+        stageList.parent = cfg.count("rom_parent") ? cfg.at("rom_parent") : "";
+        stageList.bios = ParseRomFiles(cfg.count("bios") ? cfg.at("bios").c_str() : "");
+        for (int n = 1; n <= 6; n++) {
+            const std::string key = "simm" + std::to_string(n);
+            stageList.simm[n] = ParseRomFiles(cfg.count(key) ? cfg.at(key).c_str() : "");
+        }
+        stageList.programEnciphered = !cfg.count("program_enciphered") || cfg.at("program_enciphered") != "0";
+        stageSet = std::make_unique<RomSet>();
+        if (!LoadRomSet(stageRom, stageList, *stageSet, error)) {
+            fprintf(stderr, "the stage's set: %s\n", error.c_str());
+            return 1;
+        }
+        stage = std::make_unique<machine::Machine>(*stageSet);
+        stage->Reset();
+    }
     std::vector<int16_t> audio;
     std::vector<uint32_t> pixels;
     int width = 0, height = 0;
@@ -180,18 +263,87 @@ int main(int argc, char **argv) {
         m.inputs = ~inputs;
         m.extra = ~extra;
         m.RunFrame();
+        if (stage) {
+            // (the same made-up play takes it into a fight; its camera then follows this game's, from one stage's ends to
+            // the other's: words at 0x020221CC/D4/E4 and ends at 0x02022218 in 2nd Impact, 0x02026CA8/B0/C0 and 0x02026CF4
+            // in 3rd Strike)
+            stage->inputs = ~inputs;
+            stage->extra = ~extra;
+            auto word = [](uint8_t *ram, uint32_t at) { return static_cast<int16_t>((ram[at & 0x7FFFF] << 8) | ram[(at + 1) & 0x7FFFF]); };
+            auto setWord = [](uint8_t *ram, uint32_t at, int v) {
+                ram[at & 0x7FFFF] = static_cast<uint8_t>(v >> 8);
+                ram[(at + 1) & 0x7FFFF] = static_cast<uint8_t>(v);
+            };
+            const int camera = word(m.mainRam, 0x02026CB0), right = word(m.mainRam, 0x02026CF4), left = word(m.mainRam, 0x02026CF8);
+            const int theirRight = word(stage->mainRam, 0x02022218), theirLeft = word(stage->mainRam, 0x0202221C);
+            if (right > left && theirRight > theirLeft) {
+                const int theirs = theirLeft + (camera - left) * (theirRight - theirLeft) / (right - left);
+                for (const uint32_t at : {0x020221CCu, 0x020221D4u, 0x020221E4u}) {
+                    setWord(stage->mainRam, at, theirs);
+                }
+            }
+            stage->RunFrame();
+        }
         if (getenv("CPS3RECOMP_TRACE_PC")) {
             fprintf(stderr, "frame %llu PC %08X PR %08X SR %03X pending %u/%u ext %u\n", static_cast<unsigned long long>(frame), m.Cpu().PC, m.Cpu().PR, m.Cpu().SR.u32,
                     m.Cpu().INTC.pending.level, m.Cpu().m_intrFlags.pending, m.Cpu().INTC.externalLevel);
         }
         pcm.EndFrame(wavPath.empty() ? nullptr : &audio);
         const bool shot = shots.count(frame) || (shotsEvery && frame % shotsEvery == 0);
-        if (shot || hash) {
+        if ((shot || hash) && stage) {
+            stageRenderer.drawGroup = [](void *b, uint16_t, uint32_t object) { return StageObject(*static_cast<machine::Machine *>(b), object); };
+            stageRenderer.drawGroupContext = stage.get();
+            stageRenderer.text = false;
+            stageRenderer.Draw(*stage, pixels, width, height);
+            renderer.drawGroup = [](void *b, uint16_t, uint32_t object) { return !StageObject(*static_cast<machine::Machine *>(b), object); };
+            renderer.drawGroupContext = &m;
+            renderer.overlay = true;
+            renderer.Draw(m, pixels, width, height);
+            renderer.overlay = false;
+            renderer.drawGroup = nullptr;
+        } else if (shot || hash) {
             renderer.Draw(m, pixels, width, height);
         }
         if (shot) {
             const std::string path = shots.count(frame) ? shots[frame] : shotsPrefix + std::to_string(frame) + ".png";
             WritePng(path.c_str(), pixels.data(), static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+        }
+        if (frame == ramAt) {
+            if (FILE *f = fopen(ramPath.c_str(), "wb")) {
+                fwrite(m.mainRam, 1, 0x80000, f);
+                fclose(f);
+            }
+        }
+        if (frame == groupsAt) {
+            std::vector<uint16_t> groups(m.SpriteGroups(), m.SpriteGroups() + m.SpriteCount());
+            std::sort(groups.begin(), groups.end());
+            groups.erase(std::unique(groups.begin(), groups.end()), groups.end());
+            static uint16_t only = 0;
+            for (const uint16_t group : groups) {
+                only = group;
+                renderer.drawGroup = [](void *, uint16_t g, uint32_t) { return g == only; };
+                renderer.text = false;
+                std::vector<uint32_t> one;
+                int w = 0, h = 0;
+                renderer.Draw(m, one, w, h);
+                const std::string path = groupsPrefix + std::to_string(group) + ".png";
+                WritePng(path.c_str(), one.data(), static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+            }
+            renderer.drawGroup = nullptr;
+            renderer.text = true;
+            fprintf(stderr, "groups at frame %llu: %zu\n", static_cast<unsigned long long>(frame), groups.size());
+            for (const uint16_t group : groups) {
+                const uint32_t head = m.SpriteRam(group * 4), position = m.SpriteRam(group * 4 + 1), settings = m.SpriteRam(group * 4 + 2);
+                uint32_t count = 0, tilemaps = 0;
+                for (uint32_t n = 0; n < m.SpriteCount(); n++) {
+                    if (m.SpriteGroups()[n] == group) {
+                        count++;
+                        tilemaps += (m.SpriteList()[n * 4 + 2] & 3) == 0;
+                    }
+                }
+                fprintf(stderr, "group %3u: head %08X position %08X settings %08X scroll %u, %u objects (%u tilemap lines)\n", group, head,
+                        position, settings, head >> 28, count, tilemaps);
+            }
         }
         if (hash) {
             const uint32_t crc = static_cast<uint32_t>(crc32(0, reinterpret_cast<const Bytef *>(pixels.data()), static_cast<uInt>(pixels.size() * 4)));

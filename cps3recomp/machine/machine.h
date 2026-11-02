@@ -114,6 +114,10 @@ public:
     uint32 SpriteCount() const {
         return m_spriteCount;
     }
+    // Which entry of the main list (0-511) each object of SpriteList came from: its group, for drawing some of them
+    const uint16 *SpriteGroups() const {
+        return m_spriteGroup.data();
+    }
     uint32 SpriteRam(uint32 word) const; // 32-bit word `word` of sprite RAM
     const uint8 *CharRam() const {
         return m_charRam.data(); // 8 MB, big-endian bytes; a 16x16 tile is 256 bytes, one per pixel
@@ -195,6 +199,7 @@ private:
     std::array<uint8, 0x100> m_ppuRegs{};
     VideoRegisters m_videoRegs;
     std::vector<uint32> m_spriteList;
+    std::vector<uint16> m_spriteGroup;
     uint32 m_spriteCount = 0;
     uint16 m_spriteDma = 0, m_dmaStatus = 0;
     uint32 m_charBank = 0;
