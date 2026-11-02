@@ -10,8 +10,9 @@ ports ([CPS-2 Recomp](https://github.com/tmcleroy/cps2recomp)): training mode, o
 **Status:** early. 3rd Strike runs as translated code on the port's own CPS-3 machine, with the launcher, the in-game
 menu, save states, free play, the CPS-2 ports' display options, widescreen (or 16:9 played exactly as on the board,
 with invisible walls), a training mode (hit boxes, input display, frame meter and frame data, damage and stun
-readouts, a dummy that guards, parries, escapes throws and quick-stands), survival and endless battle modes, Gill
-playable, a custom soundtrack (your own music files in place of the game's, by song or as a playlist) and online play
+readouts, a dummy that guards, parries, escapes throws and quick-stands), survival, endless battle, ring out and team
+battles (one at a time, or tag style: tag your partner in with the left trigger, co-op or 2 vs 2 for four players), a
+stage viewer, attract mode, a model viewer and colour editor (your own colours for the characters), Gill playable, a custom soundtrack (your own music files in place of the game's, by song or as a playlist) and online play
 with rollback (checked on one machine so far). A stage option fights 3rd Strike on New Generation's and 2nd Impact's
 stages (one chosen, or each opponent's own), with their music
 ([games/sfiii3/DEFINITIVE.md](games/sfiii3/DEFINITIVE.md)).

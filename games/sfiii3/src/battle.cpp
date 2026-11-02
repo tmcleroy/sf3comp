@@ -132,6 +132,7 @@ namespace {
         int8_t panelFor = -1;       // (a tag's side, its panel to put back the next frame: PanelFrame)
         uint8_t scores[0x20] = {};
         uint8_t gauge[0x2C] = {};
+        uint8_t teamCount = 0, teamFill = 0; // (the tagging side's gauge: bars, and the fill of the next)
         uint16_t landedAt[2] = {};
         uint16_t freeFor[2] = {};   // (the computer's tags) frames each fighter has been free to act
         uint16_t busyFor[2] = {};   // ... and not free (reeling, knocked down, in a move)  // (knocked out) the frame of the move it landed (0: not yet)
@@ -655,8 +656,9 @@ namespace {
     }
     // The panel after a tag: the game draws its numbers on the text layer only as they change, so the promoted
     // machine's shows its own (99 on the clock, no score, an empty gauge). The clock is put a second higher, about to
-    // tick, so that it is drawn at once; the scores and the staying side's gauge are the replaced machine's again (put
-    // back the frame after: PanelFrame) and are drawn as they next change (points scored, the gauge filling). (The text
+    // tick, so that it is drawn at once; the gauges are put back the frame after (PanelFrame: the staying side's, and
+    // the team's carried over to the one come in) and the game told to draw them again (kMeterUpdate); the scores are
+    // the replaced machine's again and are drawn as they next change (points scored). (The text
     // layers themselves cannot be mixed: each machine draws characters into codes of its own choosing, and later
     // draws over the other's.)
     void PanelFrame() {
@@ -666,8 +668,16 @@ namespace {
         for (uint32_t n = 0; n < kScoresSize; n++) {
             SetRam8(kScores + n, b.scores[n]);
         }
+        const int side = b.panelFor, other = 1 - side;
         for (uint32_t n = 0; n < kGaugeSize; n++) {
-            SetRam8(kGauge + (1 - b.panelFor) * kGaugeSize + n, b.gauge[n]);
+            SetRam8(kGauge + other * kGaugeSize + n, b.gauge[n]);
+        }
+        // (the team's gauge carried over to the one come in, as far as its own super art's goes)
+        SetRam8(sfiii3::kMeterCount[side], std::min(b.teamCount, Ram8(sfiii3::kMaxMeterCount[side])));
+        SetRam8(sfiii3::kGauge[side], Ram8(sfiii3::kMeterCount[side]) < Ram8(sfiii3::kMaxMeterCount[side]) ?
+                                          std::min(b.teamFill, Ram8(sfiii3::kMaxGauge[side])) : 0);
+        for (const int p : {side, other}) {
+            SetRam8(sfiii3::kMeterUpdate[p], 1); // (the gauges drawn again)
         }
         b.panelFor = -1;
     }
@@ -697,6 +707,8 @@ namespace {
         for (uint32_t n = 0; n < kGaugeSize; n++) {
             b.gauge[n] = Ram8(kGauge + other * kGaugeSize + n);
         }
+        b.teamCount = Ram8(sfiii3::kMeterCount[side]);
+        b.teamFill = Ram8(sfiii3::kGauge[side]);
         b.panelFor = static_cast<int8_t>(side);
         Promote(m, g_tag[side]);
         // (but for its bytes at +0x240 to +0x24F, the machine's own: copied from another machine some of them hang the
