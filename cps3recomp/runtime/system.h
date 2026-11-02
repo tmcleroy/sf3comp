@@ -101,7 +101,10 @@ public:
         return m_stage.get();
     }
     void StepStage();
-    bool (*stageObject)(const machine::Machine &m, uint32_t object) = nullptr;
+    // Which objects make the picture: of the stage board, those that are its stage; of this board, those that are not
+    // its own stage
+    bool (*stageObject)(const machine::Machine &stage, uint32_t object) = nullptr;
+    bool (*ownStageObject)(const machine::Machine &own, uint32_t object) = nullptr;
     bool (*composeNow)() = nullptr; // (none: whenever there is a stage board)
     void (*beforeStage)(Machine &machine, machine::Machine &stage) = nullptr;
 

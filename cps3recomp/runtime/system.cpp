@@ -5,6 +5,9 @@
 #include "state.h"
 
 #include <cstdio>
+#include <cstring>
+#include <string>
+#include "png_write.h"
 #include <cstdlib>
 
 namespace cps3recomp {
@@ -66,7 +69,7 @@ void Machine::RunFrame() {
     board.extra = ~extra;
     board.RunFrame();
     m_pcm.EndFrame(&audio);
-    if (drawing && m_stage && stageObject && (!composeNow || composeNow())) {
+    if (drawing && m_stage && stageObject && ownStageObject && (!composeNow || composeNow())) {
         m_stageRenderer.margin = m_renderer.margin;
         m_stageRenderer.text = false;
         m_stageRenderer.drawGroupContext = this;
@@ -79,7 +82,7 @@ void Machine::RunFrame() {
         m_renderer.drawGroupContext = this;
         m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
             const Machine &me = *static_cast<Machine *>(self);
-            return !me.stageObject(me.board, object);
+            return !me.ownStageObject(me.board, object);
         };
         m_renderer.Draw(board, m_picture, m_width, m_height);
         m_renderer.overlay = false;
@@ -126,6 +129,16 @@ void Machine::StepStage() {
         beforeStage(*this, *m_stage);
     }
     m_stage->RunFrame();
+    // (debugging aid, CPS3RECOMP_STAGE_SHOTS=EVERY:prefix: the stage board's own whole picture)
+    static const char *shots = getenv("CPS3RECOMP_STAGE_SHOTS");
+    if (shots && frame % strtoull(shots, nullptr, 10) == 0) {
+        Renderer whole;
+        std::vector<uint32_t> pixels;
+        int w = 0, h = 0;
+        whole.Draw(*m_stage, pixels, w, h);
+        const std::string path = std::string(strchr(shots, ':') + 1) + std::to_string(frame) + ".png";
+        WritePng(path.c_str(), pixels.data(), static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+    }
 }
 
 void Machine::Serialize(Archive &ar) {

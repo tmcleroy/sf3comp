@@ -26,18 +26,20 @@ namespace {
         uint32_t camera[3], edge[2]; // the camera's middle (and copies), its left edge (none: 0)
         uint32_t rightAt, leftAt;    // the stage's ends, if the game keeps them (else right, left)
         int right, left;
-        uint32_t clock[2], life[3], stage;
+        uint32_t clock[2], life[6], stage;
     };
     const StageGame kNewGeneration = {"sfiiin", {0x0201BE7C, 0x0201BE84, 0x0201BE94}, {0x0201BE6E, 0x0201BEF0}, 0, 0, 748, 272,
-                                      {0x0200EB33, 0x0201DB15}, {0x0200D603, 0x0200D605, 0x0201DB09}, 0};
+                                      {0x0200EB33, 0x0201DB15}, {0x0200D22B, 0x0200D22D, 0x0201DAF1, 0x0200D603, 0x0200D605, 0x0201DB09},
+                                      0x02012CA3};
     const StageGame kSecondImpact = {"sfiii2n", {0x020221CC, 0x020221D4, 0x020221E4}, {0, 0}, 0x02022218, 0x0202221C, 0, 0,
-                                     {0x02010167, 0x02023EF5}, {0x0200E5A3, 0x0200E5A5, 0}, 0x020142E7};
-    // The choices: off, New Generation's (the stage its fight comes to), 2nd Impact's by its stage number
+                                     {0x02010167, 0x02023EF5}, {0x0200E5A3, 0x0200E5A5, 0x0200E9AF, 0x0200E9B1, 0, 0}, 0x020142E7};
+    // The choices: off, and stages by their games' own numbers (the ones seen so far)
     struct Choice {
         const StageGame *game;
         int stage;
     };
-    const Choice kChoices[] = {{nullptr, -1}, {&kNewGeneration, -1}, {&kSecondImpact, 4}, {&kSecondImpact, 5}, {&kSecondImpact, 6}};
+    const Choice kChoices[] = {{nullptr, -1},        {&kNewGeneration, 4}, {&kNewGeneration, 8}, {&kNewGeneration, 12},
+                               {&kSecondImpact, 4}, {&kSecondImpact, 5}, {&kSecondImpact, 6}};
 
     struct State {
         int loaded = 0;      // the choice whose board is there
@@ -57,10 +59,22 @@ namespace {
         return (Ram8(sfiii3::kLocked[0]) == 0xFF || Ram8(sfiii3::kLocked[1]) == 0xFF) && Ram8(sfiii3::kMatchState) == 2;
     }
 
-    // A stage's object: a tilemap's lines, or an object with a stage's colours (palettes 0x80 and up)
-    bool StageObject(const machine::Machine &m, uint32_t object) {
+    // 3rd Strike's own stage: a tilemap's lines, or an object with a stage's colours (palettes 0x80 and up)
+    bool OwnStageObject(const machine::Machine &m, uint32_t object) {
         const uint32_t *list = m.SpriteList();
         return (list[object * 4 + 2] & 3) == 0 || (list[object * 4] & 0x1FF) >= 0x80;
+    }
+    // The stage board's stage: all but its fighters (6 bits a pixel and a palette below 0x40: New Generation's 0x08 and
+    // 0x10, 2nd Impact's 0x00 and 0x18) and their shadows (palette 0, blending). Its stage's people and things have
+    // palettes from 0x40 (or 8 bits a pixel); its HUD is in the text layer, not drawn.
+    bool StageObject(const machine::Machine &m, uint32_t object) {
+        const uint32_t v1 = m.SpriteList()[object * 4];
+        const uint32_t palette = v1 & 0x1FF;
+        const bool sixBits = (v1 >> 9) & 1, blend = (v1 >> 10) & 1;
+        if ((m.SpriteList()[object * 4 + 2] & 3) == 0) {
+            return true;
+        }
+        return !((sixBits && palette < 0x40) || (blend && palette == 0));
     }
 
     std::unique_ptr<RomSet> LoadSet(const StageGame &game) {
@@ -162,12 +176,14 @@ void StagesBeforeFrame(Machine &machine) {
 
 void RegisterStages(Game &game) {
     game.features.push_back({"stages", "Display", "Stages (experiment)",
-                             "The definitive version's stages, an early form: a fight drawn on New Generation's stage, or one of 2nd "
-                             "Impact's, by running that game beside this one (its set beside this one's, sfiiin.zip or sfiii2n.zip). "
+                             "The definitive version's stages, an early form: a fight drawn on one of New Generation's or 2nd "
+                             "Impact's stages, by running that game beside this one (its set beside this one's, sfiiin.zip or sfiii2n.zip). "
                              "3rd Strike's own music plays. It takes a few seconds to reach its stage after it is chosen.",
-                             0, {"3rd Strike's", "New Generation", "2nd Impact: street", "2nd Impact: factory", "2nd Impact: market"}});
+                             0, {"3rd Strike's", "New Generation: London", "New Generation: cliffs", "New Generation: snowy street", "2nd Impact: street",
+                                 "2nd Impact: factory", "2nd Impact: market"}});
     if (Machine *machine = TheMachine()) {
         machine->stageObject = StageObject;
+        machine->ownStageObject = OwnStageObject;
         machine->beforeStage = BeforeStage;
         machine->composeNow = InMatch;
     }
