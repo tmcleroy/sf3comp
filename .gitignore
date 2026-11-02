@@ -1,0 +1,10 @@
+# Generated from the player's game files, and builds: never committed
+/work/
+/build/
+*.zip
+*.bin
+*.png
+!docs/**/*.png
+*.wav
+.DS_Store
+__pycache__/

@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Tommy McLeroy. Part of cps3recomp (sf3comp).
+//
+// The CPS-3's picture, drawn from the board's memories as the video chip draws it: the object list (objects of
+// 16x16 tiles, each zoomed, and lines of the four tilemaps, which the list places like objects) into a buffer of
+// colour numbers, that buffer zoomed to the screen, then the text layer ("SS") over it. How each is drawn is MAME's
+// CPS-3 driver's (BSD-3-Clause), written again here.
+#pragma once
+
+#include <cstdint>
+#include <vector>
+
+namespace cps3recomp::machine {
+class Machine;
+}
+
+namespace cps3recomp {
+
+class Renderer {
+public:
+    // Draws the frame into `pixels` (0x00BBGGRR, `width` x `height`, which the board's registers set: 384 x 224
+    // or 496 x 224)
+    void Draw(const machine::Machine &m, std::vector<uint32_t> &pixels, int &width, int &height);
+
+private:
+    std::vector<uint32_t> m_buffer; // colour numbers, up to twice the screen each way (the whole-picture zoom)
+    static constexpr int kBufferWidth = 1024, kBufferHeight = 448;
+    struct Clip {
+        int left, right, top, bottom; // inclusive
+    };
+    void DrawTile(const machine::Machine &m, const Clip &clip, uint32_t code, uint32_t colour, int granularity, bool flipX, bool flipY,
+                  int sx, int sy, bool blend, uint32_t scaleX, uint32_t scaleY);
+    void DrawTilemapLine(const machine::Machine &m, const uint32_t *regs, int line, const Clip &clip);
+    void DrawText(const machine::Machine &m, uint32_t *pixels, int width, int height);
+};
+
+} // namespace cps3recomp
