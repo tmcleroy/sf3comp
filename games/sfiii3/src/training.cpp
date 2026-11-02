@@ -380,6 +380,8 @@ void RingOutState(Archive &ar);
 void RingOutHud(std::vector<HudLine> &lines);
 void EndlessState(Archive &ar);
 void EndlessHud(std::vector<HudLine> &lines);
+void TeamState(Archive &ar);
+void TeamHud(std::vector<HudLine> &lines);
 
 void TrainingBeforeFrame(Machine &m) {
     if (InMatch()) {
@@ -513,6 +515,7 @@ void RegisterTraining(Game &game) {
         SurvivalHud(lines);
         RingOutHud(lines);
         EndlessHud(lines);
+        TeamHud(lines);
         if (FeatureOn("hit_boxes")) {
             Boxes(boxes);
         }
@@ -637,6 +640,7 @@ void RegisterTraining(Game &game) {
         SurvivalState(ar);
         RingOutState(ar);
         EndlessState(ar);
+        TeamState(ar);
         ar.Pod(g);
         session::State(ar);
     };

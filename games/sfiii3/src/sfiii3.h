@@ -84,5 +84,9 @@ constexpr uint32_t kStage = 0x020154F5;
 // The character each player chose (a byte each, its number as in the record's 0x3C0: Gill 0, Alex 1...), from the
 // training script; written while no match is on, it is the character fought with (Gill, the boss, too: seen in pictures)
 constexpr uint32_t kChosen[2] = {0x02011387, 0x02011388};
+// Rounds won in the match now, each player (a byte; P1's 0x02011383, P2's two on), and the round's number (from 0):
+// seen in RAM over versus matches (a win counted at the match's state 6, after the knock-out's 3)
+constexpr uint32_t kRoundsWon[2] = {0x02011383, 0x02011385};
+constexpr uint32_t kRoundNumber = 0x0201138A;
 
 } // namespace sfiii3

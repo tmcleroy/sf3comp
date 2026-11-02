@@ -23,6 +23,8 @@ void SurvivalBeforeFrame(Machine &machine);
 void RingOutBeforeFrame(Machine &machine);
 void RegisterRingOut(Game &game);
 void EndlessBeforeFrame(Machine &machine);
+void TeamBeforeFrame(Machine &machine);
+void RegisterTeam(Game &game);
 void RegisterEndless(Game &game);
 void RegisterSurvival(Game &game);
 void RegisterMusic(Game &game);
@@ -72,6 +74,7 @@ namespace {
         StagesBeforeFrame(m);
         TrainingBeforeFrame(m);
         EndlessBeforeFrame(m);
+        TeamBeforeFrame(m);
     }
 } // namespace
 
@@ -109,6 +112,7 @@ void RegisterGame() {
     RegisterSurvival(game);
     RegisterRingOut(game);
     RegisterEndless(game);
+    RegisterTeam(game);
     RegisterSoundProbe();
     RegisterBoard(game);
 }
