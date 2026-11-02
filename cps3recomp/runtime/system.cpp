@@ -89,6 +89,15 @@ void Machine::RunFrame() {
         m_renderer.Draw(board, m_picture, m_width, m_height);
         m_renderer.overlay = false;
         m_renderer.drawGroup = nullptr;
+    } else if (drawing && ownStageObject && getenv("CPS3RECOMP_OWN_ONLY")) {
+        // (debugging aid: only what this board keeps over another's stage, on black)
+        m_renderer.drawGroupContext = this;
+        m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
+            const Machine &me = *static_cast<Machine *>(self);
+            return !me.ownStageObject(me.board, object);
+        };
+        m_renderer.Draw(board, m_picture, m_width, m_height);
+        m_renderer.drawGroup = nullptr;
     } else if (drawing) {
         m_renderer.Draw(board, m_picture, m_width, m_height);
     }

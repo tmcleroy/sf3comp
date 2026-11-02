@@ -91,6 +91,17 @@ const launcher::Description& launcher::describe() {
             if (launch.on("fullscreen")) {
                 args.push_back("--fullscreen");
             }
+            // (the first page's switches of the game's features: game.cfg's `display`, said at every start)
+            std::string features;
+            for (const launcher::Toggle &one : launcher::describe().display) {
+                if (std::string(one.key) != "fullscreen") {
+                    features += (features.empty() ? "" : ",") + std::string(launch.on(one.key) ? "" : "-") + one.key;
+                }
+            }
+            if (!features.empty()) {
+                args.push_back("--features");
+                args.push_back(features);
+            }
             return args;
         };
         d.saves_folder = true;
@@ -106,7 +117,8 @@ const launcher::Description& launcher::describe() {
         d.online.arcade_argument = "--net-arcade";
         d.online.invite_argument = "--net-invite";
         d.online.invite_name_argument = "--net-invite-name";
-        d.display = {{"fullscreen", "Full screen", "F11 switches while playing.", false, nullptr}};  // (a window unless asked)
+        d.display = {{"fullscreen", "Full screen", "F11 switches while playing.", false, nullptr},  // (a window unless asked)
+                     {"widescreen", "Widescreen", "16:9: more of the stage at each side (the corners come a little sooner).", false, nullptr}};
         d.bindings = port::MakeBoundTable(2, "", false).table;
         d.controls_heading = "WHILE PLAYING";
         d.controls = {{"Keys", "Esc, F1, the left stick's click, or Start and Select together: the in-game menu (save states, coin, quit)   "

@@ -60,7 +60,7 @@ void RegisterGame() {
     game.features.push_back({"widescreen", "Game", "Widescreen",
                              "16:9: 64 more columns of the stage on each side. In a fight the camera stays 64 columns further from "
                              "the stage's ends, so the corners come that much sooner than on the board.",
-                             0});
+                             kFeatureFirstPage});
     game.features.push_back({"skip_intro", "Game", "Straight to the opening",
                              "The board's start-up (its memory checks, the region's warning and Capcom's logo) runs unseen, so the game "
                              "shows from its opening in about two seconds.",
