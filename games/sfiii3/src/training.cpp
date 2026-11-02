@@ -240,6 +240,13 @@ namespace {
             const uint8_t health = Ram8(base + sfiii3::kLife);
             if (health < g.health[p]) {
                 session::Hit(p, g.health[p] - health, g.guarding[p] && !hit);
+                // (debugging aid, SFIII3_PARRY_MISSES=1: each hit player 2 takes, with what it knew of player 1's move)
+                static const bool misses = getenv("SFIII3_PARRY_MISSES") != nullptr;
+                if (misses && p == 1) {
+                    fprintf(stderr, "miss: anim %04X learned %d into %u low %d thrown %d tapped %u ago\n", g.moveAnim[0],
+                            LearnedStartup(static_cast<uint8_t>(Ram16(Player(0) + 0x3C0)), g.moveAnim[0]), g.frame - g.moveFrom[0], g.moveLow[0],
+                            Ram8(Player(1) + sfiii3::kThrown), g.frame - g.parryTap);
+                }
             }
             g.health[p] = health;
         }
