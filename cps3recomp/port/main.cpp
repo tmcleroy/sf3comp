@@ -1609,6 +1609,7 @@ void Port::RunFrame() {
             continue;
         }
         WriteFile(path, machine->ram(), 0x80000);
+        WriteFile(path + ".colours", machine->board.ColourRam(), 0x20000 * 2); // (the colour RAM's words, as this machine keeps them)
     }
     if (AtFrame(opt.stateSave, frame, path) && !SaveState(path, error)) {
         fprintf(stderr, "%s\n", error.c_str());

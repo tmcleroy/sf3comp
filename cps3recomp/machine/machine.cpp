@@ -321,6 +321,12 @@ void Machine::WriteMasked(uint32 a, uint32 v, uint32 mask) {
     }
     if (a >= 0x04080000u && a < 0x040C0000u) {
         const uint32 index = (a - 0x04080000u) / 2;
+        // (debugging aid, CPS3RECOMP_COLOUR_WATCH=index: the CPU's writes of that colour, with who made them)
+        static const long watchColour = getenv("CPS3RECOMP_COLOUR_WATCH") ? strtol(getenv("CPS3RECOMP_COLOUR_WATCH"), nullptr, 16) : -1;
+        if (static_cast<long>(index) == watchColour || static_cast<long>(index + 1) == watchColour) {
+            fprintf(stderr, "colour %05lX = %08X mask %08X at PC %08X PR %08X frame %llu\n", watchColour, v, mask, m_cpu.PC, m_cpu.PR,
+                    static_cast<unsigned long long>(m_frame));
+        }
         if (mask & 0xFFFF0000u) {
             uint32 c = m_colourRam[index];
             Combine(c, v >> 16, mask >> 16);
@@ -553,6 +559,11 @@ void Machine::PaletteDma(uint32 control) {
     const uint32 source = (m_palDmaSource << 1) - 0x400000;
     const uint32 length = m_palDmaLength | ((control & 1) << 16);
     const std::vector<uint8> &g = m_rom.graphics;
+    // (debugging aid, CPS3RECOMP_PALETTE_LOG=1: each palette DMA's source in the graphics, destination and length)
+    static const bool palLog = getenv("CPS3RECOMP_PALETTE_LOG") != nullptr;
+    if (palLog) {
+        fprintf(stderr, "palette dma frame %llu: from %06X to %05X, %u colours\n", static_cast<unsigned long long>(m_frame), source, m_palDmaDest, length);
+    }
     for (uint32 i = 0; i < length; i++) {
         // (in 32-bit words the two colours of each word are swapped on both sides, as MAME has it)
         const size_t at = static_cast<size_t>(((source >> 1) + i) ^ 1) * 2;

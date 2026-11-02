@@ -125,6 +125,9 @@ public:
     const uint8 *SsRam() const {
         return m_ssRam.data();
     }
+    const uint16 *ColourRam() const {
+        return m_colourRam.data();
+    }
     const uint32 *Palette() const {
         return m_rgb.data(); // 0x20000 colours, 0x00BBGGRR
     }

@@ -118,7 +118,11 @@ heard, the file's tone in --soundtrack-dump).
 7. Linux / Windows builds (cps2recomp's and fighting_vipers' tools/release as the model), then the other devices.
    Linux on 64-bit ARM (gold) and on x86_64 compile and link in Docker (cps2recomp's build images), and their
    1500-frame --auto 7 hash is the Mac's (c476e974); Windows not tried, no release scripts yet.
-8. The alternative modes (ring out, tag team: cps2recomp's fight/alternative and battle,
+8. The colour editor: not started. Where 3rd Strike keeps a fighter's colours is not found yet: player 1's objects
+   use palettes 0x08-0x0F and player 2's 0x10-0x17 (by leaving each out), but neither the palette DMAs
+   (CPS3RECOMP_PALETTE_LOG: a few, none per character) nor the CPU's writes to colour RAM (CPS3RECOMP_COLOUR_WATCH)
+   load a character's colours where those palettes would be; the renderer's colour numbers for objects are to check.
+9. The alternative modes (ring out, tag team: cps2recomp's fight/alternative and battle,
    3000 lines tied to the CPS-2 games' memory), a music player and model viewer, the colour editor, the board's other settings.
 
 ## Decisions for the user
