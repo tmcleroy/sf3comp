@@ -49,6 +49,10 @@ struct Description {
     float inputY = 0.30f, inputSpacing = 0.062f, framesY = 0.72f;
     int framesTop = 193;
     fight::DummyOptions dummy;
+    // For "Start over" in a corner: where the players stand in the left and the right corner (player 1's place; player 2
+    // `cornerApart` further from the wall) now (none: no corners offered)
+    bool (*corners)(int &left, int &right) = nullptr;
+    int cornerApart = 70;
     // For the frame data log (frame_log): what a move is as it starts (none: no log)
     fight::MoveLog::StartFn moveStart = nullptr;
     // The game's own training features, and which of them are aids (working only in a session)

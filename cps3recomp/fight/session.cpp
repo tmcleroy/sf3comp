@@ -6,6 +6,8 @@
 #include "state.h"
 
 #include <algorithm>
+#include <utility>
+#include <cstdio>
 #include <cstdlib>
 
 namespace cps3recomp::session {
@@ -66,28 +68,49 @@ namespace {
         }
     }
 
-    // "Start over": the round as it began. The stick held down as it is asked for swaps the sides (and it is
-    // remembered); up puts them back.
+    // "Start over": the round as it began, in the middle (where it began) or a corner, the sides as they began or
+    // swapped. The stick held as it is asked for chooses (and it is remembered): left or right a corner, up the middle,
+    // down swaps the sides.
     void StartOver(Machine &machine) {
+        if (getenv("CPS3RECOMP_SESSION_LOG")) { // (debugging aid)
+            fprintf(stderr, "session: start over asked at frame %llu (round kept: %s, in a session: %s)\n",
+                    static_cast<unsigned long long>(machine.frame), g_roundStart.empty() ? "no" : "yes", InSession() ? "yes" : "no");
+        }
         if (g_roundStart.empty() || !InSession()) {
             return;
         }
-        bool swapped = FeatureValue("restart_at") == 1;
+        int place = FeatureValue("restart_at"); // 0 middle, 1 swapped, 2 left corner, 3 right corner, +2: swapped
+        int where = place <= 1 ? 0 : (place - 2) % 2 + 1; // 0 middle, 1 left, 2 right
+        bool swapped = place == 1 || place >= 4;
         const uint16_t stick = machine.players[0] & kSticks;
-        if (stick & kDown) {
-            swapped = !swapped;
-        } else if (stick & kUp) {
+        if (stick & kUp) {
+            where = 0;
             swapped = false;
         }
-        SetFeatureValue("restart_at", swapped ? 1 : 0);
+        if (d.corners && (stick & kLeft)) {
+            where = 1;
+        } else if (d.corners && (stick & kRight)) {
+            where = 2;
+        }
+        if (stick & kDown) {
+            swapped = !swapped;
+        }
+        place = where == 0 ? (swapped ? 1 : 0) : 1 + where + (swapped ? 2 : 0);
+        SetFeatureValue("restart_at", place);
         Archive ar(g_roundStart, false);
         machine.Serialize(ar);
         StateLoaded(); // (the translated code's dispatcher: where the CPU was is forgotten)
-        if (swapped) {
-            const int one = X(0), two = X(1);
-            SetRam16(d.player[0] + d.x, static_cast<uint16_t>(two));
-            SetRam16(d.player[1] + d.x, static_cast<uint16_t>(one));
+        int x[2] = {X(0), X(1)};
+        int left = 0, right = 0;
+        if (where && d.corners && d.corners(left, right)) {
+            x[0] = where == 1 ? left : right;
+            x[1] = where == 1 ? left + d.cornerApart : right - d.cornerApart;
         }
+        if (swapped) {
+            std::swap(x[0], x[1]);
+        }
+        SetRam16(d.player[0] + d.x, static_cast<uint16_t>(x[0]));
+        SetRam16(d.player[1] + d.x, static_cast<uint16_t>(x[1]));
         Afresh(true);
     }
 
@@ -251,10 +274,19 @@ void Register(const Description &description) {
                              Start});
     game.commands.push_back({"training_restart", kPage, "Start over",
                              "In a training session: the round as it began. Backspace or a gamepad's left shoulder does this while "
-                             "playing; the stick held down as it is pressed swaps the sides, up puts them back.",
+                             "playing; the stick held as it is pressed chooses where: left or right a corner, up the middle, down "
+                             "swaps the sides.",
                              StartOver, kKeyRestart});
-    game.features.push_back({"restart_at", kPage, "Start over with", "The players on their own sides, or swapped.", 0,
-                             {"Sides as they began", "Sides swapped"}});
+    if (d.corners) {
+        game.features.push_back({"restart_at", kPage, "Start over at",
+                                 "Where \"Start over\" puts the players: where the round began or a corner, player 1 on its own side or "
+                                 "swapped.",
+                                 0, {"As the round began", "As it began, swapped", "Left corner", "Right corner", "Left corner, swapped",
+                                     "Right corner, swapped"}});
+    } else {
+        game.features.push_back({"restart_at", kPage, "Start over with", "The players on their own sides, or swapped.", 0,
+                                 {"Sides as they began", "Sides swapped"}});
+    }
     game.features.push_back({"training_mode", kPage, "Training session",
                              "The fight has no clock and nobody is knocked out. (\"Start\" above switches this on and takes the game to "
                              "the character choice; Reset ends it.)",

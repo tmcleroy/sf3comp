@@ -478,6 +478,14 @@ void RegisterTraining(Game &game) {
         {"full_meter", session::kPage, "Full meter", "Player 1's super art meter is always full."},
         {"full_meter_2", session::kPage, "Full meter, player 2", "Player 2's super art meter is always full."},
     };
+    // (the corners: the players' walls are 164 from the camera's limits, which the camera's middle keeps between; seen
+    // in made-up play on Ken's stage, 108 and 916 with limits 272 and 752)
+    d.corners = [](int &left, int &right) {
+        left = Signed16(sfiii3::kCameraLeft[0]) - 164;
+        right = Signed16(sfiii3::kCameraRight[0]) + 164;
+        return right - left > 200;
+    };
+    d.cornerApart = 90;
     // (the frame data log: the character by its number in the record, 0x3C0; the move by its animation, 0x202)
     d.moveStart = [](int p) {
         static const char *const kNames[] = {"Gill", "Alex", "Ryu", "Yun", "Dudley", "Necro", "Hugo", "Ibuki", "Elena", "Oro", "Yang",
