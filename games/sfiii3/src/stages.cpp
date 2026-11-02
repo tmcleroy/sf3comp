@@ -32,7 +32,7 @@ namespace {
         uint32_t clock[2], life[6], stage;
         uint32_t players[2]; // the players' records (the place across the stage at +0x64, as in 3rd Strike)
     };
-    const StageGame kNewGeneration = {"sfiiin", {0x0201BE7C, 0x0201BE84, 0x0201BE94}, {0x0201BE6E, 0x0201BEF0}, 0, 0, 680, 320,
+    const StageGame kNewGeneration = {"sfiiin", {0x0201BE7C, 0x0201BE84, 0x0201BE94}, {0x0201BE6E, 0x0201BEF0}, 0x0201BEC8, 0x0201BECC, 680, 320,
                                       {0x0200EB33, 0x0201DB15}, {0x0200D22B, 0x0200D22D, 0x0201DAF1, 0x0200D603, 0x0200D605, 0x0201DB09},
                                       0x02012CA3, {0x0200D18C, 0x0200D564}};
     const StageGame kSecondImpact = {"sfiii2n", {0x020221CC, 0x020221D4, 0x020221E4}, {0, 0}, 0x02022218, 0x0202221C, 0, 0,
@@ -161,6 +161,15 @@ namespace {
             return;
         }
         stage.inputs = stage.extra = 0xFFFFFFFFu;
+        // (debugging aid, SFIII3_STAGE_CAMERA=1: the stage game's camera block, every 300 frames)
+        static const bool cameraLog = getenv("SFIII3_STAGE_CAMERA") != nullptr;
+        if (cameraLog && g.frames % 300 == 0) {
+            fprintf(stderr, "stage camera:");
+            for (uint32_t at = game.camera[1] - 0x10; at < game.camera[1] + 0x50; at += 2) {
+                fprintf(stderr, " %d", static_cast<int16_t>(Word(ram, at)));
+            }
+            fprintf(stderr, "\n");
+        }
         g.lastCamera = static_cast<int16_t>(Word(ram, game.camera[1]));
         for (const uint32_t at : game.clock) {
             ram[at & 0x7FFFF] = 99;
@@ -175,12 +184,18 @@ namespace {
         // (in widescreen its camera stays as far from its stage's ends as 3rd Strike's is kept from its own: where its game
         // keeps them, they are narrowed, the game's own remembered)
         const int margin = machine.WideMargin();
+        // (its ends, where its game keeps them and they make sense: New Generation's look odd on a stage or two, which
+        // then take the ends assumed)
+        bool kept = false;
         if (game.rightAt) {
             const int right = static_cast<int16_t>(Word(ram, game.rightAt)), left = static_cast<int16_t>(Word(ram, game.leftAt));
             if (right != g.madeRight || left != g.madeLeft) {
                 g.ownRight = right;
                 g.ownLeft = left;
             }
+            kept = g.ownLeft > 0 && g.ownRight - g.ownLeft > 2 * margin + 64;
+        }
+        if (kept) {
             g.madeRight = g.ownRight - margin;
             g.madeLeft = g.ownLeft + margin;
             for (const uint32_t at : {game.rightAt, game.rightAt + 2}) {
@@ -190,8 +205,8 @@ namespace {
                 SetWord(ram, at, g.madeLeft);
             }
         }
-        const int theirRight = game.rightAt ? g.madeRight : game.right - margin;
-        const int theirLeft = game.leftAt ? g.madeLeft : game.left + margin;
+        const int theirRight = kept ? g.madeRight : game.right - margin;
+        const int theirLeft = kept ? g.madeLeft : game.left + margin;
         if (right > left && theirRight > theirLeft) {
             // (its game makes its camera from its fighters each frame, whatever its camera words say: so its fighters,
             // unseen, are put where 3rd Strike's are, from one stage to the other, and its camera follows them)
