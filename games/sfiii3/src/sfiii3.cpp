@@ -19,6 +19,8 @@ void RegisterBoard(Game &game);
 void BoardBeforeFrame(Machine &m);
 void StagesBeforeFrame(Machine &machine);
 void MusicBeforeFrame(Machine &machine);
+void SurvivalBeforeFrame(Machine &machine);
+void RegisterSurvival(Game &game);
 void RegisterMusic(Game &game);
 void WidescreenBeforeFrame(Machine &m, bool fighting);
 void TrainingBeforeFrame(Machine &m);
@@ -53,6 +55,7 @@ namespace {
         }
         WidescreenBeforeFrame(m, (Ram8(sfiii3::kLocked[0]) == 0xFF || Ram8(sfiii3::kLocked[1]) == 0xFF) && Ram8(sfiii3::kMatchState) == 2);
         MusicBeforeFrame(m);
+        SurvivalBeforeFrame(m);
         StagesBeforeFrame(m);
         TrainingBeforeFrame(m);
     }
@@ -81,6 +84,7 @@ void RegisterGame() {
     RegisterLifts3rdStrike();
     RegisterStages(game);
     RegisterMusic(game);
+    RegisterSurvival(game);
     RegisterSoundProbe();
     RegisterBoard(game);
 }
