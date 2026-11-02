@@ -52,7 +52,11 @@
 3. Widescreen: the board has a 496-column mode; the stage and camera limits need finding.
 4. The definitive version: New Generation (sfiiin) and 2nd Impact (sfiii2n) sets are needed, and are not on the
    user's devices. 2nd Impact's SIMM program is not enciphered (game.cfg program_enciphered = 0).
-5. Linux / Windows builds (cps2recomp's and fighting_vipers' tools/release as the model).
+5. Online play's cost: a save state is 10 MB (8 MB of it character RAM) and took 14.7 ms to keep on a loaded
+   machine. Keep character RAM by changed pages (it changes in bulk, by the character DMA) before trying online play.
+   The rollback check itself passes: `--rollback-test 3 --hash-log` equals a plain run's over 2600 frames of made-up
+   play (227 rollbacks, 1255 frames run again).
+6. Linux / Windows builds (cps2recomp's and fighting_vipers' tools/release as the model).
 
 ## Decisions for the user
 
