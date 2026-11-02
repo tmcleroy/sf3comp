@@ -13,7 +13,8 @@ with invisible walls), a training mode (hit boxes, input display, frame meter an
 readouts, a dummy that guards, parries, escapes throws and quick-stands), survival and endless battle modes, Gill
 playable, a custom soundtrack (your own music files in place of the game's, by song or as a playlist) and online play
 with rollback (checked on one machine so far). A stage option fights 3rd Strike on New Generation's and 2nd Impact's
-stages, with their music ([games/sfiii3/DEFINITIVE.md](games/sfiii3/DEFINITIVE.md)).
+stages (one chosen, or each opponent's own), with their music
+([games/sfiii3/DEFINITIVE.md](games/sfiii3/DEFINITIVE.md)).
 
 | Widescreen | Training mode | A 2nd Impact stage |
 | --- | --- | --- |
