@@ -60,7 +60,7 @@
   (it learns each of player 1's animations' frames until its attack comes out and taps 2 frames before, again no
   sooner than 18 frames on: 168 parries to 63 hits over three seeds of made-up play; misses are mostly throws and
   first sightings; projectiles parried as they come within three frames of their closing speed: 7 of 8 of Gill's
-  fireballs), guards (standing against jump-ins, moves within 280 and projectiles within 160), escapes throws, quick-stands, mashes out of stun (timer two bytes on from kStunMost), a stage
+  fireballs), guards (standing against jump-ins and the overheads it has been hit by, moves within 280 and projectiles within 160), escapes throws, quick-stands, mashes out of stun (timer two bytes on from kStunMost), a stage
   choice (0x020154F5), the frame data log. Seen working
   in a made-up fight's pictures only. Frame data is read once a frame from the records (not the game's own steps)
   and checked on one move so far: Alex's standing LP reads startup 5, active 2, recovery 8, and the training script's
@@ -103,7 +103,7 @@ heard, the file's tone in --soundtrack-dump).
 ## Next
 
 1. Frame data: recovery and advantage against published data (startups agree with the recorded animations; active
-   on a hit differs by the hit's freeze). The dummy: guard from the boxes (attackInRange), the parry's remaining misses (SFIII3_PARRY_MISSES), overheads guarded crouching.
+   on a hit differs by the hit's freeze). The dummy: guard from the boxes (attackInRange), the parry's remaining misses (SFIII3_PARRY_MISSES).
 2. Hooks in the translated code: the knock-out (so a session's "nobody knocked out" stops putting health back at a
    quarter), the round's steps.
 3. The definitive version (DEFINITIVE.md): the stage
