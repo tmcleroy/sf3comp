@@ -115,12 +115,18 @@ void SH2::Reset(bool hard) {
 // board (machine.cpp). Addresses with the top three bits 110 are the cache's data array used as RAM (MAME's
 // "sh2cache_ram" at 0xC0000000), 111 the on-chip registers.
 static constexpr uint32 kMainRamMask = 0xDFF80000u, kMainRam = 0x02000000u; // (and its cache-through mirror, 22000000)
+// A read that cannot change anything or read anything that changes by itself: the cartridge's ROM, the program
+// SIMMs, the cache RAM. Others count as hardware (g_hardware; the translation's check leaves those uncompared).
+static inline bool PlainRead(uint32 a) {
+    const uint32 area = a >> 29, address = a & 0x1FFFFFFFu;
+    return (area <= 1 && (address < 0x80000u || (address >> 24) == 6)) || area == 6;
+}
 uint8 SH2::Read8(uint32 a) {
     if ((a & kMainRamMask) == kMainRam) [[likely]] {
         return m_machine.mainRam[a & 0x7FFFFu];
     }
     ++g_activity;
-    ++g_hardware;
+    g_hardware += !PlainRead(a);
     switch (a >> 29) {
     case 0: case 1: return m_machine.BusRead8(a & 0x1FFFFFFFu);
     case 6: return m_cacheData[a & 0xFFF];
@@ -134,7 +140,7 @@ uint16 SH2::Read16(uint32 a) {
         return Get16(&m_machine.mainRam[a & 0x7FFFFu]);
     }
     ++g_activity;
-    ++g_hardware;
+    g_hardware += !PlainRead(a);
     switch (a >> 29) {
     case 0: case 1: return m_machine.BusRead16(a & 0x1FFFFFFFu);
     case 6: return Get16(&m_cacheData[a & 0xFFE]);
@@ -148,7 +154,7 @@ uint32 SH2::Read32(uint32 a) {
         return Get32(&m_machine.mainRam[a & 0x7FFFFu]);
     }
     ++g_activity;
-    ++g_hardware;
+    g_hardware += !PlainRead(a);
     switch (a >> 29) {
     case 0: case 1: return m_machine.BusRead32(a & 0x1FFFFFFFu);
     case 6: return Get32(&m_cacheData[a & 0xFFC]);
@@ -224,7 +230,7 @@ void SH2::Write8(uint32 a, uint8 v) {
         return;
     }
     {
-        ++g_hardware;
+        g_hardware += (a >> 29) != 6; // (the cache RAM is plain memory)
         if (g_hardwareWrites) [[unlikely]] {
             g_hardwareWrites->push_back({a, v, 1});
         }
@@ -252,7 +258,7 @@ void SH2::Write16(uint32 a, uint16 v) {
         return;
     }
     {
-        ++g_hardware;
+        g_hardware += (a >> 29) != 6; // (the cache RAM is plain memory)
         if (g_hardwareWrites) [[unlikely]] {
             g_hardwareWrites->push_back({a, v, 2});
         }
@@ -285,7 +291,7 @@ void SH2::Write32(uint32 a, uint32 v) {
         return;
     }
     {
-        ++g_hardware;
+        g_hardware += (a >> 29) != 6; // (the cache RAM is plain memory)
         if (g_hardwareWrites) [[unlikely]] {
             g_hardwareWrites->push_back({a, v, 4});
         }

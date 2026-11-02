@@ -76,6 +76,8 @@ bool IllegalInSlot(Op op);
 using DispatchFn = bool (*)(SH2 &cpu, uint64 target, void *context);
 
 class SH2 {
+    friend struct cps3recomp::Access; // (the runtime: runtime/recomp.cpp)
+
 public:
     SH2(Machine &machine, bool master);
 
