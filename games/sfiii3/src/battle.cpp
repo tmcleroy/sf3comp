@@ -50,6 +50,7 @@ bool StageBehindShown();
 void StageBehindNext(int stage);
 bool StageBehindNextReady();
 void StageBehindSwitch(Machine &machine);
+void StageBehindMusic(bool on);
 
 namespace {
     const char *const kCharacters[] = {"Gill", "Alex", "Ryu", "Yun", "Dudley", "Necro", "Hugo", "Ibuki", "Elena", "Oro", "Yang",
@@ -62,6 +63,7 @@ namespace {
     constexpr int kShuffleMinutes[] = {1, 2, 3, 5, 10}; // (endless, shuffled) minutes on a stage before it fades into another
     constexpr int kFadeFor = 75;                        //   frames of fading out (and as many in)
     constexpr int kScrollSpeeds[] = {64, 128, 256};     // (endless, scrolling) 256ths of a pixel a frame
+    constexpr int32_t kViewerStick = 384;               // (the stage viewer) ... with the stick held
     enum { kStageShuffle, kStageScroll };               // (endless_stage's first two choices; then the stages)
     constexpr int kDropFor = 60;                        // (ring out) frames of the way down to the next stage
     constexpr uint32_t kRingShownFor = 70;              // (ring out) frames the one thrown out is seen flying off
@@ -85,6 +87,13 @@ namespace {
         uint8_t stage = 0;          // the stage behind (endless, shuffled or scrolling)
         uint8_t nextStage = 0;      // ... the one to come
         uint32_t onStageFor = 0;    // frames fought on it
+        // (the stage viewer: an endless battle unseen, only the stage behind it drawn) its camera's middle in 256ths of
+        // a pixel, which way it goes by itself, Infinite (every stage in turn), and the menu's stage it was started for
+        bool viewer = false;
+        int32_t camera = 0;
+        int8_t direction = 1;
+        bool infinite = false;
+        int8_t viewed = -1;
         int fade = 0;               // the fade between two stages: 0 none, 1-kFadeFor out, then in
         int32_t scroll = 0;         // (scrolling) the camera's middle, in 256ths of a pixel
         bool scrolled = false;      // ... across to its right end
@@ -189,11 +198,19 @@ namespace {
         if (b.mode != kEndless) {
             return -1;
         }
+        if (b.viewer) {
+            // (the unseen fight's: the stage whose tune is chosen, or the one shown)
+            const int music = FeatureValue("viewer_music");
+            return music > 0 ? music - 1 : b.infinite ? 0 : b.stage;
+        }
         const int choice = FeatureValue("endless_stage");
         return choice <= kStageScroll ? -1 : choice - 2;
     }
     bool Behind() {
-        return b.mode == kEndless && FeatureValue("endless_stage") <= kStageScroll;
+        return b.mode == kEndless && (b.viewer || FeatureValue("endless_stage") <= kStageScroll);
+    }
+    bool Scrolling() { // (the stages going by, one after another)
+        return b.viewer ? b.infinite : FeatureValue("endless_stage") == kStageScroll;
     }
     uint8_t AnotherStage(uint8_t not1) {
         uint8_t stage = not1;
@@ -246,6 +263,20 @@ namespace {
         g_tag[1].Clear();
         StageBehind(-1);
     }
+    // The stage viewer: an endless battle of the game's fighters, unseen, with the chosen stage behind it on the stage
+    // board, the only thing drawn; its camera taken across with the stick or by itself
+    void StartViewer(Machine &machine) {
+        Begin(machine, kEndless);
+        b.viewer = true;
+        b.viewed = static_cast<int8_t>(FeatureValue("viewer_stage"));
+        b.infinite = b.viewed >= kCharacterCount;
+        b.stage = b.infinite ? 0 : static_cast<uint8_t>(b.viewed);
+        b.nextStage = b.stage;
+        StageBehind(b.stage);
+        StageBehindMusic(FeatureValue("viewer_music") == 0);
+        b.want[0] = RandomCharacter();
+        b.want[1] = RandomCharacter();
+    }
     void StartSurvival(Machine &machine) {
         Begin(machine, kSurvival);
         b.want[1] = RandomCharacter();
@@ -256,7 +287,7 @@ namespace {
     }
     void StartEndless(Machine &machine) {
         Begin(machine, kEndless);
-        b.stage = FeatureValue("endless_stage") == kStageScroll ? 0 : static_cast<uint8_t>(Next() % kCharacterCount);
+        b.stage = Scrolling() ? 0 : static_cast<uint8_t>(Next() % kCharacterCount);
         b.nextStage = b.stage; // (none to come yet)
         if (Behind()) {
             StageBehind(b.stage);
@@ -456,14 +487,36 @@ namespace {
 // ready beside it), or scrolling (its camera carried across it at the speed chosen, then the next in order faded in)
 namespace {
     void StageBehindFrame(Machine &m) {
-        const bool scrolling = FeatureValue("endless_stage") == kStageScroll;
+        const bool scrolling = Scrolling();
         int left = 0, right = 0;
         const bool shown = StageBehindShown() && StageBehindEnds(left, right);
         if (getenv("SFIII3_BATTLE_LOG") && b.frames % 600 == 0) {
             fprintf(stderr, "behind: frame %u stage %d next %d shown %d ends %d-%d for %u fade %d ready %d\n", b.frames, b.stage, b.nextStage, shown,
                     left, right, b.onStageFor, b.fade, StageBehindNextReady());
         }
-        if (scrolling && shown && b.fade == 0) {
+        if (b.viewer && shown && b.fade == 0) {
+            // (the viewer: with the stick, or by itself from end to end and back; Infinite, onwards)
+            const int scroll = std::clamp(FeatureValue("viewer_scroll"), 0, 3);
+            const uint16_t stick = (m.players[0] | m.players[1]) & (kLeft | kRight);
+            const int32_t byStick = stick == kRight ? kViewerStick : stick == kLeft ? -kViewerStick : 0;
+            if (b.camera == 0) {
+                b.camera = (scrolling ? left : (left + right) / 2) * 256;
+            }
+            if (scroll == 0) {
+                b.camera += byStick;
+            } else {
+                b.camera += (scrolling ? 1 : b.direction) * kScrollSpeeds[scroll - 1];
+            }
+            if (b.camera >= right * 256) {
+                b.camera = right * 256;
+                b.direction = -1;
+                b.scrolled = scrolling;
+            } else if (b.camera <= left * 256) {
+                b.camera = left * 256;
+                b.direction = 1;
+            }
+            StageBehindCamera(b.camera / 256);
+        } else if (scrolling && shown && b.fade == 0) {
             const int speed = kScrollSpeeds[std::clamp(FeatureValue("endless_scroll"), 0, 2)];
             if (b.scroll == 0) {
                 b.scroll = left * 256;
@@ -495,6 +548,7 @@ namespace {
                 b.stage = b.nextStage;
                 b.onStageFor = 0;
                 b.scroll = 0;
+                b.camera = 0;
                 b.scrolled = false;
                 StageBehindCamera(scrolling ? left : StageBehindFollow());
             }
@@ -917,6 +971,14 @@ namespace {
     }
 } // namespace
 
+// Another mode started (attract mode): this one over
+void EndBattle() {
+    if (b.mode != kNone) {
+        b.mode = kNone;
+        StageBehind(-1);
+    }
+}
+
 bool BattleOn() {
     return b.mode != kNone;
 }
@@ -948,6 +1010,23 @@ void BattleBeforeFrame(Machine &m) {
     SetRam8(sfiii3::kCredits, std::max<uint8_t>(Ram8(sfiii3::kCredits), 2));
     if (b.mode == kEndless) {
         m.hidePanel = true; // (no bars, no clock: the game's panel is its text layer)
+    }
+    if (b.viewer) {
+        m.onlyStage = true; // (with the stage board's stage composed: that alone)
+        if (FeatureValue("viewer_stage") != b.viewed) {
+            StartViewer(m); // (another stage chosen in the menu: the viewer goes there)
+            return;
+        }
+        StageBehindMusic(FeatureValue("viewer_music") == 0);
+    }
+    {
+        // (the viewer on its way to its stage: run unseen, at speed)
+        static bool fast = false;
+        const bool want = b.viewer && !StageBehindShown();
+        if (want != fast) {
+            fast = want;
+            SetFastForward(want);
+        }
     }
     if ((b.mode == kEndless || b.mode == kRingOut) && Ram8(sfiii3::kClock) > 0 && Ram8(sfiii3::kClock) < 99) {
         SetRam8(sfiii3::kClock, 99); // (no clock: a round is ended by a knock-out, or a ring out)
@@ -992,7 +1071,7 @@ void BattleBeforeFrame(Machine &m) {
     const uint16_t raw[4] = {m.players[0], m.players[1], m.players[2], m.players[3]};
     // A person takes an endless battle's fighter by touching its controls
     for (int p = 0; p < 2; p++) {
-        if (b.mode == kEndless && (m.players[p] & (fight::kSticks | fight::kButtons))) {
+        if (b.mode == kEndless && !b.viewer && (m.players[p] & (fight::kSticks | fight::kButtons))) {
             b.touched[p] = b.frames;
         }
         if (Locked()) {
@@ -1206,6 +1285,28 @@ void RegisterBattle(Game &game) {
                              "into another.", 0, {"1 minute", "2 minutes", "3 minutes", "5 minutes", "10 minutes"}});
     game.features.push_back({"endless_scroll", "Endless battle", "Scroll speed", "Scroll: how fast the stages go by.", 0, {"Slow", "Medium", "Fast"}});
 
+    game.commands.push_back({"viewer_start", "Stage viewer", "Start", "A stage with nobody on it and no panel, to look at and listen to.",
+                             StartViewer});
+    {
+        static std::vector<const char *> viewerStages;
+        viewerStages.assign(stages.begin() + 2, stages.end());
+        viewerStages.push_back("Infinite");
+        game.features.push_back({"viewer_stage", "Stage viewer", "Stage",
+                                 "The stage the viewer shows, or Infinite: every stage in turn, each scrolling to its end and fading "
+                                 "into the next, with its own tune. Changing it while viewing goes to the new one.",
+                                 kFeatureMenuChoices, viewerStages});
+        game.features.push_back({"viewer_scroll", "Stage viewer", "Scrolling",
+                                 "How the viewer moves across the stage: with the stick, or by itself from one end to the other and "
+                                 "back (Infinite: always onwards).",
+                                 0, {"With the stick", "Slow", "Medium", "Fast"}});
+        static std::vector<const char *> tunes;
+        tunes.assign(1, "The stage's own");
+        tunes.insert(tunes.end(), stages.begin() + 2, stages.end());
+        game.features.push_back({"viewer_music", "Stage viewer", "Music",
+                                 "The tune that plays in the viewer: the stage's own, or another stage's. (Infinite with the stage's own "
+                                 "plays each stage's.) Another takes effect when the viewer is started.",
+                                 kFeatureMenuChoices, tunes});
+    }
     game.commands.push_back({"team_start", "Team battle", "Start",
                              "Two teams: knock a fighter down and the next of that team comes on with full health; the winner stays "
                              "on with the health it has left. The last team standing wins.",

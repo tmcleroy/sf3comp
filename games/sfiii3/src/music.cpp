@@ -33,6 +33,7 @@ namespace {
     constexpr uint32_t kMostSongs = 64;
 
     std::array<bool, 16> g_music{};
+    int32_t g_songNow = -1; // (the song playing, at the last frame: SongNow)
     void PitchHook(Guest &g) {
         const uint32_t voice = ((g.R(13) & 0x1FFFFFFFu) - 0x040E0000u) / 0x20;
         if (voice < 16) {
@@ -68,6 +69,11 @@ namespace {
     }
 } // namespace
 
+// The song the driver is playing (-1: none), as of the last frame
+int SongNow() {
+    return g_songNow;
+}
+
 bool MusicVoice(int voice) {
     return voice >= 0 && voice < 16 && g_music[voice];
 }
@@ -86,6 +92,7 @@ void MusicBeforeFrame(Machine &machine) {
     const uint32_t place = Ram32(kTracks), start = Ram32(kTracks + 4);
     const int32_t song = playing && start ? SongAt(start) : -1;
     machine.soundtrack.Follow(song, song >= 0 && place == start, machine.frame);
+    g_songNow = song;
 }
 
 namespace {

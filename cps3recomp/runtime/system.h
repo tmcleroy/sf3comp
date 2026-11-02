@@ -136,6 +136,9 @@ public:
     uint32_t backdrop = 0;
     // Objects left out of the picture (a model viewer: the other fighter), as the game's sources say (none: all drawn)
     bool (*hideObject)(const machine::Machine &board, uint32_t object) = nullptr;
+    // Objects drawn over all the rest, in a second pass (a model viewer: the character in front of what the stage has
+    // in front of the fighters), as the game's sources say (none: the board's order)
+    bool (*frontObject)(const machine::Machine &board, uint32_t object) = nullptr;
     // How many of its frames the stage board runs this shown frame (none: one): more while it is on its way somewhere
     int (*stageFramesNow)() = nullptr;
     void (*beforeStage)(Machine &machine, machine::Machine &stage) = nullptr;

@@ -125,9 +125,22 @@ void Machine::RunFrame() {
         m_renderer.drawGroupContext = this;
         m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
             const Machine &me = *static_cast<Machine *>(self);
-            return !me.hideObject(me.board, object);
+            return !me.hideObject(me.board, object) && !(me.frontObject && me.frontObject(me.board, object));
         };
         m_renderer.Draw(board, m_picture, m_width, m_height);
+        if (frontObject) {
+            // (the second pass: the objects in front, over the rest)
+            const bool text = m_renderer.text;
+            m_renderer.text = false;
+            m_renderer.overlay = true;
+            m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
+                const Machine &me = *static_cast<Machine *>(self);
+                return !me.hideObject(me.board, object) && me.frontObject(me.board, object);
+            };
+            m_renderer.Draw(board, m_picture, m_width, m_height);
+            m_renderer.overlay = false;
+            m_renderer.text = text;
+        }
         m_renderer.drawGroup = nullptr;
     } else if (drawing) {
         m_renderer.Draw(board, m_picture, m_width, m_height);

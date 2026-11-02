@@ -40,7 +40,7 @@ namespace {
                                      {0x0200E504, 0x0200E910}};
     // 3rd Strike's own, as a stage board behind its fighters (the modes' shuffled and scrolling stages: battle.cpp)
     const StageGame kThirdStrike = {GAME_ROM_SET, {0x02026CA8, 0x02026CB0, 0x02026CC0}, {0, 0}, 0x02026CF4, 0x02026CF8, 748, 272,
-                                    {0x02011377, 0}, {0x02068D0B, 0x020691A3, 0, 0, 0, 0}, 0x020154F5, {0x02068C6C, 0x02069104}};
+                                    {0x02011377, 0x02028679}, {0x02068D0B, 0x020691A3, 0, 0, 0, 0}, 0x020154F5, {0x02068C6C, 0x02069104}};
     // (a choice's stage: the one fought on in 3rd Strike, as that game has it: both number their stages as 3rd Strike
     // numbers its characters (Gill 0, Alex 1...: seen in their own one-player games, the opponent's stage number and
     // name), New Generation's 0-12 and 2nd Impact's 0-14; the characters they have not, 3rd Strike's own stage)
@@ -119,9 +119,11 @@ namespace {
     // The modes' stage behind (battle.cpp): a choice in place of the menu's (0: the menu's), the camera wanted for it
     // (kFollow: 3rd Strike's mapped across), and the ends its camera was last kept between
     constexpr int kFollow = -100000;
+    constexpr uint32_t kMadeFor = 480;    // (a stage made beside the one shown: its frames in its fight before it is ready, past "FIGHT!")
     constexpr uint32_t kBannersFor = 200; // (3rd Strike's own board: its "ROUND 1" and "FIGHT!" drawn as its stage is, so it is
                                           // shown only after them)
     int g_choiceWanted = 0;
+    bool g_boardMusic = true; // (the modes' stage behind: its own music, or 3rd Strike's fight's: StageBehindMusic)
     int g_cameraWanted = kFollow;
     int g_theirLeft = 0, g_theirRight = 0;
 
@@ -326,7 +328,9 @@ namespace {
         }
         g.lastCamera = static_cast<int16_t>(Word(ram, game.camera[1]));
         for (const uint32_t at : game.clock) {
-            ram[at & 0x7FFFF] = 99;
+            if (at) {
+                ram[at & 0x7FFFF] = 99; // (3rd Strike's two: the clock shown and the one whose end is the time over)
+            }
         }
         for (const uint32_t at : game.life) {
             if (at) {
@@ -457,7 +461,7 @@ namespace {
         g_keepNow = false; // (kept here, as it is made)
         g_make.state = g;
         machine.KeepStage(g_make.data);
-        g_make.ready = g.fought && g.offsetKnown && g.inFight > kBannersFor;
+        g_make.ready = g.fought && g.offsetKnown && g.inFight > kMadeFor; // (well past its banners: kept as it is, it goes on from there)
         machine.RestoreStage(g_lent);
         g = live;
     }
@@ -505,7 +509,7 @@ void StagesBeforeFrame(Machine &machine) {
     }
     // (in a fight on the stage board's stage: its music, 3rd Strike's left out; the effects and voices are 3rd Strike's)
     // (the custom soundtrack's file, when one plays, in place of both)
-    const bool music = !g_pre.on && g.loaded && g.fought && OnStage() && machine.StageBoard() && !machine.soundtrack.Playing() &&
+    const bool music = g_boardMusic && !g_pre.on && g.loaded && g.fought && OnStage() && machine.StageBoard() && !machine.soundtrack.Playing() &&
                        (kChoices[g.loaded].stage != kOpponents || g.stage >= 0);
     machine.stageSound = music;
     int silenced = 0;
@@ -598,6 +602,11 @@ void StageBehind(int stage) {
     g_choiceWanted = stage >= 0 ? kOwnFirst + std::min(stage, 20) : 0;
     g_make = {};
     g_cameraWanted = kFollow;
+    g_boardMusic = true;
+}
+// ... its music heard (the default), or 3rd Strike's fight's (the stage viewer's other tunes)
+void StageBehindMusic(bool on) {
+    g_boardMusic = on;
 }
 // ... its camera's middle wanted (the scrolling stage), or 3rd Strike's followed (kFollow); and the ends it is kept
 // between (false: none yet)

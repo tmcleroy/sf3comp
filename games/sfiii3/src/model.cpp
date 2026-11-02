@@ -91,6 +91,13 @@ namespace {
         }
         return !tilemap && palette >= 0x10 && palette <= 0x17;
     }
+    // Player 1's fighter (its objects' palettes 0x08-0x0F), drawn over the stage's pieces in front of the fighters
+    // ("Stage in front": Behind)
+    bool Front(const machine::Machine &board, uint32_t object) {
+        const uint32_t *list = board.SpriteList();
+        const uint32_t palette = list[object * 4] & 0x1FF;
+        return (list[object * 4 + 2] & 3) != 0 && palette >= 0x08 && palette <= 0x0F;
+    }
     void Start(Machine &machine) {
         session::StartSession(machine);
         v = {};
@@ -272,6 +279,7 @@ void ModelBeforeFrame(Machine &m) {
     const bool on = Showing();
     m.hidePanel = m.hidePanel || on;
     m.hideObject = on ? Hidden : nullptr;
+    m.frontObject = on && !v.editing && !Plain() && FeatureValue("model_foreground") == 1 ? Front : nullptr;
     const int background = FeatureValue("model_background");
     m.backdrop = on && Plain() ? (background == kCount ? 0x01FFFFFFu : 0x01000000u) : 0;
     if (!ModelViewerOn()) {
@@ -399,6 +407,10 @@ void RegisterModel(Game &game) {
     game.features.push_back({"model_background", kPage, "Background",
                              "What is behind the character: one of the stages (taken when the viewer starts), or plain white or black.",
                              kFeatureMenuChoices, backgrounds});
+    game.features.push_back({"model_foreground", kPage, "Stage in front",
+                             "What the stage has in front of the fighters: in front of the character too, as in a fight, or behind it so "
+                             "that all of it is seen. Not in the colour editor.",
+                             0, {"In front", "Behind"}});
     game.features.push_back({"model_size", kPage, "Size", "How large the character is drawn (not in the colour editor).", 0,
                              {"1x", "1.5x", "2x", "3x", "4x", "6x", "8x", "0.5x", "0.75x"}});
     static std::vector<std::string> animations;

@@ -30,6 +30,8 @@ void RegisterRingOut(Game &game);
 void RegisterMusic(Game &game);
 void WidescreenBeforeFrame(Machine &m, bool fighting);
 void TrainingBeforeFrame(Machine &m);
+void AttractBeforeFrame(Machine &m);
+void RegisterAttract(Game &game);
 void TrainingAfterFrame(Machine &m);
 
 namespace {
@@ -73,6 +75,7 @@ namespace {
         TrainingBeforeFrame(m);
         BattleBeforeFrame(m);
         ModelBeforeFrame(m);
+        AttractBeforeFrame(m);
     }
 } // namespace
 
@@ -112,18 +115,22 @@ void RegisterGame() {
     RegisterColours(game);
     game.noRunAhead = BattleOn; // (a mode with a spare machine: its frames are not run ahead)
     // The menu's pages for the ways of playing beyond the board's own (as the CPS-2 ports have them)
-    game.pages.push_back({"Alternative modes", "", "Ways to play beyond the arcade game: training, survival, ring out, endless and "
-                                                   "team battles.", true});
+    game.pages.push_back({"Alternative modes", "", "Ways to play beyond the arcade game: training, attract mode, viewers for the stages "
+                                                   "and the characters, the colour editor, survival, endless and team battles, ring out.", true});
     game.pages.push_back({"Training mode", "Alternative modes", "A fight with no clock that nobody loses, and the aids for practising in it."});
     game.pages.push_back({"Dummy", "Training mode", "What player 2 does in a training session."});
+    game.pages.push_back({"Attract mode", "Alternative modes", "The game's own show on a loop, as with nobody playing: the opening, "
+                                                               "the title, demonstration fights."});
     game.pages.push_back({"Survival", "Alternative modes", "A one-player game on the health you have left. How many rounds can you win?"});
     game.pages.push_back({"Ring out", "Alternative modes", "No health: knock your opponent back over an end of the stage, and the next comes on."});
     game.pages.push_back({"Endless battle", "Alternative modes", "Two fighters the game plays, for as long as you like. Touch the controls "
                                                                  "to take one over."});
+    game.pages.push_back({"Stage viewer", "Alternative modes", "A stage with nobody on it, to look at and listen to."});
     game.pages.push_back({"Model viewer", "Alternative modes", "A character alone, to look at: on a stage or plain, at any size."});
     game.pages.push_back({"Colour editor", "Alternative modes", "Your own colours for the characters: change any of them, and fight with them."});
     game.pages.push_back({"Team battle", "Alternative modes", "Two teams: lose a round and the next of your team comes on. The last team "
                                                               "standing wins."});
+    RegisterAttract(game);
     RegisterSoundProbe();
     RegisterBoard(game);
 }
