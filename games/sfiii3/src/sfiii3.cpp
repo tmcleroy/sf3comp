@@ -53,6 +53,14 @@ namespace {
         if (FeatureOn("infinite_time") && clock > 0 && clock < 99) {
             SetRam8(sfiii3::kClock, 99);
         }
+        // (Gill: the character chosen made his, until the match is on)
+        const int gill = FeatureValue("play_as_gill");
+        const bool locked = Ram8(sfiii3::kLocked[0]) == 0xFF || Ram8(sfiii3::kLocked[1]) == 0xFF;
+        for (int p = 0; p < 2 && gill && !locked; p++) {
+            if ((gill == 3 || gill == p + 1) && Ram8(sfiii3::kSelectState[p]) >= 2) {
+                SetRam8(sfiii3::kChosen[p], 0);
+            }
+        }
         WidescreenBeforeFrame(m, (Ram8(sfiii3::kLocked[0]) == 0xFF || Ram8(sfiii3::kLocked[1]) == 0xFF) && Ram8(sfiii3::kMatchState) == 2);
         MusicBeforeFrame(m);
         SurvivalBeforeFrame(m);
@@ -75,6 +83,10 @@ void RegisterGame() {
                              "The board's start-up (its memory checks, the region's warning and Capcom's logo) runs unseen, so the game "
                              "shows from its opening in about two seconds.",
                              kFeatureEnhanced});
+    game.features.push_back({"play_as_gill", "Game", "Play as Gill",
+                             "The boss, Gill, for player 1, player 2 or both: whoever is chosen at character select is Gill (the super art "
+                             "chosen is one of his).",
+                             0, {"Off", "Player 1", "Player 2", "Both"}});
     game.features.push_back({"free_play", "Game", "Free play", "Start works without a coin.", kFeatureEnhanced});
     game.features.push_back({"infinite_time", "Cheats", "Infinite time", "The round's clock stands still."});
     game.features.push_back({"no_damage", "Cheats", "No damage", "Player 1's health does not go down."});

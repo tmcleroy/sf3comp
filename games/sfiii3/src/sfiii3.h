@@ -81,4 +81,8 @@ constexpr uint32_t kConnection = 0x32E;
 // is the stage fought on: Elena's 8, from the training script's notes; all 21 seen in pictures, Gill 0 to Remy 20)
 constexpr uint32_t kStage = 0x020154F5;
 
+// The character each player chose (a byte each, its number as in the record's 0x3C0: Gill 0, Alex 1...), from the
+// training script; written while no match is on, it is the character fought with (Gill, the boss, too: seen in pictures)
+constexpr uint32_t kChosen[2] = {0x02011387, 0x02011388};
+
 } // namespace sfiii3
