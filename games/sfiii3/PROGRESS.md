@@ -65,26 +65,21 @@
 
 ## Next
 
-1. Translation coverage: more recorded play (every character, supers, the endings).
-2. The full training session: port cps2recomp's fight/session.{h,cpp} with the modes and battle layers it sits on
-   (alternative.cpp, battle.cpp: these use cps2recomp's spare machines) and a 3S description. Health here is a byte
-   (session.cpp reads words). The steps and contacts are read once a frame from RAM until the translation gives hooks.
-   Frame data needs 3S's own hit-stun and guard-stun state (not in the training script's facts): compare with
-   published frame data.
-3. Widescreen: the board has a 496-column mode; the stage and camera limits need finding.
-4. The definitive version: New Generation (sfiiin) and 2nd Impact (sfiii2n) sets are in ~/code/recomp/cps3-roms
-   (Internet Archive, the user's choice); both run their attract modes on the board (games/sfiiin, games/sfiii2n:
-   game.cfg only). 2nd Impact's instructions are deciphered but its data is not (RomSet::opcodes); its cartridge's
-   keys are those of a dead CPU, tried when they cannot be solved. Next: find where NG and 2I keep their stages and
-   music, and how 3S loads its own, to graft them. 2nd Impact's SIMM program is not enciphered (game.cfg program_enciphered = 0).
-5. Online play's cost: states kept in memory (rollback, run-ahead) share unchanged character RAM pages (64 KB pages
-   stamped at each write; machine/state.cpp), so keeping one takes 0.18 ms and putting one back 0.21 ms (were 2.2
-   and 2.1), 1.4 MB a state. The rollback check passes (`--rollback-test 3 --hash-log` equals a plain run over 2600
-   frames); a state saved to a file and loaded continues the same. Online: `ROM=... cps3recomp/tools/check_online.sh
-   3000` (two copies on this machine, 50 ms ± 25 and 5% loss made up): the two sides the same over 2996 frames,
-   337 and 372 rollbacks, names and chat across, the match replayed without the network the same. Not tried
-   between two machines or through the online service's lobby.
-6. Linux / Windows builds (cps2recomp's and fighting_vipers' tools/release as the model).
+1. Frame data: recovery and advantage against published data (startups agree with the recorded animations; active
+   on a hit differs by the hit's freeze). Then the dummy's guard (attackInRange from the boxes), wake-up and
+   reversal options, stun readout, parry practice (3rd Strike's own).
+2. Hooks in the translated code (satrecomp's lift/hook mechanism, not ported yet): the knock-out (so a session's
+   "nobody knocked out" stops putting health back at a quarter), the round's steps, the music requests.
+3. The definitive version (DEFINITIVE.md): music (which of the sound chip's voices are music: all sixteen play both
+   music and effects, and their samples are mixed in the data; the sound driver's own record of what each voice
+   plays is to find), New Generation's stage number and its stage ends, the stage rule checked on every stage, the
+   stage boards translated, a proper menu of stages by name.
+4. Custom soundtrack (needs the music requests, as 3).
+5. Translation coverage: more recorded play (every character, supers, the endings).
+6. Widescreen on every stage and screen; the objects the game culls at its 384 columns.
+7. Linux / Windows builds (cps2recomp's and fighting_vipers' tools/release as the model), then the other devices.
+8. The alternative modes (survival, endless battle, ring out), stage and model viewers, the colour editor, board
+   settings (the EEPROM's operator settings), as the CPS-2 ports have them.
 
 ## Decisions for the user
 
