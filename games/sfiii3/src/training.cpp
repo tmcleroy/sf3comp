@@ -379,6 +379,21 @@ void TrainingBeforeFrame(Machine &m) {
             }
         }
     }
+    // The stage viewer: only the stage drawn (and with the Stages option another game's, its music playing), the stick
+    // moving both fighters across it together, so that the camera goes along; nothing else of the controls reaches the game
+    const bool viewer = session::InSession() && FeatureOn("stage_viewer");
+    m.onlyStage = viewer && InMatch();
+    if (m.onlyStage) {
+        const uint16_t stick = m.players[0];
+        const int step = (stick & kRight) ? 6 : (stick & kLeft) ? -6 : 0;
+        const int left = Signed16(sfiii3::kCameraLeft[0]) - 164, right = Signed16(sfiii3::kCameraRight[0]) + 164;
+        const int one = Signed16(Player(0) + sfiii3::kX), two = Signed16(Player(1) + sfiii3::kX);
+        if (step && std::min(one, two) + step >= left && std::max(one, two) + step <= right) {
+            SetRam16(Player(0) + sfiii3::kX, static_cast<uint16_t>(one + step));
+            SetRam16(Player(1) + sfiii3::kX, static_cast<uint16_t>(two + step));
+        }
+        m.players[0] = m.players[1] = 0;
+    }
     // Stunned (the stun timer, two bytes on from the most it takes, counts down from 130 or so), the dummy mashes: the
     // stick round and the buttons, a different one each frame
     if (session::InSession() && FeatureOn("dummy_stun_mash") && InMatch() && Ram8(sfiii3::kStunMost[1] + 2) != 0) {
@@ -468,6 +483,9 @@ void RegisterTraining(Game &game) {
         {"training_stage", session::kPage, "Stage", "The stage a training session is fought on.", kFeatureMenuChoices,
          {"The game's choice", "Gill's", "Alex's", "Ryu's", "Yun's", "Dudley's", "Necro's", "Hugo's", "Ibuki's", "Elena's", "Oro's",
           "Yang's", "Ken's", "Sean's", "Urien's", "Akuma's", "Akuma's (red)", "Chun-Li's", "Makoto's", "Q's", "Twelve's", "Remy's"}},
+        {"stage_viewer", session::kPage, "Stage viewer",
+         "In a training session: only the stage is drawn (no fighters, no panel), and the stick moves along it. With the Stages "
+         "option, another game's stage and its music."},
         {"training_watch", session::kPage, "Watch the game play itself",
          "In a training session, both players are the game's computer player: a fight to watch, as long as it is on (health "
          "comes back below a quarter, as in any session)."},
@@ -510,7 +528,7 @@ void RegisterTraining(Game &game) {
         start.id = Ram16(base + 0x202);
         return start;
     };
-    d.ownAids = {"hit_boxes", "dummy_parry", "dummy_stun_mash", "dummy_computer", "training_watch", "parry_readout", "stun_readout", "full_meter", "full_meter_2"};
+    d.ownAids = {"hit_boxes", "dummy_parry", "dummy_stun_mash", "dummy_computer", "training_watch", "stage_viewer", "parry_readout", "stun_readout", "full_meter", "full_meter_2"};
     // The dummy's guard: player 1's move starting or able to hit, near enough (280 across: the distance a move can hit
     // from is not known; nearer missed more, farther no fewer); standing against an attack from the air (made-up play,
     // three seeds: 25 hits taken to 43 with the toolkit's own, which crouches always)

@@ -116,6 +116,9 @@ public:
     // The stage board's sound mixed into this board's (its music, in the definitive version's stages): set by the
     // game's sources when it is wanted
     bool stageSound = false;
+    // Only the stage in the picture (a stage viewer): this board's own stage objects (ownStageObject), no text layer;
+    // with a stage board composed, its stage alone
+    bool onlyStage = false;
     // How many of its frames the stage board runs this shown frame (none: one): more while it is on its way somewhere
     int (*stageFramesNow)() = nullptr;
     void (*beforeStage)(Machine &machine, machine::Machine &stage) = nullptr;
