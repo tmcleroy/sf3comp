@@ -38,6 +38,9 @@
   logo) fast-forwarded. Cheats: no damage, no stun (each player), one hit knocks out, infinite time.
 - Play as Gill (Game page, host's online): the chosen character's byte (0x02011387/88) set to Gill's 0 while no
   match is on; Gill vs Gill in a training session and a one-player game as Gill seen in pictures.
+- Endless battle (its own page, a command): a board reset and the way to character select as a session's, then the
+  game's own versus with both players the computer's (record byte 3) and a character at random each match (the
+  chosen byte); the players put back in with Start when out. Seen in pictures over four matches.
 - Survival (its own page; online it is off, and its best kept as it is): a one-player game whose health carries over (written as each round begins), a tenth back
   per round won, the best run kept (survival_best); knock-outs read as health 0 or 255.
 - Credits: byte 02007CE0 (free_play keeps it at 2). Round clock: byte 02011377 (seconds; infinite_time).
@@ -107,7 +110,7 @@ heard, the file's tone in --soundtrack-dump).
 7. Linux / Windows builds (cps2recomp's and fighting_vipers' tools/release as the model), then the other devices.
    Linux on 64-bit ARM compiles and links (gold) in Docker, and its 1500-frame hash is the Mac's; x86_64 and Windows
    not tried, no release scripts yet.
-8. The alternative modes (survival, endless battle, ring out, tag team: cps2recomp's fight/alternative and battle,
+8. The alternative modes (ring out, tag team: cps2recomp's fight/alternative and battle,
    3000 lines tied to the CPS-2 games' memory), stage and model viewers, the colour editor, the board's other settings.
 
 ## Decisions for the user

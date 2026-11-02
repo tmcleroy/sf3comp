@@ -20,6 +20,8 @@ void BoardBeforeFrame(Machine &m);
 void StagesBeforeFrame(Machine &machine);
 void MusicBeforeFrame(Machine &machine);
 void SurvivalBeforeFrame(Machine &machine);
+void EndlessBeforeFrame(Machine &machine);
+void RegisterEndless(Game &game);
 void RegisterSurvival(Game &game);
 void RegisterMusic(Game &game);
 void WidescreenBeforeFrame(Machine &m, bool fighting);
@@ -66,6 +68,7 @@ namespace {
         SurvivalBeforeFrame(m);
         StagesBeforeFrame(m);
         TrainingBeforeFrame(m);
+        EndlessBeforeFrame(m);
     }
 } // namespace
 
@@ -101,6 +104,7 @@ void RegisterGame() {
     RegisterStages(game);
     RegisterMusic(game);
     RegisterSurvival(game);
+    RegisterEndless(game);
     RegisterSoundProbe();
     RegisterBoard(game);
 }
