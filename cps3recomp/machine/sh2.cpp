@@ -19,6 +19,7 @@ const uint8 *g_codeBase = nullptr;
 const uint8 *g_codeMap = nullptr;
 size_t g_codeSize = 0;
 uint64 g_codeEpoch = 1;
+uint8 *g_dirtyMap = nullptr;
 
 Op g_opKinds[0x10000];
 uint8 g_opCycles[0x10000];

@@ -59,10 +59,17 @@ extern const uint8 *g_codeBase;
 extern const uint8 *g_codeMap; // one byte per 64 bytes
 extern size_t g_codeSize;
 extern uint64 g_codeEpoch;
+// (the translation's check, runtime/recomp.cpp: one byte per 256 bytes of main RAM, set when written; null: not kept)
+extern uint8 *g_dirtyMap;
 inline void NoteWrite(const uint8 *at) {
     const size_t offset = static_cast<size_t>(at - g_codeBase);
-    if (offset < g_codeSize && g_codeMap[offset >> 6]) [[unlikely]] {
-        ++g_codeEpoch;
+    if (offset < g_codeSize) [[likely]] {
+        if (g_codeMap[offset >> 6]) [[unlikely]] {
+            ++g_codeEpoch;
+        }
+        if (g_dirtyMap) [[unlikely]] {
+            g_dirtyMap[offset >> 8] = 1;
+        }
     }
 }
 

@@ -513,14 +513,26 @@ namespace {
         return r && Matches(rt, *r, offset, *frame.entry);
     }
 
-    // The check: the interpreter and the translation run from the same state; what they leave compared
+    // The check: the interpreter and the translation run from the same state; what they leave compared. Main RAM is
+    // kept in a shadow copy brought up to date page by page (the pages written since: machine::g_dirtyMap), so that
+    // a check costs what the block writes, not the whole of main RAM.
+    constexpr size_t kPage = 256, kPages = 0x80000 / kPage;
+    std::vector<uint8_t> g_shadow;
+    std::vector<uint8_t> g_dirty;
+
     void CheckedRun(Runtime &rt, SH2 &cpu, Entry &e, unsigned block, uint64_t target, uint32_t pc) {
-        static std::vector<uint8_t> ramBefore, ramInterp;
         static std::array<uint8_t, 0x1000> cacheBefore, cacheInterp;
+        static std::vector<uint8_t> interpPages(kPages);
+        static std::vector<uint8_t> interpRam(0x80000);
+        for (size_t p = 0; p < kPages; p++) {
+            if (g_dirty[p]) {
+                memcpy(&g_shadow[p * kPage], &g_mainRam[p * kPage], kPage);
+                g_dirty[p] = 0;
+            }
+        }
         const Access::Registers before = Access::Get(cpu);
         const Runtime::Linking linkBefore = rt.linking;
         const uint64_t hardware = machine::g_hardware;
-        ramBefore.assign(g_mainRam, g_mainRam + 0x80000);
         cacheBefore = Access::Cache(cpu);
 
         rt.forceFree = true;
@@ -532,18 +544,42 @@ namespace {
         }
         const Access::Registers interp = Access::Get(cpu);
         const Runtime::Linking linkInterp = rt.linking;
-        ramInterp.assign(g_mainRam, g_mainRam + 0x80000);
         cacheInterp = Access::Cache(cpu);
+        for (size_t p = 0; p < kPages; p++) {
+            interpPages[p] = g_dirty[p];
+            if (g_dirty[p]) {
+                memcpy(&interpRam[p * kPage], &g_mainRam[p * kPage], kPage);
+                memcpy(&g_mainRam[p * kPage], &g_shadow[p * kPage], kPage);
+                g_dirty[p] = 0;
+            }
+        }
 
         Access::Set(cpu, before);
         rt.linking = linkBefore;
-        memcpy(g_mainRam, ramBefore.data(), 0x80000);
         Access::Cache(cpu) = cacheBefore;
         CPS3RECOMP_CODE_EPOCH++;
         Run(rt, cpu, e, block, target);
         rt.checked++;
         const Access::Registers native = Access::Get(cpu);
-        const bool ramSame = memcmp(g_mainRam, ramInterp.data(), 0x80000) == 0;
+        // (what main RAM must be: the interpreter's pages where it wrote, the shadow elsewhere)
+        bool ramSame = true;
+        size_t firstDiff = 0;
+        for (size_t p = 0; p < kPages; p++) {
+            if (!interpPages[p] && !g_dirty[p]) {
+                continue;
+            }
+            const uint8_t *expected = interpPages[p] ? &interpRam[p * kPage] : &g_shadow[p * kPage];
+            if (ramSame && memcmp(&g_mainRam[p * kPage], expected, kPage) != 0) {
+                ramSame = false;
+                for (size_t i = 0; i < kPage; i++) {
+                    if (g_mainRam[p * kPage + i] != expected[i]) {
+                        firstDiff = p * kPage + i;
+                        break;
+                    }
+                }
+            }
+        }
+        auto expectedByte = [&](size_t i) { return interpPages[i / kPage] ? interpRam[i] : g_shadow[i]; };
         const bool cacheSame = Access::Cache(cpu) == cacheInterp;
         const bool linkSame = rt.linking == linkInterp;
         if (native == interp && ramSame && cacheSame && linkSame) {
@@ -576,12 +612,7 @@ namespace {
                 fprintf(stderr, " flags");
             }
             if (!ramSame) {
-                for (size_t i = 0; i < 0x80000; i++) {
-                    if (g_mainRam[i] != ramInterp[i]) {
-                        fprintf(stderr, " RAM %08zX %02X/%02X", 0x02000000 + i, g_mainRam[i], ramInterp[i]);
-                        break;
-                    }
-                }
+                fprintf(stderr, " RAM %08zX %02X/%02X", 0x02000000 + firstDiff, g_mainRam[firstDiff], expectedByte(firstDiff));
             }
             if (!cacheSame) {
                 fprintf(stderr, " cache RAM");
@@ -594,7 +625,12 @@ namespace {
         // (the interpreter's result goes on)
         Access::Set(cpu, interp);
         rt.linking = linkInterp;
-        memcpy(g_mainRam, ramInterp.data(), 0x80000);
+        for (size_t p = 0; p < kPages; p++) {
+            if (interpPages[p] || g_dirty[p]) {
+                memcpy(&g_mainRam[p * kPage], interpPages[p] ? &interpRam[p * kPage] : &g_shadow[p * kPage], kPage);
+                g_dirty[p] = 1;
+            }
+        }
         Access::Cache(cpu) = cacheInterp;
         CPS3RECOMP_CODE_EPOCH++;
     }
@@ -807,6 +843,11 @@ void Attach(Machine &m, const Options &options) {
     CPS3RECOMP_CODE_BASE = g_mainRam;
     CPS3RECOMP_CODE_MAP = rt.codeMap.data();
     CPS3RECOMP_CODE_SIZE = 0x80000;
+    if (rt.opt.checkEvery) {
+        g_shadow.assign(g_mainRam, g_mainRam + 0x80000);
+        g_dirty.assign(kPages, 0);
+        machine::g_dirtyMap = g_dirty.data();
+    }
 
     // (CPS3RECOMP_NO_BLOCKS=1: the build's translations left out, everything run by the interpreter)
     const bool noBlocks = getenv("CPS3RECOMP_NO_BLOCKS") != nullptr;
@@ -947,6 +988,7 @@ bool Finish() {
         fprintf(stderr, "cps3recomp: check: %llu dispatches compared, %llu different, %llu not comparable (touched hardware)\n",
                 (unsigned long long)rt.checked, (unsigned long long)rt.different, (unsigned long long)rt.notComparable);
     }
+    machine::g_dirtyMap = nullptr;
     g_rt.reset();
     return ok;
 }
