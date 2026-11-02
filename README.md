@@ -7,11 +7,15 @@ The aim is one definitive Street Fighter III: **3rd Strike**'s gameplay, with th
 **New Generation** and **2nd Impact**. The first milestone is 3rd Strike on its own, with the features of the CPS-2
 ports ([CPS-2 Recomp](https://github.com/tmcleroy/cps2recomp)): training mode, online play, widescreen and the rest.
 
-**Status:** early. 3rd Strike runs on the port's own CPS-3 machine (an interpreter for now; translation is coming),
-with the launcher, the in-game menu, save states, free play, the CPS-2 ports' display options, widescreen, and a training mode
-(hit boxes, input display, combo readout, frame meter, the dummy), and online play with rollback between two
-machines (checked on one machine so far). An early experiment shows fights on New Generation's and 2nd Impact's
-stages ([games/sfiii3/DEFINITIVE.md](games/sfiii3/DEFINITIVE.md)).
+**Status:** early. 3rd Strike runs as translated code on the port's own CPS-3 machine, with the launcher, the
+in-game menu, save states, free play, the CPS-2 ports' display options, widescreen, a training mode (hit boxes,
+input display, frame meter and frame data, damage and stun readouts, the dummy) and online play with rollback
+(checked on one machine so far). A stage option fights 3rd Strike on New Generation's and 2nd Impact's stages, with
+their music ([games/sfiii3/DEFINITIVE.md](games/sfiii3/DEFINITIVE.md)).
+
+| Widescreen | Training mode | A 2nd Impact stage |
+| --- | --- | --- |
+| ![](docs/screenshots/widescreen.png) | ![](docs/screenshots/training.png) | ![](docs/screenshots/stage-2nd-impact.png) |
 
 **No game files are included.** You need your own ROM set (`sfiii3nr1`, Japan 990512). Its cipher's keys are worked out from the set
 itself when the game starts; none are in this repository.
