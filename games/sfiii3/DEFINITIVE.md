@@ -74,6 +74,16 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
   fighters idle and its round held, it is nearly all music). Not listened to yet: 11-15 voices left out as music in a
   fight, the stage board's sound at healthy levels. With stages on, the rollback check still passes (354 rollbacks).
 
+- Whose stage is whose: New Generation and 2nd Impact number their stages as 3rd Strike numbers its characters (Gill
+  0, Alex 1, Ryu 2, Yun 3, Dudley 4, Necro 5, Hugo 6, Ibuki 7, Elena 8, Oro 9, Yang 10, Ken 11, Sean 12, Urien 13,
+  Akuma 14), found in their own one-player games (made-up play: the stage byte against the opponent's name over each
+  fight). New Generation has 0-12 (its 6 has no owner seen: it has no Hugo), 2nd Impact 0-14. The choices are named so,
+  and "the opponent's" puts each 3rd Strike fight on that game's stage of the character whose stage 3rd Strike chose
+  (0x020154F5): between fights the stage board is reset and taken to a fight on that stage (four of its frames a
+  frame, there in time for the round's start in made-up play); for the characters that game has not, 3rd Strike's own.
+  The picture and the stage's music are composed through the whole match (the round's start, fight, knock-out and
+  end: the match's state 1-8), not only while it is fought.
+
 ## To do
 
 1. The stage board on the stage chosen, its way to a fight worked unseen and held there: done (every stage of both
@@ -85,7 +95,7 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
    program when generated; the interpreter otherwise, or with CPS3RECOMP_NO_STAGE_BLOCKS=1).
 4. The second board in the save state (it is scenery today: a rollback redraws with it as it is then; the game's
    state hash is the same over rollbacks, the picture's not always).
-5. The menu: stages by game and by name (today one long choice on the Display page).
+5. The menu: stages by game (today one long choice on the Display page, named by whose stage it is).
 6. Check the stage rule on every stage of NG and 2I (stage objects with a fighter's palette, effects). 3rd Strike's
    shadows over another stage darken it now (they were black). New Generation's rainy London stage: its camera
    does not follow (a black strip at the right in widescreen).

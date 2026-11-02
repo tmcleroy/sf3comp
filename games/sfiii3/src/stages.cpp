@@ -38,6 +38,10 @@ namespace {
     const StageGame kSecondImpact = {"sfiii2n", {0x020221CC, 0x020221D4, 0x020221E4}, {0, 0}, 0x02022218, 0x0202221C, 0, 0,
                                      {0x02010167, 0x02023EF5}, {0x0200E5A3, 0x0200E5A5, 0x0200E9AF, 0x0200E9B1, 0, 0}, 0x020142E7,
                                      {0x0200E504, 0x0200E910}};
+    // (a choice's stage: the one fought on in 3rd Strike, as that game has it: both number their stages as 3rd Strike
+    // numbers its characters (Gill 0, Alex 1...: seen in their own one-player games, the opponent's stage number and
+    // name), New Generation's 0-12 and 2nd Impact's 0-14; the characters they have not, 3rd Strike's own stage)
+    constexpr int kOpponents = -2;
     // The choices: off, and stages by their games' own numbers (the ones seen so far)
     struct Choice {
         const StageGame *game;
@@ -52,19 +56,19 @@ namespace {
         {&kSecondImpact, 2}, {&kSecondImpact, 3}, {&kSecondImpact, 4}, {&kSecondImpact, 5},
         {&kSecondImpact, 6}, {&kSecondImpact, 7}, {&kSecondImpact, 8}, {&kSecondImpact, 9},
         {&kSecondImpact, 10}, {&kSecondImpact, 11}, {&kSecondImpact, 12}, {&kSecondImpact, 13},
-        {&kSecondImpact, 14},
+        {&kSecondImpact, 14}, {&kNewGeneration, kOpponents}, {&kSecondImpact, kOpponents},
     };
-    const char *const kNames[] = {"3rd Strike's",
-        "New Generation: lava", "New Generation: ruins", "New Generation: cherry blossoms",
-        "New Generation: busy market", "New Generation: rainy London", "New Generation: dark factory",
-        "New Generation: festival crowd", "New Generation: forest village", "New Generation: clifftop",
-        "New Generation: cave", "New Generation: red temple", "New Generation: waterfall",
-        "New Generation: snowy street", "2nd Impact: neon night", "2nd Impact: stars and stripes",
-        "2nd Impact: waterfall rocks", "2nd Impact: tram street", "2nd Impact: street with a red car",
-        "2nd Impact: red room", "2nd Impact: harbour market", "2nd Impact: jungle",
-        "2nd Impact: night shore", "2nd Impact: green cave", "2nd Impact: carved temple",
-        "2nd Impact: seaside promenade", "2nd Impact: fruit stall", "2nd Impact: red sunset",
-        "2nd Impact: forest waterfall",
+    // (by whose stage it is: both games number their stages as 3rd Strike numbers its characters; New Generation has no
+    // Hugo, and its stage 6 has no owner seen)
+    const char *const kNames[] = {
+        "3rd Strike's", "New Generation: Gill's", "New Generation: Alex's", "New Generation: Ryu's",
+        "New Generation: Yun's", "New Generation: Dudley's", "New Generation: Necro's", "New Generation: stage 6",
+        "New Generation: Ibuki's", "New Generation: Elena's", "New Generation: Oro's", "New Generation: Yang's",
+        "New Generation: Ken's", "New Generation: Sean's", "2nd Impact: Gill's", "2nd Impact: Alex's",
+        "2nd Impact: Ryu's", "2nd Impact: Yun's", "2nd Impact: Dudley's", "2nd Impact: Necro's",
+        "2nd Impact: Hugo's", "2nd Impact: Ibuki's", "2nd Impact: Elena's", "2nd Impact: Oro's",
+        "2nd Impact: Yang's", "2nd Impact: Ken's", "2nd Impact: Sean's", "2nd Impact: Urien's",
+        "2nd Impact: Akuma's", "New Generation: the opponent's", "2nd Impact: the opponent's",
     };
 
     struct State {
@@ -74,6 +78,7 @@ namespace {
         uint32_t frames = 0; // its frames, for working its controls on the way
         int lastCamera = 0;  // (its camera as its last frame left it, for the debugging aid)
         int ownRight = 0, ownLeft = 0, madeRight = 0, madeLeft = 0; // its stage's ends as its game set them, and as made
+        int stage = -1;      // (the opponent's: the stage its board is on its way to, or in; -1 none)
     } g;
 
     uint16_t Word(const uint8_t *ram, uint32_t at) {
@@ -85,6 +90,12 @@ namespace {
     }
     bool InMatch() {
         return (Ram8(sfiii3::kLocked[0]) == 0xFF || Ram8(sfiii3::kLocked[1]) == 0xFF) && Ram8(sfiii3::kMatchState) == 2;
+    }
+    // On the stage: a round being fought, or its start or its end (the match's state 1 to 8: 1 the round's start, 2
+    // fought, 3 and 6 the knock-out, 7 and 8 its end; 9 the match's end, 0 between)
+    bool OnStage() {
+        const uint8_t state = Ram8(sfiii3::kMatchState);
+        return (Ram8(sfiii3::kLocked[0]) == 0xFF || Ram8(sfiii3::kLocked[1]) == 0xFF) && state >= 1 && state <= 8;
     }
 
     // 3rd Strike's own stage: a tilemap's lines, or an object with a stage's colours (palettes 0x80 and up)
@@ -155,8 +166,9 @@ namespace {
             }
             stage.inputs = ~inputs;
             stage.extra = ~extra;
-            if (game.stage && choice.stage >= 0) {
-                ram[game.stage & 0x7FFFF] = static_cast<uint8_t>(choice.stage);
+            const int stageNumber = choice.stage == kOpponents ? g.stage : choice.stage;
+            if (game.stage && stageNumber >= 0) {
+                ram[game.stage & 0x7FFFF] = static_cast<uint8_t>(stageNumber);
             }
             return;
         }
@@ -239,7 +251,8 @@ bool MusicVoice(int voice); // (music.cpp)
 void StagesBeforeFrame(Machine &machine) {
     // (in a fight on the stage board's stage: its music, 3rd Strike's left out; the effects and voices are 3rd Strike's)
     // (the custom soundtrack's file, when one plays, in place of both)
-    const bool music = g.loaded && g.fought && InMatch() && machine.StageBoard() && !machine.soundtrack.Playing();
+    const bool music = g.loaded && g.fought && OnStage() && machine.StageBoard() && !machine.soundtrack.Playing() &&
+                       (kChoices[g.loaded].stage != kOpponents || g.stage >= 0);
     machine.stageSound = music;
     int silenced = 0;
     for (int v = 0; v < 16; v++) {
@@ -253,6 +266,20 @@ void StagesBeforeFrame(Machine &machine) {
                 music ? "the stage's music" : "3rd Strike's own", silenced);
     }
     const int choice = std::clamp(FeatureValue("stages"), 0, static_cast<int>(std::size(kChoices)) - 1);
+    if (choice == g.loaded && choice && kChoices[choice].stage == kOpponents && machine.StageBoard() && !OnStage()) {
+        // (the opponent's: between fights, 3rd Strike's next stage chosen, the board started again on its way to that one)
+        const int most = kChoices[choice].game == &kNewGeneration ? 12 : 14;
+        const bool ng = kChoices[choice].game == &kNewGeneration;
+        const int next = Ram8(sfiii3::kStage) <= most && !(ng && Ram8(sfiii3::kStage) == 6) ? Ram8(sfiii3::kStage) : -1; // (no Hugo in NG)
+        if (next != g.stage) {
+            const int loaded = g.loaded;
+            g = {};
+            g.loaded = loaded;
+            g.stage = next;
+            machine.StageBoard()->Reset();
+        }
+        return;
+    }
     if (choice == g.loaded) {
         return;
     }
@@ -269,13 +296,16 @@ void RegisterStages(Game &game) {
     game.features.push_back({"stages", "Display", "Stages (experiment)",
                              "The definitive version's stages, an early form: a fight drawn on one of New Generation's or 2nd "
                              "Impact's stages, by running that game beside this one (its set beside this one's, sfiiin.zip or sfiii2n.zip). "
-                             "In a fight its music plays in place of 3rd Strike's. It takes a few seconds to reach its stage after it is chosen.",
+                             "In a fight its music plays in place of 3rd Strike's. It takes a few seconds to reach its stage after it is chosen. "
+                             "The opponent's: each fight on that game's stage of the character whose stage 3rd Strike chose (its own "
+                             "for the characters that game has not).",
                              kFeatureMenuChoices, {std::begin(kNames), std::end(kNames)}});
     if (Machine *machine = TheMachine()) {
         machine->stageObject = StageObject;
         machine->ownStageObject = OwnStageObject;
         machine->beforeStage = BeforeStage;
-        machine->composeNow = InMatch;
+        // (composed while 3rd Strike's round is on and the board is in its fight: for the opponent's, on a stage it has)
+        machine->composeNow = [] { return OnStage() && g.fought && (kChoices[g.loaded].stage != kOpponents || g.stage >= 0); };
         machine->stageFramesNow = [] { return g.fought ? 1 : 4; }; // (on its way to its fight: four frames a frame)
     }
 }
