@@ -54,7 +54,16 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
   0x06138000-0x0613FFFF at 06138BA0 (r4 0x0E, 0x1B, 0x0C, 0x14...), 0613A182 (r4 0x40C-0x419: effects or voices?),
   061387DE (r4 0-3, r5 a pointer into 02070B70.. or 0: four at once) and 0613A9B0 (EEPROM addresses: not sound).
   Skipping any one of the four changes nothing in attract mode's music (67 key-ons either way): the music is started
-  another way. A debugging aid probes them (games/sfiii3/src/sound_probe.cpp: SFIII3_SOUND_PROBE, SFIII3_SOUND_SKIP).
+  another way. The driver's writer at 0613BC66 works on a voice's record (r14: pitch at +24/+28, fine tuning at
+  +95/+96) and the chip's voice registers (r13): who owns each record is the next thing to find. A debugging aid
+  probes them (games/sfiii3/src/sound_probe.cpp: SFIII3_SOUND_PROBE, SFIII3_SOUND_SKIP).
+
+- The stage board's camera: its game makes its camera from its fighters every frame (writing its camera words does
+  nothing), so its fighters, unseen, are put where 3rd Strike's are (their place across the stage, mapped from one
+  stage's ends to the other's), and its camera follows them with its own smoothing. In widescreen 2nd Impact's ends
+  (which its game keeps) are narrowed by the margin, so its picture fills the wide screen; New Generation's stage
+  fills only a little more than its 384 columns (its tilemaps are filled ahead of its camera, it seems): a black strip
+  at the right in widescreen. New Generation's ends are taken as 320-680 until found.
 
 ## To do
 
