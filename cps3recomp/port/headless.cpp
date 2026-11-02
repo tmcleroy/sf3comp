@@ -97,6 +97,7 @@ int main(int argc, char **argv) {
     // (--stage-cfg games/<id>/game.cfg --stage-rom SET: an experiment for the definitive version: that game run beside
     // this one, its camera following this one's, and the pictures made of its stage with this game's fighters over it)
     std::string stageCfg, stageRom;
+    std::vector<std::pair<uint32_t, uint8_t>> pokes;
     uint64_t traceFirst = 1, traceLast = 0;
     uint32_t traceLow = 0, traceHigh = 0;
     std::string tracePath;
@@ -180,6 +181,18 @@ int main(int argc, char **argv) {
                 traceLow = low & 0x7FFFF;
                 traceHigh = high & 0x7FFFF;
                 tracePath = path;
+            }
+            i++;
+        } else if (a == "--poke") {
+            // ADDR=BYTE[,...] (hex, main RAM offsets or 02xxxxxx): written before every frame
+            for (const char *at = v; *at;) {
+                char *end;
+                const uint32_t address = static_cast<uint32_t>(strtoul(at, &end, 16)) & 0x7FFFF;
+                if (*end != '=') {
+                    break;
+                }
+                pokes.push_back({address, static_cast<uint8_t>(strtoul(end + 1, &end, 16))});
+                at = *end == ',' ? end + 1 : end;
             }
             i++;
         } else if (a == "--hash") {
@@ -280,6 +293,9 @@ int main(int argc, char **argv) {
         }
         m.inputs = ~inputs;
         m.extra = ~extra;
+        for (const auto &[address, value] : pokes) {
+            m.mainRam[address] = value;
+        }
         m.RunFrame();
         if (stage) {
             // (the same made-up play takes it into a fight; its camera then follows this game's, from one stage's ends to
