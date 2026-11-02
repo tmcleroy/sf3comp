@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <map>
+#include <thread>
 #include <tuple>
 
 namespace cps3recomp {
@@ -94,37 +95,66 @@ bool RecoverKeysWith(const std::vector<CipherRegion> &regions, CipherKey &key, s
         }
     }
 
-    // Step 1
+    // Step 1, for up to 1000 places (each a search of 65536, so spread over the processor's cores; the answers kept in
+    // the places' order, so the result is the same however many there are)
+    std::vector<const std::pair<const uint16_t, std::vector<std::pair<uint16_t, uint16_t>>> *> places;
+    for (const auto &entry : byLow) {
+        if (entry.second.size() >= samplesLeast && places.size() < 1000) {
+            places.push_back(&entry);
+        }
+    }
+    const int tried = static_cast<int>(places.size());
+    std::vector<std::vector<std::tuple<uint16_t, uint16_t, uint16_t, uint16_t>>> perPlace(places.size());
+    auto search = [&](size_t first, size_t step) {
+        for (size_t p = first; p < places.size(); p += step) {
+            const uint16_t low = places[p]->first;
+            const auto &samples = places[p]->second;
+            for (uint32_t y = 0; y < 0x10000; y++) {
+                const uint16_t x0 = static_cast<uint16_t>(y ^ samples[0].first), s0 = Sum(x0), f0 = Fixed(x0);
+                uint16_t known = 0, bits = 0;
+                bool fits = true;
+                for (size_t j = 1; j < samples.size() && fits; j++) {
+                    const uint16_t xj = static_cast<uint16_t>(y ^ samples[j].first);
+                    const uint16_t difference = samples[j].second ^ samples[0].second ^ Fixed(xj) ^ f0;
+                    const uint16_t which = Sum(xj) ^ s0;
+                    fits = !(difference & ~which) && !((bits ^ difference) & which & known);
+                    bits = static_cast<uint16_t>((bits & ~which) | (difference & which));
+                    known |= which;
+                }
+                if (!fits || known != 0xFFFF) {
+                    continue;
+                }
+                const uint16_t c = samples[0].second ^ f0 ^ (s0 & bits);
+                perPlace[p].push_back({low, static_cast<uint16_t>(y), bits, static_cast<uint16_t>(c ^ low)});
+            }
+        }
+    };
+    const size_t threads = std::clamp<size_t>(std::thread::hardware_concurrency(), 1, 8);
+    {
+        std::vector<std::thread> workers;
+        for (size_t t = 1; t < threads; t++) {
+            workers.emplace_back(search, t, threads);
+        }
+        search(0, threads);
+        for (std::thread &worker : workers) {
+            worker.join();
+        }
+    }
     std::map<std::pair<uint16_t, uint16_t>, int> votes; // (key2.hi, key1.lo ^ key2.lo)
     std::vector<std::tuple<uint16_t, uint16_t, uint16_t, uint16_t>> found; // (L, Y, key2.hi, key1.lo ^ key2.lo)
-    int tried = 0;
-    for (const auto &[low, samples] : byLow) {
-        if (samples.size() < samplesLeast) {
-            continue;
+    for (const auto &answers : perPlace) {
+        for (const auto &answer : answers) {
+            votes[{std::get<2>(answer), std::get<3>(answer)}]++;
+            found.push_back(answer);
         }
-        if (++tried > 1000) {
-            break;
+    }
+    if (getenv("CPS3RECOMP_KEY_LOG")) {
+        int most = 0;
+        for (const auto &[answer, count] : votes) {
+            most = std::max(most, count);
         }
-        for (uint32_t y = 0; y < 0x10000; y++) {
-            const uint16_t x0 = static_cast<uint16_t>(y ^ samples[0].first), s0 = Sum(x0), f0 = Fixed(x0);
-            uint16_t known = 0, bits = 0;
-            bool fits = true;
-            for (size_t j = 1; j < samples.size() && fits; j++) {
-                const uint16_t xj = static_cast<uint16_t>(y ^ samples[j].first);
-                const uint16_t difference = samples[j].second ^ samples[0].second ^ Fixed(xj) ^ f0;
-                const uint16_t which = Sum(xj) ^ s0;
-                fits = !(difference & ~which) && !((bits ^ difference) & which & known);
-                bits = static_cast<uint16_t>((bits & ~which) | (difference & which));
-                known |= which;
-            }
-            if (!fits || known != 0xFFFF) {
-                continue;
-            }
-            const uint16_t c = samples[0].second ^ f0 ^ (s0 & bits);
-            const uint16_t d = c ^ low;
-            votes[{bits, d}]++;
-            found.push_back({low, static_cast<uint16_t>(y), bits, d});
-        }
+        fprintf(stderr, "keys: runs of %zu, samples of %zu: %d places tried, %zu answers, the most votes %d\n", runLeast, samplesLeast, tried,
+                votes.size(), most);
     }
     if (votes.empty()) {
         error = "the program has too little filler to find its cipher's keys (is it the right set?)";
@@ -141,6 +171,13 @@ bool RecoverKeysWith(const std::vector<CipherRegion> &regions, CipherKey &key, s
     for (const auto &[low, samples] : byLow) {
         total += samples.size();
     }
+    // (each candidate tested against every sample, given up once more than a tenth miss: a wrong one misses nearly all;
+    // the key1lo halves spread over the processor's cores, the best kept in the order they are tried)
+    const size_t mayMiss = total - (total * 9 + 9) / 10;
+    struct Best {
+        size_t good = 0;
+        uint32_t key1 = 0, key2 = 0;
+    };
     size_t best = 0;
     for (size_t r = 0; r < ranked.size() && r < 4; r++) {
         const auto [key2hi, d] = ranked[r].second;
@@ -150,31 +187,56 @@ bool RecoverKeysWith(const std::vector<CipherRegion> &regions, CipherKey &key, s
                 lowY.push_back({low, y});
             }
         }
-        for (uint32_t key1lo = 0; key1lo < 0x10000; key1lo++) {
-            const uint16_t key2lo = static_cast<uint16_t>(d ^ key1lo);
-            std::map<uint16_t, int> agree;
-            for (const auto &[low, y] : lowY) {
-                agree[static_cast<uint16_t>(y ^ 0xFFFF ^ RotXor(static_cast<uint16_t>(low ^ key1lo ^ 0xFFFF), key2lo))]++;
-            }
-            for (const auto &[key1hi, count] : agree) {
-                if (count * 10 < static_cast<int>(lowY.size()) * 9) {
-                    continue;
+        std::vector<Best> bests(threads);
+        auto test = [&](size_t first, size_t step) {
+            Best &mine = bests[first];
+            for (uint32_t key1lo = static_cast<uint32_t>(first); key1lo < 0x10000; key1lo += static_cast<uint32_t>(step)) {
+                const uint16_t key2lo = static_cast<uint16_t>(d ^ key1lo);
+                std::map<uint16_t, int> agree;
+                for (const auto &[low, y] : lowY) {
+                    agree[static_cast<uint16_t>(y ^ 0xFFFF ^ RotXor(static_cast<uint16_t>(low ^ key1lo ^ 0xFFFF), key2lo))]++;
                 }
-                const uint32_t key1 = (static_cast<uint32_t>(key1hi) << 16) | key1lo;
-                const uint32_t key2 = (static_cast<uint32_t>(key2hi) << 16) | key2lo;
-                size_t good = 0;
-                for (const auto &[low, samples] : byLow) {
-                    for (const auto &[block, mask] : samples) {
-                        const uint16_t m = Mask16((static_cast<uint32_t>(block) << 16) | low, key1, key2);
-                        good += m == mask || m == static_cast<uint16_t>(~mask);
+                for (const auto &[key1hi, count] : agree) {
+                    if (count * 10 < static_cast<int>(lowY.size()) * 9) {
+                        continue;
+                    }
+                    const uint32_t key1 = (static_cast<uint32_t>(key1hi) << 16) | key1lo;
+                    const uint32_t key2 = (static_cast<uint32_t>(key2hi) << 16) | key2lo;
+                    size_t good = 0, missed = 0;
+                    for (const auto &[low, samples] : byLow) {
+                        for (const auto &[block, mask] : samples) {
+                            const uint16_t m = Mask16((static_cast<uint32_t>(block) << 16) | low, key1, key2);
+                            if (m == mask || m == static_cast<uint16_t>(~mask)) {
+                                good++;
+                            } else if (++missed > mayMiss) {
+                                break;
+                            }
+                        }
+                        if (missed > mayMiss) {
+                            break;
+                        }
+                    }
+                    if (missed <= mayMiss && good > mine.good) {
+                        mine = {good, key1, key2};
                     }
                 }
-                if (good > best) {
-                    best = good;
-                    key.key1 = key1;
-                    key.key2 = key2;
-                    key.none = false;
-                }
+            }
+        };
+        std::vector<std::thread> workers;
+        for (size_t t = 1; t < threads; t++) {
+            workers.emplace_back(test, t, threads);
+        }
+        test(0, threads);
+        for (std::thread &worker : workers) {
+            worker.join();
+        }
+        for (const Best &one : bests) {
+            // (the most samples fitted; between equals, the smaller key, whatever the cores' order)
+            if (one.good > best || (one.good == best && best && (one.key1 < key.key1 || (one.key1 == key.key1 && one.key2 < key.key2)))) {
+                best = one.good;
+                key.key1 = one.key1;
+                key.key2 = one.key2;
+                key.none = false;
             }
         }
     }
