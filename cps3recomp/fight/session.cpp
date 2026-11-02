@@ -123,6 +123,10 @@ void StartSession(Machine &machine) {
     SetFastForward(true);
 }
 
+bool Booting() {
+    return g_boot;
+}
+
 bool InSession() {
     return FeatureOn("training_mode");
 }

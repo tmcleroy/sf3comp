@@ -60,6 +60,8 @@ constexpr const char *kPage = "Training mode";
 void Register(const Description &description);
 void StartSession(Machine &machine);
 bool InSession();
+// On the way to a session's character choice (it runs the game unseen meanwhile)
+bool Booting();
 // No clock and nobody knocked out (a session)
 bool NoClock();
 bool NoKnockOut();

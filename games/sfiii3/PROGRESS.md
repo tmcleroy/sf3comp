@@ -23,6 +23,8 @@
 - The BIOS checks each program SIMM's flash ID (04 / AD) with the SH-2's DMA from the cache-through mirror
   0x26000000; the DMA reads past the cipher.
 
+- Straight to the opening (skip_intro, Enhanced): the first 760 frames (memory checks, region warning, Capcom's
+  logo) fast-forwarded. Cheats: no damage (each player), infinite time.
 - Credits: byte 02007CE0 (free_play keeps it at 2). Round clock: byte 02011377 (seconds; infinite_time).
 - The DMA-done interrupt (level 10) drives the game's queue of character and palette DMAs (handler 060004D0 calls
   06138230: state word 0207603C, queues at 0207803C / 0207844C). Its timing matters: with the board's clock read

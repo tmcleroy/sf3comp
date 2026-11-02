@@ -182,6 +182,10 @@ void TrainingBeforeFrame(Machine &m) {
                 SetRam8(sfiii3::kMeterCount[p], most);
                 SetRam8(sfiii3::kMeterUpdate[p], 1);
             }
+            if (FeatureOn(p == 0 ? "no_damage" : "no_damage_2")) {
+                SetRam8(base + sfiii3::kLife, sfiii3::kFullLife);
+                g.health[p] = sfiii3::kFullLife;
+            }
             // (nobody knocked out in a session: health back to full below a quarter, until the game's knock-out has a
             // hook)
             if (session::NoKnockOut() && Ram8(base + sfiii3::kLife) < sfiii3::kFullLife / 4) {
