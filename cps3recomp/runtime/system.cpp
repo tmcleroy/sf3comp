@@ -4,6 +4,8 @@
 
 #include "state.h"
 
+#include <algorithm>
+
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -113,11 +115,13 @@ void Machine::RunFrame() {
 }
 
 void Machine::SetStageBoard(std::unique_ptr<RomSet> set) {
+    m_stagePcm.reset();
     m_stage.reset();
     m_stageSet = std::move(set);
     if (m_stageSet) {
         m_stage = std::make_unique<machine::Machine>(*m_stageSet);
         m_stage->Reset();
+        m_stagePcm = std::make_unique<Pcm>(*m_stage);
     }
 }
 
@@ -129,6 +133,16 @@ void Machine::StepStage() {
         beforeStage(*this, *m_stage);
     }
     m_stage->RunFrame();
+    // Its sound: made every frame (so that it keeps time), added to this board's last frame's when wanted
+    m_stageAudio.clear();
+    m_stagePcm->EndFrame(&m_stageAudio);
+    if (stageSound) {
+        const size_t n = std::min(m_stageAudio.size(), audio.size());
+        int16_t *tail = audio.data() + (audio.size() - n);
+        for (size_t i = 0; i < n; i++) {
+            tail[i] = static_cast<int16_t>(std::clamp(tail[i] + m_stageAudio[i], -32768, 32767));
+        }
+    }
     // (debugging aid, CPS3RECOMP_STAGE_SHOTS=EVERY:prefix: the stage board's own whole picture)
     static const char *shots = getenv("CPS3RECOMP_STAGE_SHOTS");
     if (shots && frame % strtoull(shots, nullptr, 10) == 0) {

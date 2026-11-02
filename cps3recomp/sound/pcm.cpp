@@ -40,6 +40,27 @@ void Pcm::MixTo(size_t samples) {
         if (!(m_machine.keyOn & (1 << i))) {
             continue;
         }
+        if (m_machine.silenced[i]) {
+            // (not heard, but it plays on: its place in the sample moves as it would)
+            machine::Machine::Voice &v = m_machine.voices[i];
+            const uint32_t step = (v.regs[3] >> 16) & 0xFFFF;
+            const uint32_t start = (((v.regs[1] >> 16) & 0xFFFF) | ((v.regs[1] << 16) & 0xFFFF0000u)) - 0x400000;
+            const uint32_t end = (((v.regs[5] >> 16) & 0xFFFF) | ((v.regs[5] << 16) & 0xFFFF0000u)) - 0x400000;
+            const uint32_t loop = ((v.regs[3] & 0xFFFF) | ((v.regs[4] << 16) & 0xFFFF0000u)) - 0x400000;
+            for (size_t j = from; j < samples; j++) {
+                v.position += v.fraction >> 12;
+                v.fraction &= 0xFFF;
+                if (start + v.position >= end) {
+                    if (v.regs[2] & 1) {
+                        v.position = v.position + loop - end;
+                    } else {
+                        break;
+                    }
+                }
+                v.fraction += step;
+            }
+            continue;
+        }
         machine::Machine::Voice &v = m_machine.voices[i];
         const uint32_t start = (((v.regs[1] >> 16) & 0xFFFF) | ((v.regs[1] << 16) & 0xFFFF0000u)) - 0x400000;
         const uint32_t end = (((v.regs[5] >> 16) & 0xFFFF) | ((v.regs[5] << 16) & 0xFFFF0000u)) - 0x400000;

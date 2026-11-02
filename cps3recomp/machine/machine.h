@@ -140,6 +140,9 @@ public:
         uint32 position = 0, fraction = 0;
     };
     std::array<Voice, 16> voices{};
+    // Voices not to be heard (the mixer leaves them out; what they play goes on): for a game's sources that take one
+    // part of the sound away (the definitive version's stages: 3rd Strike's music). Not part of the save state.
+    std::array<bool, 16> silenced{};
     uint16 keyOn = 0;
     const uint8 *Samples() const {
         return m_rom.graphics.data();

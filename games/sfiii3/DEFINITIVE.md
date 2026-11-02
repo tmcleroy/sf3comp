@@ -65,12 +65,20 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
   fills only a little more than its 384 columns (its tilemaps are filled ahead of its camera, it seems): a black strip
   at the right in widescreen. New Generation's ends are taken as 320-680 until found.
 
+- The music: 3rd Strike's sound driver keeps a record for each of its music's 16 voices (0x02078D0C on, 0x74 each)
+  and for each of 8 sound effects' (0x020797EC on), which take voices 8-15 from the music while they play (found by
+  hooking its note-pitch routine 0x0613B1D8, called as a voice is set: the record in r14, the voice's registers in r13).
+  A hook there keeps which voices are music; in a fight on another game's stage the mixer leaves those out
+  (Machine::silenced: they play on unheard, so nothing of the game changes) and the stage board's sound is mixed in (its
+  fighters idle and its round held, it is nearly all music). Not listened to yet: 11-15 voices left out as music in a
+  fight, the stage board's sound at healthy levels. With stages on, the rollback check still passes (354 rollbacks).
+
 ## To do
 
 1. The stage board on the stage chosen (2nd Impact: its stage byte, above; New Generation's to find), its way to a
    fight worked unseen (coins, Start, a character) and held there (done, above). Its fighters stand still, out of the picture's way (they still set its camera's walls).
-2. Its music in place of 3rd Strike's, 3rd Strike's sound effects kept: which of the sound chip's voices play music
-   (or the game's music request, to stop 3rd Strike's).
+2. Its music in place of 3rd Strike's: done as above; to listen to, and the stage board's own effects (its round's
+   announcer before 3rd Strike's fight starts is not heard: its sound is only mixed in during a fight).
 3. The second board translated too (its own generated code: today it runs in the interpreter, about half the speed).
 4. The second board in the save state, for rollback and online play; widescreen on both.
 5. The menu: a stage choice per game (3rd Strike's own, New Generation's, 2nd Impact's).

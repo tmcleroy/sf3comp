@@ -7,10 +7,12 @@
 // save state, the same for both players online (each draws its own).
 #include "game.h"
 #include "game_info.h"
+#include "lift.h"
 #include "sfiii3.h"
 #include "system.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <iterator>
@@ -195,8 +197,37 @@ namespace {
     }
 } // namespace
 
+namespace {
+    // Which of the sound chip's voices 3rd Strike's music has now: its sound driver keeps a record for each of its
+    // music's 16 voices (0x02078D0C on, 0x74 each) and for each of 8 sound effects' (0x020797EC on), which take voices 8-15
+    // from the music while they play. Its routine at 0x0613B1D8 (a note's pitch) is called for a voice as it is set,
+    // with the record in r14 and the voice's registers in r13: a hook there notes who has the voice.
+    std::array<bool, 16> g_music{};
+    void PitchHook(Guest &g) {
+        const uint32_t voice = ((g.R(13) & 0x1FFFFFFFu) - 0x040E0000u) / 0x20;
+        if (voice < 16) {
+            const uint32_t record = g.R(14);
+            g_music[voice] = record >= 0x02078D0Cu && record < 0x02078D0Cu + 16 * 0x74;
+        }
+    }
+} // namespace
+
 // Each frame: the board for the choice made (loaded when the choice changes: a moment's pause)
 void StagesBeforeFrame(Machine &machine) {
+    // (in a fight on the stage board's stage: its music, 3rd Strike's left out; the effects and voices are 3rd Strike's)
+    const bool music = g.loaded && g.fought && InMatch() && machine.StageBoard();
+    machine.stageSound = music;
+    int silenced = 0;
+    for (int v = 0; v < 16; v++) {
+        machine.board.silenced[v] = music && g_music[v];
+        silenced += machine.board.silenced[v];
+    }
+    // (debugging aid, SFIII3_STAGE_SOUND=1: every 300 frames, the voices left out and the stage board's sound)
+    static const bool log = getenv("SFIII3_STAGE_SOUND") != nullptr;
+    if (log && machine.frame % 300 == 0) {
+        fprintf(stderr, "stage sound: frame %llu, %s, %d of 3rd Strike's voices left out as music\n", static_cast<unsigned long long>(machine.frame),
+                music ? "the stage's music" : "3rd Strike's own", silenced);
+    }
     const int choice = std::clamp(FeatureValue("stages"), 0, static_cast<int>(std::size(kChoices)) - 1);
     if (choice == g.loaded) {
         return;
@@ -214,7 +245,7 @@ void RegisterStages(Game &game) {
     game.features.push_back({"stages", "Display", "Stages (experiment)",
                              "The definitive version's stages, an early form: a fight drawn on one of New Generation's or 2nd "
                              "Impact's stages, by running that game beside this one (its set beside this one's, sfiiin.zip or sfiii2n.zip). "
-                             "3rd Strike's own music plays. It takes a few seconds to reach its stage after it is chosen.",
+                             "In a fight its music plays in place of 3rd Strike's. It takes a few seconds to reach its stage after it is chosen.",
                              0, {"3rd Strike's", "New Generation: London", "New Generation: cliffs", "New Generation: snowy street", "2nd Impact: street",
                                  "2nd Impact: factory", "2nd Impact: market"}});
     if (Machine *machine = TheMachine()) {
@@ -223,6 +254,7 @@ void RegisterStages(Game &game) {
         machine->beforeStage = BeforeStage;
         machine->composeNow = InMatch;
     }
+    AddHook("Voice set (music or effect)", 0x0613B1D8, 8, 0xBA5502CCC81A1B0Eull, PitchHook);
 }
 
 } // namespace cps3recomp

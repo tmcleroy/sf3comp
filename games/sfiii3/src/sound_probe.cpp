@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <map>
 
 namespace cps3recomp {
 
@@ -30,7 +31,28 @@ namespace {
     Lift g_skip[1];
 } // namespace
 
+namespace {
+    // (SFIII3_SOUND_RECORDS=1: which voice records (r14) drive which of the chip's voices (r13), counted before and
+    // after frame 2400, written at exit)
+    struct Records {
+        std::map<std::pair<uint32_t, uint32_t>, std::pair<uint64_t, uint64_t>> counts;
+        ~Records() {
+            for (const auto &[key, n] : counts) {
+                fprintf(stderr, "record %08X voice %2u: %llu before, %llu after\n", key.first, (key.second - 0x040E0000u) / 0x20,
+                        static_cast<unsigned long long>(n.first), static_cast<unsigned long long>(n.second));
+            }
+        }
+    } g_records;
+} // namespace
+
 void RegisterSoundProbe() {
+    if (getenv("SFIII3_SOUND_RECORDS")) {
+        AddHook("Sound pitch", 0x0613B1D8, 8, 0xBA5502CCC81A1B0Eull, [](Guest &g) {
+            const Machine *m = TheMachine();
+            auto &n = g_records.counts[{g.R(14), g.R(13) & 0x1FFFFFFFu}];
+            (m && m->frame >= 2400 ? n.second : n.first)++;
+        });
+    }
     // (SFIII3_SOUND_SKIP=ADDRESS:HASH: that routine skipped, to see what goes quiet)
     if (const char *skip = getenv("SFIII3_SOUND_SKIP")) {
         g_skip[0] = {"Skipped", static_cast<uint32_t>(strtoul(skip, nullptr, 16)), 8, strtoull(strchr(skip, ':') + 1, nullptr, 16), Skip, false, 0};

@@ -106,6 +106,9 @@ public:
     bool (*stageObject)(const machine::Machine &stage, uint32_t object) = nullptr;
     bool (*ownStageObject)(const machine::Machine &own, uint32_t object) = nullptr;
     bool (*composeNow)() = nullptr; // (none: whenever there is a stage board)
+    // The stage board's sound mixed into this board's (its music, in the definitive version's stages): set by the
+    // game's sources when it is wanted
+    bool stageSound = false;
     void (*beforeStage)(Machine &machine, machine::Machine &stage) = nullptr;
 
 private:
@@ -115,6 +118,8 @@ private:
     std::unique_ptr<RomSet> m_stageSet;
     std::unique_ptr<machine::Machine> m_stage;
     Renderer m_stageRenderer;
+    std::unique_ptr<Pcm> m_stagePcm;
+    std::vector<int16_t> m_stageAudio;
     int m_width = Video::kWidth, m_height = Video::kHeight;
 };
 
