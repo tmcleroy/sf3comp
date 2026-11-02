@@ -360,6 +360,12 @@ void TrainingBeforeFrame(Machine &m) {
         }
     }
     session::BeforeFrame(m);
+    // Stunned (the stun timer, two bytes on from the most it takes, counts down from 130 or so), the dummy mashes: the
+    // stick round and the buttons, a different one each frame
+    if (session::InSession() && FeatureOn("dummy_stun_mash") && InMatch() && Ram8(sfiii3::kStunMost[1] + 2) != 0) {
+        static const uint16_t kMash[] = {kLeft | kPunch1, kDown | kKick1, kRight | kPunch2, kUp | kKick2, kLeft | kPunch3, kDown | kKick3};
+        m.players[1] = (g.frame & 1) ? 0 : kMash[(g.frame / 2) % std::size(kMash)];
+    }
     // The dummy parries: as player 1's attack starts, a tap towards player 1 (down for an attack made crouching) opens
     // a parry window of about 10 frames; again no sooner than 18 frames on (the best found against made-up play: 24 missed more)
     if (session::InSession() && FeatureOn("dummy_parry") && InMatch()) {
@@ -441,6 +447,8 @@ void RegisterTraining(Game &game) {
         {"training_stage", session::kPage, "Stage", "The stage a training session is fought on.", kFeatureMenuChoices,
          {"The game's choice", "Gill's", "Alex's", "Ryu's", "Yun's", "Dudley's", "Necro's", "Hugo's", "Ibuki's", "Elena's", "Oro's",
           "Yang's", "Ken's", "Sean's", "Urien's", "Akuma's", "Akuma's (red)", "Chun-Li's", "Makoto's", "Q's", "Twelve's", "Remy's"}},
+        {"dummy_stun_mash", "Dummy", "Mashes out of stun",
+         "Stunned, the dummy works the stick and the buttons as fast as it can, as a player does to get out sooner."},
         {"dummy_parry", "Dummy", "Parries",
          "Player 2 tries to parry player 1's attacks: it taps towards player 1 (or down for an attack made crouching). A move it has "
          "seen before it parries just before it can hit (it learns how long each animation takes to bring out its attack, chained "
@@ -468,7 +476,7 @@ void RegisterTraining(Game &game) {
         start.id = Ram16(base + 0x202);
         return start;
     };
-    d.ownAids = {"hit_boxes", "dummy_parry", "parry_readout", "stun_readout", "full_meter", "full_meter_2"};
+    d.ownAids = {"hit_boxes", "dummy_parry", "dummy_stun_mash", "parry_readout", "stun_readout", "full_meter", "full_meter_2"};
     // Being thrown: the throw escape (light punch and light kick, tapped, as the throw takes hold: kThrown is set two
     // frames after the thrower's buttons)
     d.dummy.heldAction = [](int frame, uint16_t, uint16_t) -> uint16_t {

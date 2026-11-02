@@ -86,8 +86,7 @@ heard, the file's tone in --soundtrack-dump).
 ## Next
 
 1. Frame data: recovery and advantage against published data (startups agree with the recorded animations; active
-   on a hit differs by the hit's freeze). The dummy: guard from the boxes (attackInRange), the stun mash (the stunned
-   state is not found yet), the parry's remaining misses (chained moves and projectiles: SFIII3_PARRY_MISSES).
+   on a hit differs by the hit's freeze). The dummy: guard from the boxes (attackInRange), the parry's remaining misses (chained moves and projectiles: SFIII3_PARRY_MISSES).
 2. Hooks in the translated code: the knock-out (so a session's "nobody knocked out" stops putting health back at a
    quarter), the round's steps.
 3. The definitive version (DEFINITIVE.md): New Generation's rainy London stage (its camera does not follow), the stage
