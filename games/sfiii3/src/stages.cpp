@@ -43,8 +43,29 @@ namespace {
         const StageGame *game;
         int stage;
     };
-    const Choice kChoices[] = {{nullptr, -1},        {&kNewGeneration, 4}, {&kNewGeneration, 8}, {&kNewGeneration, 12},
-                               {&kSecondImpact, 4}, {&kSecondImpact, 5}, {&kSecondImpact, 6}};
+    // The choices: off, then every stage of each game by its own number (named for what it shows)
+    const Choice kChoices[] = {
+        {nullptr, -1}, {&kNewGeneration, 0}, {&kNewGeneration, 1}, {&kNewGeneration, 2},
+        {&kNewGeneration, 3}, {&kNewGeneration, 4}, {&kNewGeneration, 5}, {&kNewGeneration, 6},
+        {&kNewGeneration, 7}, {&kNewGeneration, 8}, {&kNewGeneration, 9}, {&kNewGeneration, 10},
+        {&kNewGeneration, 11}, {&kNewGeneration, 12}, {&kSecondImpact, 0}, {&kSecondImpact, 1},
+        {&kSecondImpact, 2}, {&kSecondImpact, 3}, {&kSecondImpact, 4}, {&kSecondImpact, 5},
+        {&kSecondImpact, 6}, {&kSecondImpact, 7}, {&kSecondImpact, 8}, {&kSecondImpact, 9},
+        {&kSecondImpact, 10}, {&kSecondImpact, 11}, {&kSecondImpact, 12}, {&kSecondImpact, 13},
+        {&kSecondImpact, 14},
+    };
+    const char *const kNames[] = {"3rd Strike's",
+        "New Generation: lava", "New Generation: ruins", "New Generation: cherry blossoms",
+        "New Generation: busy market", "New Generation: rainy London", "New Generation: dark factory",
+        "New Generation: festival crowd", "New Generation: forest village", "New Generation: clifftop",
+        "New Generation: cave", "New Generation: red temple", "New Generation: waterfall",
+        "New Generation: snowy street", "2nd Impact: neon night", "2nd Impact: stars and stripes",
+        "2nd Impact: waterfall rocks", "2nd Impact: tram street", "2nd Impact: street with a red car",
+        "2nd Impact: red room", "2nd Impact: harbour market", "2nd Impact: jungle",
+        "2nd Impact: night shore", "2nd Impact: green cave", "2nd Impact: carved temple",
+        "2nd Impact: seaside promenade", "2nd Impact: fruit stall", "2nd Impact: red sunset",
+        "2nd Impact: forest waterfall",
+    };
 
     struct State {
         int loaded = 0;      // the choice whose board is there
@@ -246,8 +267,7 @@ void RegisterStages(Game &game) {
                              "The definitive version's stages, an early form: a fight drawn on one of New Generation's or 2nd "
                              "Impact's stages, by running that game beside this one (its set beside this one's, sfiiin.zip or sfiii2n.zip). "
                              "In a fight its music plays in place of 3rd Strike's. It takes a few seconds to reach its stage after it is chosen.",
-                             0, {"3rd Strike's", "New Generation: London", "New Generation: cliffs", "New Generation: snowy street", "2nd Impact: street",
-                                 "2nd Impact: factory", "2nd Impact: market"}});
+                             kFeatureMenuChoices, {std::begin(kNames), std::end(kNames)}});
     if (Machine *machine = TheMachine()) {
         machine->stageObject = StageObject;
         machine->ownStageObject = OwnStageObject;

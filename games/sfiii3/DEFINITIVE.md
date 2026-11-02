@@ -46,7 +46,8 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
   its number (`--stage-number 4`).
 
 - In the game: the Display page's "Stages (experiment)" (games/sfiii3/src/stages.cpp, runtime/system.h's stage
-  board): New Generation's London, cliffs or snowy street, or 2nd Impact's street, factory or market, from the
+  board): every stage of New Generation (numbers 0-12) and 2nd Impact (0-14; 15 repeats 14), named for what they show
+  (whose each is: to name properly), from the
   sets beside the player's 3rd Strike set. Seen in pictures only.
 
 - 3rd Strike's sound, so far (for its music to give way to the stage game's): the driver is at 0x0613B000-0x0613BD00
