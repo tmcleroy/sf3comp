@@ -20,6 +20,8 @@ void BoardBeforeFrame(Machine &m);
 void StagesBeforeFrame(Machine &machine);
 void MusicBeforeFrame(Machine &machine);
 void SurvivalBeforeFrame(Machine &machine);
+void RingOutBeforeFrame(Machine &machine);
+void RegisterRingOut(Game &game);
 void EndlessBeforeFrame(Machine &machine);
 void RegisterEndless(Game &game);
 void RegisterSurvival(Game &game);
@@ -66,6 +68,7 @@ namespace {
         WidescreenBeforeFrame(m, (Ram8(sfiii3::kLocked[0]) == 0xFF || Ram8(sfiii3::kLocked[1]) == 0xFF) && Ram8(sfiii3::kMatchState) == 2);
         MusicBeforeFrame(m);
         SurvivalBeforeFrame(m);
+        RingOutBeforeFrame(m);
         StagesBeforeFrame(m);
         TrainingBeforeFrame(m);
         EndlessBeforeFrame(m);
@@ -104,6 +107,7 @@ void RegisterGame() {
     RegisterStages(game);
     RegisterMusic(game);
     RegisterSurvival(game);
+    RegisterRingOut(game);
     RegisterEndless(game);
     RegisterSoundProbe();
     RegisterBoard(game);

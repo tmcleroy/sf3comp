@@ -376,6 +376,8 @@ namespace {
 void WidescreenState(Archive &ar);
 void SurvivalState(Archive &ar);
 void SurvivalHud(std::vector<HudLine> &lines);
+void RingOutState(Archive &ar);
+void RingOutHud(std::vector<HudLine> &lines);
 void EndlessState(Archive &ar);
 void EndlessHud(std::vector<HudLine> &lines);
 
@@ -509,6 +511,7 @@ void RegisterTraining(Game &game) {
     d.facingLeft = [](int p) { return Ram8(sfiii3::kPlayer[p] + sfiii3::kFacing) == 0; };
     d.hud = [](Machine &, std::vector<HudLine> &lines, std::vector<HudBox> &boxes) {
         SurvivalHud(lines);
+        RingOutHud(lines);
         EndlessHud(lines);
         if (FeatureOn("hit_boxes")) {
             Boxes(boxes);
@@ -632,6 +635,7 @@ void RegisterTraining(Game &game) {
     game.state = [](Archive &ar) {
         WidescreenState(ar);
         SurvivalState(ar);
+        RingOutState(ar);
         EndlessState(ar);
         ar.Pod(g);
         session::State(ar);
