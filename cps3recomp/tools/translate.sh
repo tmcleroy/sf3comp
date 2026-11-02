@@ -42,7 +42,16 @@ cat "$WORK"/blocks-*.txt "$WORK/blocks.txt" | grep -v '^#' | sort -u > "$WORK/bl
 rm -f "$WORK"/blocks-*.txt "$WORK/blocks.merged"
 echo "block database: $(grep -vc '^#' "$WORK/blocks.txt") blocks"
 
-python3 "$TOP/cps3recomp/tools/recomp.py" --blocks "$WORK/blocks.txt" --ops "$TOP/cps3recomp/machine/sh2_ops.h" --out "$WORK/gen"
+# (a stage game's code is linked into 3rd Strike's program beside 3rd Strike's own: its names prefixed, its tables
+# registered by name; its own headless build finds them the same way)
+case "$GAME" in
+    sfiii3) PREFIX_ARGS="" ;;
+    sfiiin) PREFIX_ARGS="--prefix sfiiin --index-base 10000" ;;
+    sfiii2n) PREFIX_ARGS="--prefix sfiii2n --index-base 20000" ;;
+    *) PREFIX_ARGS="--prefix $GAME --index-base 30000" ;;
+esac
+# shellcheck disable=SC2086
+python3 "$TOP/cps3recomp/tools/recomp.py" --blocks "$WORK/blocks.txt" --ops "$TOP/cps3recomp/machine/sh2_ops.h" --out "$WORK/gen" $PREFIX_ARGS
 cmake -S "$TOP" -B "$BUILD" >/dev/null
 ninja -C "$BUILD" "$GAME-headless" >/dev/null
 echo "built $GAME_BIN with the translated code"

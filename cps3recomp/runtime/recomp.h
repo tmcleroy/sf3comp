@@ -28,6 +28,14 @@ struct Options {
 
 // (the board itself: runtime/backend.h calls it Machine; the port's runtime/system.h has a Machine of its own)
 void Attach(machine::Machine &machine, const Options &options);
+// A second board (the definitive version's stage board) run by translated code of its own, if the program has a
+// registered set of it (tools/recomp.py --prefix): true if so. The first board stays the one being run.
+bool AttachSecond(machine::Machine &machine);
+// ... no longer (before the board goes)
+void Detach(machine::Machine &machine);
+// The board about to be run (its memory and its code's map are the runtime's while it runs; nothing for a board the
+// runtime does not run)
+void Activate(machine::Machine &machine);
 // Prints what was asked for (stats, the check's results), writes the block database; false if the check found
 // differences
 bool Finish();
