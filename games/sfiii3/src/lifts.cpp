@@ -292,11 +292,39 @@ namespace {
         return true;
     }
 
+
+    // 0609E36C: a hit's damage, from the attacker's (r4) attack to the defender's (r5) record: the attack's damage
+    // (the game's table of them, by the attack's byte +0x2E4) times the board's damage level's percentage (its own for
+    // character 15, the red Akuma), then the attacker's and the defender's handicaps (eighths, +0x45E and +0x460, with
+    // their word +6 at 1). Leaves r1 at the defender's damage, r6 8 and r7 the damage level's place.
+    constexpr uint32_t kAttackDamage = 0x061946EC, kDamageLevels = 0x06194A2C, kDamageLevel = 0x0201137A;
+    bool BaseDamage(Guest &g) {
+        const uint32_t attacker = g.R(4), defender = g.R(5);
+        const auto word = [&](uint32_t at) { return static_cast<int32_t>(static_cast<int16_t>(g.Read16(at))); };
+        const int32_t attack = word(kAttackDamage + static_cast<uint32_t>(g.Read8(attacker + 0x2E4)) * 2);
+        const int32_t level = word(kDamageLevel);
+        const int32_t percent = static_cast<int8_t>(g.Read8(kDamageLevels + static_cast<uint32_t>(level) + (word(attacker + 0x3C0) == 15 ? 8 : 0)));
+        g.Write16(defender + kDamage, static_cast<uint16_t>(Quotient(g, static_cast<int16_t>(percent) * static_cast<int16_t>(attack), 100)));
+        if (word(attacker + 6) == 1) {
+            g.Write16(defender + kDamage, static_cast<uint16_t>(Quotient(g, static_cast<int16_t>(word(attacker + 0x45E)) * static_cast<int16_t>(word(defender + kDamage)), 8)));
+        }
+        if (word(defender + 6) == 1) {
+            g.Write16(defender + kDamage, static_cast<uint16_t>(Quotient(g, static_cast<int16_t>(word(defender + 0x460)) * static_cast<int16_t>(word(defender + kDamage)), 8)));
+        }
+        g.R(1) = defender + kDamage;
+        g.R(5) = defender;
+        g.R(6) = 8;
+        g.R(7) = static_cast<uint32_t>(level);
+        g.Return(60);
+        return true;
+    }
+
     const Lift kLifts[] = {
         {"NextRandom", 0x0611E0EE, 24, 0xF56C31F46D9EC36Aull, NextRandom, true},
         {"ClockTick", 0x060D7BAE, 0x30, 0xD096A0977F288F4Bull, ClockTick, true, 0x100FE},
         {"TakeDamage", 0x06124BC4, 0x40, 0x19433AC288C4268Aull, TakeDamage, true, 0x100FF},
         {"ScaleDamage", 0x0611E27C, 0x3C, 0xB1FAE055D7A4391Bull, ScaleDamage, true, 0x1007D},
+        {"BaseDamage", 0x0609E36C, 0x30, 0x67829EC126F0AE14ull, BaseDamage, true, 0x1001D},
         {"ClockFlash", 0x060D7CB8, 0x48, 0x21663C64E30E0582ull, ClockFlash, true, 0x1007E},
     };
 
