@@ -76,11 +76,16 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
 
 ## To do
 
-1. The stage board on the stage chosen (2nd Impact: its stage byte, above; New Generation's to find), its way to a
-   fight worked unseen (coins, Start, a character) and held there (done, above). Its fighters stand still, out of the picture's way (they still set its camera's walls).
-2. Its music in place of 3rd Strike's: done as above; to listen to, and the stage board's own effects (its round's
-   announcer before 3rd Strike's fight starts is not heard: its sound is only mixed in during a fight).
-3. The second board translated too (its own generated code: today it runs in the interpreter, about half the speed).
-4. The second board in the save state, for rollback and online play; widescreen on both.
-5. The menu: a stage choice per game (3rd Strike's own, New Generation's, 2nd Impact's).
-6. Check the stage rule on every stage of NG and 2I (stage objects with a fighter's palette, effects).
+1. The stage board on the stage chosen, its way to a fight worked unseen and held there: done (every stage of both
+   games in the choice; four of its frames a frame on its way, so it is there when 3rd Strike's fight starts).
+2. Its music in place of 3rd Strike's: done; to listen to, and the stage board's own effects (its round's announcer
+   before 3rd Strike's fight starts is not heard: its sound is only mixed in during a fight). A custom soundtrack's
+   file, when one plays, is heard in place of both.
+3. The second board translated: done (tools/translate.sh with GAME=sfiiin and sfiii2n; linked into 3rd Strike's
+   program when generated; the interpreter otherwise, or with CPS3RECOMP_NO_STAGE_BLOCKS=1).
+4. The second board in the save state (it is scenery today: a rollback redraws with it as it is then; the game's
+   state hash is the same over rollbacks, the picture's not always).
+5. The menu: stages by game and by name (today one long choice on the Display page).
+6. Check the stage rule on every stage of NG and 2I (stage objects with a fighter's palette, effects). 3rd Strike's
+   shadows over another stage darken it now (they were black). New Generation's rainy London stage: its camera
+   does not follow (a black strip at the right in widescreen).
