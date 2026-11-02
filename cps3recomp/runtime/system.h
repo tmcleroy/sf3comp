@@ -123,6 +123,8 @@ public:
     // Only the stage in the picture (a stage viewer): this board's own stage objects (ownStageObject), no text layer;
     // with a stage board composed, its stage alone
     bool onlyStage = false;
+    // No panel: the text layer, where the games draw their bars, clock and messages, left out of the picture
+    bool hidePanel = false;
     // How many of its frames the stage board runs this shown frame (none: one): more while it is on its way somewhere
     int (*stageFramesNow)() = nullptr;
     void (*beforeStage)(Machine &machine, machine::Machine &stage) = nullptr;

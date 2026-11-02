@@ -113,6 +113,17 @@ void RegisterGame() {
     RegisterRingOut(game);
     RegisterEndless(game);
     RegisterTeam(game);
+    // The menu's pages for the ways of playing beyond the board's own (as the CPS-2 ports have them)
+    game.pages.push_back({"Alternative modes", "", "Ways to play beyond the arcade game: training, survival, ring out, endless and "
+                                                   "team battles.", true});
+    game.pages.push_back({"Training mode", "Alternative modes", "A fight with no clock that nobody loses, and the aids for practising in it."});
+    game.pages.push_back({"Dummy", "Training mode", "What player 2 does in a training session."});
+    game.pages.push_back({"Survival", "Alternative modes", "A one-player game on the health you have left. How many rounds can you win?"});
+    game.pages.push_back({"Ring out", "Alternative modes", "No health: hit your opponent against an end of the stage to knock them out."});
+    game.pages.push_back({"Endless battle", "Alternative modes", "Two fighters the game plays, for as long as you like. Touch the controls "
+                                                                 "to take one over."});
+    game.pages.push_back({"Team battle", "Alternative modes", "Two teams: lose a round and the next of your team comes on. The last team "
+                                                              "standing wins."});
     RegisterSoundProbe();
     RegisterBoard(game);
 }

@@ -72,6 +72,7 @@ void Machine::RunFrame() {
     board.extra = ~extra;
     board.RunFrame();
     m_pcm.EndFrame(&audio);
+    m_renderer.text = !hidePanel;
     m_renderer.shift = worldShiftNow && m_renderer.margin ? std::clamp(worldShiftNow(), -m_renderer.margin, m_renderer.margin) : 0;
     if (drawing && m_stage && stageObject && ownStageObject && (!composeNow || composeNow())) {
         m_stageRenderer.margin = m_renderer.margin;
@@ -101,7 +102,7 @@ void Machine::RunFrame() {
         };
         m_renderer.text = false;
         m_renderer.Draw(board, m_picture, m_width, m_height);
-        m_renderer.text = true;
+        m_renderer.text = !hidePanel;
         m_renderer.drawGroup = nullptr;
     } else if (drawing && ownStageObject && getenv("CPS3RECOMP_OWN_ONLY")) {
         // (debugging aid: only what this board keeps over another's stage, on black)

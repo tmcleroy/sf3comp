@@ -7,6 +7,7 @@
 // it) and both are played by the computer (the player records' byte 3), the rounds counted and the matches ended as
 // the game does, and both players back in for the next. The stage is the game's choice, or the Stages option's
 // (the opponent's: New Generation's or 2nd Impact's).
+#include "fight.h"
 #include "game.h"
 #include "session.h"
 #include "sfiii3.h"
@@ -14,6 +15,7 @@
 #include "system.h"
 
 #include <cstdio>
+#include <string>
 #include <vector>
 
 namespace cps3recomp {
@@ -27,7 +29,16 @@ namespace {
         uint8_t choice[2] = {};
         bool fighting = false;
         uint8_t lastState = 0;
+        uint32_t touched[2] = {}; // (when a person last worked each side's controls: it is theirs for ten seconds after)
+        uint8_t stage = 0;        // (shuffled: this match's)
+        bool stagePicked = false;
     } e;
+    const char *const kCharacters[] = {"Gill", "Alex", "Ryu", "Yun", "Dudley", "Necro", "Hugo", "Ibuki", "Elena", "Oro", "Yang",
+                                       "Ken", "Sean", "Urien", "Akuma", "Akuma (red)", "Chun-Li", "Makoto", "Q", "Twelve", "Remy"};
+    constexpr uint32_t kTakenFor = 600;
+    bool Person(int p) {
+        return e.touched[p] && e.frames - e.touched[p] < kTakenFor;
+    }
 
     uint32_t Next() {
         e.random ^= e.random << 13;
@@ -55,32 +66,57 @@ void EndlessBeforeFrame(Machine &m) {
         SetFeature("endless", false); // (a training session started: the endless battle is over)
     }
     if (!FeatureOn("endless") || session::Booting()) {
+        m.hidePanel = false;
         return;
     }
     e.frames++;
+    m.hidePanel = true; // (no bars, no clock: the text layer, where the game draws its panel, left out)
+    if (Ram8(sfiii3::kClock) > 0 && Ram8(sfiii3::kClock) < 99) {
+        SetRam8(sfiii3::kClock, 99); // (no clock: a round ends only with a knock-out)
+    }
     SetRam8(sfiii3::kCredits, std::max<uint8_t>(Ram8(sfiii3::kCredits), 2));
     const bool press = e.frames % 20 < 4;
     uint16_t held[2] = {};
     const bool locked = Locked();
+    // (a person's controls: that side is theirs, while they play and ten seconds after)
+    for (int p = 0; p < 2; p++) {
+        if (locked && (m.players[p] & (fight::kSticks | fight::kButtons))) {
+            e.touched[p] = e.frames;
+        }
+    }
+    // (the stage: the game's, one chosen (its owner's number), or shuffled: a new one each match)
+    const int stageChoice = FeatureValue("endless_stage");
+    if (!locked) {
+        if (stageChoice == 1 && !e.stagePicked) {
+            e.stagePicked = true;
+            e.stage = static_cast<uint8_t>(Next() % 21);
+        }
+        if (stageChoice >= 1) {
+            SetRam8(sfiii3::kStage, stageChoice == 1 ? e.stage : static_cast<uint8_t>(stageChoice - 2));
+        }
+    } else {
+        e.stagePicked = false;
+    }
     for (int p = 0; p < 2; p++) {
         const uint8_t state = Ram8(sfiii3::kSelectState[p]);
         if (state == 0) {
             held[p] = press ? kStart : 0; // (back in, as a challenger: the next match is the two again)
             e.picked[p] = false;
         } else if (!locked) {
-            // (a character at random, Gill too, written every frame from the choice until the match is on, as Play as
-            // Gill does; a light punch takes the character, its super art and its colour)
+            // (a character at random, Gill too, or the one chosen, written every frame from the choice until the match is
+            // on, as Play as Gill does; a light punch takes the character, its super art and its colour)
             if (state >= 2) {
                 if (!e.picked[p]) {
                     e.picked[p] = true;
-                    e.choice[p] = static_cast<uint8_t>(Next() % 21);
+                    const int fixed = FeatureValue(p == 0 ? "endless_one" : "endless_two");
+                    e.choice[p] = static_cast<uint8_t>(fixed > 0 ? fixed - 1 : Next() % 21);
                 }
                 SetRam8(sfiii3::kChosen[p], e.choice[p]);
                 held[p] = state < 5 && press ? kPunch1 : 0;
             }
         } else {
             e.picked[p] = false;
-            SetRam8(sfiii3::kPlayer[p] + 3, 0); // (the computer plays it)
+            SetRam8(sfiii3::kPlayer[p] + 3, Person(p) ? 1 : 0); // (the computer plays it, unless a person has taken it)
         }
     }
     // (a match over: the match's state 9)
@@ -95,17 +131,16 @@ void EndlessBeforeFrame(Machine &m) {
         m.players[0] = held[0] ? held[0] : (press ? kPunch1 : 0);
         m.players[1] = held[1] ? held[1] : (press ? kPunch1 : 0);
     } else {
-        m.players[0] = m.players[1] = 0;
+        for (int p = 0; p < 2; p++) {
+            if (!Person(p)) {
+                m.players[p] = 0;
+            }
+        }
     }
 }
 
-void EndlessHud(std::vector<HudLine> &lines) {
-    if (!FeatureOn("endless")) {
-        return;
-    }
-    char text[48];
-    snprintf(text, sizeof(text), "ENDLESS BATTLE  MATCH %u", e.matches + 1);
-    lines.push_back({0.5f, 0.235f, 0, text, 160, 220, 255});
+void EndlessHud(std::vector<HudLine> &) {
+    // (no readout: an endless battle is to watch, with nothing over it; as cps2recomp's)
 }
 
 void EndlessState(Archive &ar) {
@@ -114,14 +149,36 @@ void EndlessState(Archive &ar) {
 }
 
 void RegisterEndless(Game &game) {
-    game.features.push_back({"endless", "Endless battle", "Endless battle",
-                             "The game plays itself, match after match, a new pair of fighters each time (Gill too). \"Start\" above "
-                             "begins it; resetting the game ends it.",
+    static const char *const kPage = "Endless battle";
+    game.features.push_back({"endless", kPage, "Endless battle",
+                             "The game plays itself, match after match. \"Start\" above begins it; resetting the game ends it.",
                              kFeatureSession});
-    game.commands.push_back({"endless_start", "Endless battle", "Start",
-                             "Starts an endless battle: the game starts over and the computer fights itself, a new pair each match, "
-                             "on the game's stage or the Stages option's.",
+    game.commands.push_back({"endless_start", kPage, "Start",
+                             "Starts an endless battle: the game starts over and the computer fights itself, match after match. Touch "
+                             "a side's controls to take it over (the computer has it back ten seconds after you let go).",
                              Start});
+    std::vector<const char *> fighters = {"Random"};
+    for (const char *name : kCharacters) {
+        fighters.push_back(name);
+    }
+    game.features.push_back({"endless_one", kPage, "Fighter 1", "Who is on player 1's side: someone new each match, or always the same.",
+                             kFeatureMenuChoices, fighters});
+    game.features.push_back({"endless_two", kPage, "Fighter 2", "Who is on player 2's side: someone new each match, or always the same.",
+                             kFeatureMenuChoices, fighters});
+    std::vector<const char *> stages = {"The game's choice", "Shuffle"};
+    static std::vector<std::string> names;
+    if (names.empty()) {
+        for (const char *name : kCharacters) {
+            names.push_back(std::string(name) + "'s");
+        }
+    }
+    for (const std::string &name : names) {
+        stages.push_back(name.c_str());
+    }
+    game.features.push_back({"endless_stage", kPage, "Stage",
+                             "Where they fight: the game's choice, a new stage each match (shuffle), or always one. With the Stages "
+                             "option's \"the opponent's\", that game's stage of the one chosen.",
+                             kFeatureMenuChoices, stages});
 }
 
 } // namespace cps3recomp
