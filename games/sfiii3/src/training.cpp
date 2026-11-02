@@ -40,14 +40,18 @@ namespace {
         } parry[2];
         uint32_t frame = 0;
         uint32_t parryTap = 0; // (the dummy's parry: the frame it last tapped)
-        // (... and each of player 1's moves' startup as measured, by character and animation, so that the next time it
-        // taps just before the move can hit; and when player 1's move now started)
+        // (... and for each of player 1's animations (by character), its frames until its attack box comes out, so that the
+        // next time it taps just before it can hit; and when player 1's move now started)
         struct Learned {
             uint16_t anim = 0;
             uint8_t who = 0, startup = 0;
         } learned[256];
         uint32_t moveFrom[2] = {};
         bool moveLow[2] = {}; // (made crouching: down held on the floor as it started)
+        // (by animation: player 1's now, since when, and whether its attack box has come out in it yet)
+        uint16_t anim = 0;
+        uint32_t animFrom = 0;
+        bool animBox = false;
         uint32_t learnedAt = 0;
     } g;
 
@@ -284,12 +288,23 @@ namespace {
                 const Machine *m = TheMachine();
                 g.moveLow[p] = m && (m->players[p] & kDown) && Signed16(base + sfiii3::kY) <= 0;
             }
+            // (by animation: each of player 1's animations' frames until its attack box comes out, learned the first
+            // time it does; so chained and cancelled moves are known too)
+            if (p == 0) {
+                const uint16_t anim = Ram16(base + 0x202);
+                if (anim != g.anim) {
+                    g.anim = anim;
+                    g.animFrom = g.frame;
+                    g.animBox = view.attackOut;
+                }
+                if (view.attackOut && !g.animBox) {
+                    g.animBox = true;
+                    Learn(static_cast<uint8_t>(Ram16(base + 0x3C0)), anim, static_cast<int>(g.frame - g.animFrom));
+                }
+            }
             const fight::Frames::Move move = session::LastMove(p);
             if (move.at && move.at != g.loggedAt[p]) {
                 g.loggedAt[p] = move.at;
-                if (p == 0) {
-                    Learn(static_cast<uint8_t>(Ram16(base + 0x3C0)), g.moveAnim[p], move.startup);
-                }
                 static const bool logMoves = getenv("SFIII3_MOVES") != nullptr;
                 if (logMoves) {
                     printf("move %d %u %04x %u %u %u\n", p, Ram16(base + 0x3C0), g.moveAnim[p], move.startup, move.active, move.recovery);
@@ -349,12 +364,12 @@ void TrainingBeforeFrame(Machine &m) {
     // a parry window of about 10 frames; again after the window's cooldown (about 24) while the attack is still starting
     if (session::InSession() && FeatureOn("dummy_parry") && InMatch()) {
         const bool onRight = static_cast<int16_t>(Ram16(Player(1) + sfiii3::kX)) >= static_cast<int16_t>(Ram16(Player(0) + sfiii3::kX));
-        // (a move seen before: the tap as it is about to hit, `lead` frames before; one not seen yet: as it starts)
+        // (an animation seen to hit before: the tap as it is about to, `lead` frames before; a move not seen yet: as it starts)
         static const int lead = getenv("SFIII3_PARRY_LEAD") ? atoi(getenv("SFIII3_PARRY_LEAD")) : 2;
-        const int startup = LearnedStartup(static_cast<uint8_t>(Ram16(Player(0) + 0x3C0)), g.moveAnim[0]);
-        const int into = static_cast<int>(g.frame - g.moveFrom[0]);
-        const bool due = startup == 0 || into >= startup - lead;
-        if (session::Now(0) == fight::Doing::Startup && due && (g.parryTap == 0 || g.frame - g.parryTap > 24)) {
+        const int startup = LearnedStartup(static_cast<uint8_t>(Ram16(Player(0) + 0x3C0)), g.anim);
+        const int into = static_cast<int>(g.frame - g.animFrom);
+        const bool due = startup ? into >= startup - lead && !g.animBox : session::Now(0) == fight::Doing::Startup && into == 0;
+        if (due && (g.parryTap == 0 || g.frame - g.parryTap > 24)) {
             m.players[1] = g.moveLow[0] ? kDown : (onRight ? kLeft : kRight);
             if (!RunningAhead()) {
                 g.parryTap = g.frame;
@@ -427,8 +442,9 @@ void RegisterTraining(Game &game) {
           "Yang's", "Ken's", "Sean's", "Urien's", "Akuma's", "Akuma's (red)", "Chun-Li's", "Makoto's", "Q's", "Twelve's", "Remy's"}},
         {"dummy_parry", "Dummy", "Parries",
          "Player 2 tries to parry player 1's attacks: it taps towards player 1 (or down for an attack made crouching). A move it has "
-         "seen before it parries just before it can hit (it learns each move's startup as the frame data measures it); one it has "
-         "not, as it starts. In tests it parried about three in five of made-up play's attacks (a third without the learning)."},
+         "seen before it parries just before it can hit (it learns how long each animation takes to bring out its attack, chained "
+         "and cancelled moves too); one it has not, as it starts. In tests it parried about two in three of made-up play's "
+         "attacks (a third without the learning)."},
         {"parry_readout", session::kPage, "Parry readout",
          "When a parry window opens (the stick forward, down, in the air, or up against a jump-in): whether the parry came, on which "
          "frame of the window, or how long after the window opened the hit came instead."},
