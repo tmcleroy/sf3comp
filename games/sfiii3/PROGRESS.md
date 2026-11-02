@@ -40,3 +40,24 @@
   only. The launcher's pictures were taken with no window.
 - Online play compiles but has never been tried (its service is cps2recomp's; the lobby is keyed by `sfiii3`).
 - The VS screen shows horizontal stripes: probably the game's wipe, not checked against the board.
+
+## Next
+
+1. Merge the translation branch (SH-2 to C++, checked block by block against the interpreter).
+2. The full training session: port cps2recomp's fight/session.{h,cpp} with the modes and battle layers it sits on
+   (alternative.cpp, battle.cpp: these use cps2recomp's spare machines) and a 3S description. Health here is a byte
+   (session.cpp reads words). The steps and contacts are read once a frame from RAM until the translation gives hooks.
+   Frame data needs 3S's own hit-stun and guard-stun state (not in the training script's facts): compare with
+   published frame data.
+3. Widescreen: the board has a 496-column mode; the stage and camera limits need finding.
+4. The definitive version: New Generation (sfiiin) and 2nd Impact (sfiii2n) sets are needed, and are not on the
+   user's devices. 2nd Impact's SIMM program is not enciphered (game.cfg program_enciphered = 0).
+5. Linux / Windows builds (cps2recomp's and fighting_vipers' tools/release as the model).
+
+## Decisions for the user
+
+- Which 3S revision: this port is on sfiii3n (990608, the user's dump). Fightcade and the training scripts use
+  sfiii3nr1 (990512).
+- 3SX (crowded-street/3sx) is a native 3S port built on the PS2 decompilation; this project goes on separately from
+  the arcade program (the NG / 2I content is arcade-only).
+- Online play uses cps2recomp's online service (lobby keyed by game id `sfiii3`).
