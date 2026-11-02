@@ -28,6 +28,7 @@ namespace {
         uint16_t hits[2] = {}, marker[2] = {};
         uint8_t health[2] = {}, blocking[2] = {}, freeze[2] = {};
         bool reeling[2] = {}, guarding[2] = {};
+        uint32_t guardedAt = 0; // (the dummy) the frame it last began to guard ("While guarding": the red parry)
         // (the parry readout: each player's last window opened, and what came of it)
         struct Parry {
             uint8_t window[4] = {};
@@ -291,6 +292,9 @@ namespace {
                 session::Contact(p, false);
             } else if (guardStarted) {
                 session::Contact(p, true);
+                if (p == 1) {
+                    g.guardedAt = g.frame;
+                }
             }
             landed[1 - p] = hit || guardStarted;
             wasHit[p] = hit;
@@ -456,7 +460,11 @@ void TrainingBeforeFrame(Machine &m) {
     }
     // The dummy parries: as player 1's attack starts, a tap towards player 1 (down for an attack made crouching) opens
     // a parry window of about 10 frames; again no sooner than 18 frames on (the best found against made-up play: 24 missed more)
-    if (session::InSession() && FeatureOn("dummy_parry") && InMatch()) {
+    // (and "While guarding: Red parry": once it has guarded, the next hits parried as it is still guarding, a red parry)
+    const int guardAction = FeatureValue("dummy_guard_action"); // (1 the red parry, 2 at random: one guarding in two)
+    const bool red = (guardAction == 1 || (guardAction == 2 && (g.guardedAt * 2654435761u) >> 31)) && g.guardedAt &&
+                     (g.guarding[1] || g.frame - g.guardedAt < 30);
+    if (session::InSession() && (FeatureOn("dummy_parry") || red) && InMatch()) {
         const bool onRight = static_cast<int16_t>(Ram16(Player(1) + sfiii3::kX)) >= static_cast<int16_t>(Ram16(Player(0) + sfiii3::kX));
         // (an animation seen to hit before: the tap as it is about to, `lead` frames before; a move not seen yet: as it starts)
         static const int lead = getenv("SFIII3_PARRY_LEAD") ? atoi(getenv("SFIII3_PARRY_LEAD")) : 2;
@@ -622,6 +630,11 @@ void RegisterTraining(Game &game) {
     };
     // Being thrown: the throw escape (light punch and light kick, tapped, as the throw takes hold: kThrown is set two
     // frames after the thrower's buttons)
+    // (while guarding: the red parry, the next hits parried while still guarding; made by the dummy's parries, timed
+    // to each hit, in TrainingBeforeFrame: the guard itself is held meanwhile)
+    d.dummy.guardActions.push_back({"Red parry", [](int, uint16_t, uint16_t) -> uint16_t { return 0; }, true});
+    d.dummy.guardActionsWords = "What player 2 does while guarding a hit: nothing more, or a red parry (the hits that follow parried "
+                                "while it is still guarding, as its parries are made), or either at random.";
     d.dummy.heldAction = [](int frame, uint16_t, uint16_t) -> uint16_t {
         return static_cast<uint16_t>((frame & 1) ? 0 : (kPunch1 | kKick1));
     };
