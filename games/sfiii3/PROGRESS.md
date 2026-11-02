@@ -3,8 +3,8 @@
 ## Native / emulated
 
 - The board (`cps3recomp/machine`): own code, no emulator. SH-2 from satrecomp.
-- The game's SH-2 code: translated ahead of time (`cps3recomp/tools/translate.sh`, 23,063 blocks from attract mode
-  and thirteen seeds of made-up play; checks in `tools/check.sh`: interpreter and translation the same over 6000 frames
+- The game's SH-2 code: translated ahead of time (`cps3recomp/tools/translate.sh`, 23,970 blocks from attract mode
+  and nineteen seeds of made-up play; checks in `tools/check.sh`: interpreter and translation the same over 6000 frames
   of each, 3.56 M dispatches compared block by block, 0 different). 287 fps headless on a loaded machine (the
   interpreter: 15). Code not reached by the recording runs in the interpreter.
 - Picture: own software renderer (`cps3recomp/video/renderer.cpp`), MAME's drawing rules.
