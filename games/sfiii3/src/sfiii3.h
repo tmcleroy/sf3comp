@@ -35,6 +35,7 @@ constexpr uint32_t kPlayer[2] = {0x02068C6C, 0x02069104};
 // ... and in them
 constexpr uint32_t kFacing = 0x0A;          // byte: 0 facing left (the sprites' own way), else right
 constexpr uint32_t kFreeze = 0x45;          // byte: frames of hit freeze left
+constexpr uint32_t kKnockedOut = 0x3FD;     // byte: knocked out (the round's knock-out routine, 0x06117D28, reads it)
 constexpr uint32_t kX = 0x64, kY = 0x68;    // signed words: in the stage, y up from the floor
 constexpr uint32_t kLife = 0x9F;            // byte: 160 full
 constexpr uint32_t kBusy = 0x3D1;           // word: low byte not 0 while busy
