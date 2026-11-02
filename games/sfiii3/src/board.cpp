@@ -5,7 +5,7 @@
 // settings EEPROM's bytes written before the board starts (a reset takes a change). Found by writing the bytes and
 // reading the test menu: 0x21 difficulty (0-7: 1-8), 0x22 damage (0-3: 1-4), 0x23 timer speed (0-3: 1-4), 0x24 the
 // rounds (high half between two players, low half against the computer: 0 one round, 1 three, 2 five); a second copy
-// of the block at 0x50. The system settings page and the rest of the game settings page, found the same way (each
+// of each 0x30 bytes on (0x51 on for these). The system settings page and the rest of the game settings page, found the same way (each
 // changed in the test menu and saved, the EEPROM compared): 0x02 continue (1 yes, 0 no), 0x05 demo sound (1 on, 0
 // off), 0x25 event (0 normal, 1 one match; the game then sets continue to no), 0x27 bonus games (1 on, 0 off). A blank EEPROM (the first start) gets the game's defaults at start-up, over these: they take
 // from the next start, once the EEPROM is kept.
