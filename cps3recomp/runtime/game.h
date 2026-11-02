@@ -205,6 +205,12 @@ struct HudBox {
 void SetBoxes(std::vector<HudBox> boxes);
 const std::vector<HudBox> &Boxes();
 
+// The player's ROM set (a zip or a folder), for game sources that read other sets beside it; and the machine
+void SetRomPath(const std::string &path);
+const std::string &RomPath();
+void SetMachine(Machine *machine);
+Machine *TheMachine();
+
 // Main RAM as the game's sources see it: by the SH-2's address (02000000-0207FFFF). Values are big-endian.
 void SetRam(uint8_t *ram);
 uint8_t *Ram(uint32_t address);

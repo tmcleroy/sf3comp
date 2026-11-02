@@ -12,6 +12,8 @@
 namespace cps3recomp {
 
 void RegisterTraining(Game &game);
+void RegisterStages(Game &game);
+void StagesBeforeFrame(Machine &machine);
 void WidescreenBeforeFrame(Machine &m, bool fighting);
 void TrainingBeforeFrame(Machine &m);
 void TrainingAfterFrame(Machine &m);
@@ -43,6 +45,7 @@ namespace {
             SetRam8(sfiii3::kClock, 99);
         }
         WidescreenBeforeFrame(m, (Ram8(sfiii3::kLocked[0]) == 0xFF || Ram8(sfiii3::kLocked[1]) == 0xFF) && Ram8(sfiii3::kMatchState) == 2);
+        StagesBeforeFrame(m);
         TrainingBeforeFrame(m);
     }
 } // namespace
@@ -64,6 +67,7 @@ void RegisterGame() {
     game.beforeFrame = BeforeFrame;
     game.frame = TrainingAfterFrame;
     RegisterTraining(game);
+    RegisterStages(game);
 }
 
 } // namespace cps3recomp

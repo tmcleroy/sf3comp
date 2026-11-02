@@ -12,6 +12,7 @@
 #include "romset.h"
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 namespace cps3recomp {
@@ -91,10 +92,26 @@ public:
 
     void Serialize(Archive &ar);
 
+    // A second board whose picture is the stage (the definitive version's stages from the other games): its picture is
+    // drawn with only its objects that `stageObject` says are the stage, and this board's other objects over it. It is
+    // stepped by StepStage, once a shown frame (not run-ahead's or rollback's frames: it is scenery, outside the save
+    // state), with `beforeStage` from the game's sources first (its camera, keeping it in its fight)
+    void SetStageBoard(std::unique_ptr<RomSet> set);
+    machine::Machine *StageBoard() {
+        return m_stage.get();
+    }
+    void StepStage();
+    bool (*stageObject)(const machine::Machine &m, uint32_t object) = nullptr;
+    bool (*composeNow)() = nullptr; // (none: whenever there is a stage board)
+    void (*beforeStage)(Machine &machine, machine::Machine &stage) = nullptr;
+
 private:
     Renderer m_renderer;
     Pcm m_pcm;
     std::vector<uint32_t> m_picture;
+    std::unique_ptr<RomSet> m_stageSet;
+    std::unique_ptr<machine::Machine> m_stage;
+    Renderer m_stageRenderer;
     int m_width = Video::kWidth, m_height = Video::kHeight;
 };
 

@@ -21,6 +21,23 @@ Game &TheGame() {
 }
 
 namespace {
+    std::string g_romPath;
+    Machine *g_machine = nullptr;
+} // namespace
+void SetRomPath(const std::string &path) {
+    g_romPath = path;
+}
+const std::string &RomPath() {
+    return g_romPath;
+}
+void SetMachine(Machine *machine) {
+    g_machine = machine;
+}
+Machine *TheMachine() {
+    return g_machine;
+}
+
+namespace {
     uint8_t *g_ram = nullptr;
 } // namespace
 void SetRam(uint8_t *ram) {

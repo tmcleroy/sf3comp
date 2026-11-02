@@ -226,6 +226,8 @@ bool Port::Init(std::string &error) {
     }
     machine = std::make_unique<Machine>(roms);
     SetRam(machine->ram());
+    SetRomPath(opt.romPath);
+    SetMachine(machine.get());
     RegisterGame();
     RegisterPortFeatures();
     LoadFeatures(opt.settingsPath, opt.features);
@@ -1512,6 +1514,7 @@ void Port::RunFrame() {
     } else {
         Step(pressed);
     }
+    machine->StepStage(); // (the stage board, if the game's sources have one: once a shown frame)
     frame++;
     // (for finding things out: --poke ADDR=BYTE,... every frame; --dump-ram FRAME:file)
     if (!opt.poke.empty()) {

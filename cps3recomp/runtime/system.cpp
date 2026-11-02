@@ -66,7 +66,25 @@ void Machine::RunFrame() {
     board.extra = ~extra;
     board.RunFrame();
     m_pcm.EndFrame(&audio);
-    if (drawing) {
+    if (drawing && m_stage && stageObject && (!composeNow || composeNow())) {
+        m_stageRenderer.margin = m_renderer.margin;
+        m_stageRenderer.text = false;
+        m_stageRenderer.drawGroupContext = this;
+        m_stageRenderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
+            const Machine &me = *static_cast<Machine *>(self);
+            return me.stageObject(*me.m_stage, object);
+        };
+        m_stageRenderer.Draw(*m_stage, m_picture, m_width, m_height);
+        m_renderer.overlay = true;
+        m_renderer.drawGroupContext = this;
+        m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
+            const Machine &me = *static_cast<Machine *>(self);
+            return !me.stageObject(me.board, object);
+        };
+        m_renderer.Draw(board, m_picture, m_width, m_height);
+        m_renderer.overlay = false;
+        m_renderer.drawGroup = nullptr;
+    } else if (drawing) {
         m_renderer.Draw(board, m_picture, m_width, m_height);
     }
     // (debugging aid, CPS3RECOMP_SPRITES=FRAME: the object list as drawn at that frame)
@@ -89,6 +107,25 @@ void Machine::RunFrame() {
         }
     }
     frame++;
+}
+
+void Machine::SetStageBoard(std::unique_ptr<RomSet> set) {
+    m_stage.reset();
+    m_stageSet = std::move(set);
+    if (m_stageSet) {
+        m_stage = std::make_unique<machine::Machine>(*m_stageSet);
+        m_stage->Reset();
+    }
+}
+
+void Machine::StepStage() {
+    if (!m_stage) {
+        return;
+    }
+    if (beforeStage) {
+        beforeStage(*this, *m_stage);
+    }
+    m_stage->RunFrame();
 }
 
 void Machine::Serialize(Archive &ar) {
