@@ -11,7 +11,7 @@ ports ([CPS-2 Recomp](https://github.com/tmcleroy/cps2recomp)): training mode, o
 with the launcher, the in-game menu, save states, free play, the CPS-2 ports' display options, and the first training
 aids (hit boxes, input display, health and meter refills).
 
-**No game files are included.** You need your own ROM set (`sfiii3n`). Its cipher's keys are worked out from the set
+**No game files are included.** You need your own ROM set (`sfiii3nr1`, Japan 990512). Its cipher's keys are worked out from the set
 itself when the game starts; none are in this repository.
 
 ## Layout
