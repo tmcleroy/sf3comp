@@ -66,8 +66,9 @@ the stages ready between fights.
 
 ## Playing
 
-There is no download yet: build it from your own ROM set (below). In the launcher, choose `sfiii3nr1.zip` (or drop it
-on the launcher); the other games' sets go beside it. Settings, save states and the board's settings memory go in
+Download the release for your system from the Releases page (macOS: an app for Apple silicon and Intel, signed ad hoc,
+so Gatekeeper asks the first time; Linux x86_64, the Steam Deck too; Windows x64), unpack it and start the launcher.
+In the launcher, choose `sfiii3nr1.zip` (or drop it on the launcher); the other games' sets go beside it. Settings, save states and the board's settings memory go in
 your user folder; the ROM sets are only ever read.
 
 ## Building
