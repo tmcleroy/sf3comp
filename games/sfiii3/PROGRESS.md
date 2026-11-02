@@ -86,21 +86,19 @@ heard, the file's tone in --soundtrack-dump).
 ## Next
 
 1. Frame data: recovery and advantage against published data (startups agree with the recorded animations; active
-   on a hit differs by the hit's freeze). Then the dummy's guard (attackInRange from the boxes), wake-up and
-   reversal options, stun readout, parry practice (3rd Strike's own).
-2. Hooks in the translated code (satrecomp's lift/hook mechanism, not ported yet): the knock-out (so a session's
-   "nobody knocked out" stops putting health back at a quarter), the round's steps, the music requests.
-3. The definitive version (DEFINITIVE.md): music (which of the sound chip's voices are music: all sixteen play both
-   music and effects, and their samples are mixed in the data; the sound driver's own record of what each voice
-   plays is to find), New Generation's stage number and its stage ends, the stage rule checked on every stage, the
-   stage boards translated, a proper menu of stages by name.
-4. Custom soundtrack: done (below); to place the songs not heard yet (those songs.txt gives no name:
-   the stages of the characters not met in made-up play, the endings) and the stage songs' second halves.
+   on a hit differs by the hit's freeze). The dummy: guard from the boxes (attackInRange), the stun mash (the stunned
+   state is not found yet), the parry's remaining misses (chained moves and projectiles: SFIII3_PARRY_MISSES).
+2. Hooks in the translated code: the knock-out (so a session's "nobody knocked out" stops putting health back at a
+   quarter), the round's steps.
+3. The definitive version (DEFINITIVE.md): New Generation's rainy London stage (its camera does not follow), the stage
+   rule checked on every stage, a proper menu of stages by name, the stage board's own effects and announcer.
+4. Custom soundtrack: the songs not placed yet (songs.txt's unnamed ones: the endings, say).
 5. Translation coverage: more recorded play (every character, supers, the endings).
-6. Widescreen on every stage and screen; the objects the game culls at its 384 columns.
+6. Widescreen on every stage and screen; the objects the game culls at its 384 columns; invisible walls (play as on
+   the board in 16:9, the CPS-2 ports' widescreen_walls: needs the HUD's objects told from the world's).
 7. Linux / Windows builds (cps2recomp's and fighting_vipers' tools/release as the model), then the other devices.
-8. The alternative modes (survival, endless battle, ring out), stage and model viewers, the colour editor, board
-   as the CPS-2 ports have them.
+8. The alternative modes (survival, endless battle, ring out, tag team: cps2recomp's fight/alternative and battle,
+   3000 lines tied to the CPS-2 games' memory), stage and model viewers, the colour editor, the board's other settings.
 
 ## Decisions for the user
 
