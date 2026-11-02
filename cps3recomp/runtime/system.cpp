@@ -138,13 +138,17 @@ void Machine::StepStage() {
     if (!m_stage) {
         return;
     }
-    if (beforeStage) {
-        beforeStage(*this, *m_stage);
-    }
-    m_stage->RunFrame();
-    // Its sound: made every frame (so that it keeps time), added to this board's last frame's when wanted
+    const int frames = stageFramesNow ? std::max(1, stageFramesNow()) : 1;
     m_stageAudio.clear();
-    m_stagePcm->EndFrame(&m_stageAudio);
+    for (int n = 0; n < frames; n++) {
+        if (beforeStage) {
+            beforeStage(*this, *m_stage);
+        }
+        m_stage->RunFrame();
+        // Its sound: made every frame (so that it keeps time); the last frame's added to this board's when wanted
+        m_stageAudio.clear();
+        m_stagePcm->EndFrame(&m_stageAudio);
+    }
     if (stageSound) {
         const size_t n = std::min(m_stageAudio.size(), audio.size());
         int16_t *tail = audio.data() + (audio.size() - n);

@@ -273,6 +273,7 @@ void RegisterStages(Game &game) {
         machine->ownStageObject = OwnStageObject;
         machine->beforeStage = BeforeStage;
         machine->composeNow = InMatch;
+        machine->stageFramesNow = [] { return g.fought ? 1 : 4; }; // (on its way to its fight: four frames a frame)
     }
     AddHook("Voice set (music or effect)", 0x0613B1D8, 8, 0xBA5502CCC81A1B0Eull, PitchHook);
 }
