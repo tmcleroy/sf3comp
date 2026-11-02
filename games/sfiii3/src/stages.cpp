@@ -227,7 +227,8 @@ namespace {
                 g.ownRight = right;
                 g.ownLeft = left;
             }
-            kept = g.ownLeft > 0 && g.ownRight - g.ownLeft > 2 * margin + 64;
+            // (kept in its fighters' coordinates: the camera's, less the offset; see `offset`)
+            kept = g.ownLeft + g.offset > 0 && g.ownRight - g.ownLeft > 2 * margin + 64;
         }
         if (kept) {
             g.madeRight = g.ownRight - margin;
@@ -239,8 +240,8 @@ namespace {
                 SetWord(ram, at, g.madeLeft);
             }
         }
-        const int theirRight = kept ? g.madeRight : game.right - margin;
-        const int theirLeft = kept ? g.madeLeft : game.left + margin;
+        const int theirRight = kept ? g.madeRight + g.offset : game.right - margin;
+        const int theirLeft = kept ? g.madeLeft + g.offset : game.left + margin;
         if (right > left && theirRight > theirLeft) {
             // (its game makes its camera from its fighters each frame, whatever its camera words say: so its fighters,
             // unseen, are put where 3rd Strike's are, from one stage to the other, and its camera follows them)
