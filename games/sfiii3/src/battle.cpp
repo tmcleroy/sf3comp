@@ -534,7 +534,7 @@ namespace {
         b.wins[0] = won[0];
         b.wins[1] = won[1];
         if (getenv("SFIII3_BATTLE_LOG")) {
-            fprintf(stderr, "battle: frame %u, side %d tags in %s (health %u)\n", b.frames, side + 1, kCharacters[b.want[side] % kCharacterCount],
+            fprintf(stderr, "battle: frame %u (the machine's %llu), side %d tags in %s (health %u)\n", b.frames, static_cast<unsigned long long>(m.frame), side + 1, kCharacters[b.want[side] % kCharacterCount],
                     b.kept[side][next]);
         }
     }
