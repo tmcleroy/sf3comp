@@ -99,6 +99,12 @@ namespace {
     };
     std::vector<Kept> g_kept;
     bool g_keepNow = false;
+    // Preloading (stages_preload, with the opponent's): between fights the board is lent to taking another stage of
+    // its game to its fight, to keep; the board's own stage put back when it is wanted again
+    struct Preload {
+        bool on = false;
+        State live;
+    } g_pre;
     uint64_t g_uses = 0;
 
     uint16_t Word(const uint8_t *ram, uint32_t at) {
@@ -167,6 +173,9 @@ namespace {
         return kChoices[g.loaded].stage == kOpponents ? g.stage : kChoices[g.loaded].stage;
     }
     void Keep(Machine &machine) {
+        if (StageNow() < 0) {
+            return; // (no stage of its own: 3rd Strike's)
+        }
         const void *game = kChoices[g.loaded].game;
         Kept *slot = nullptr;
         for (Kept &one : g_kept) {
@@ -186,6 +195,14 @@ namespace {
         slot->state = g;
         slot->used = ++g_uses;
         machine.KeepStage(slot->data);
+        if (getenv("SFIII3_STAGE_KEEP")) { // (debugging aid)
+            size_t all = 0;
+            for (const auto &one : g_kept) {
+                all += one.data.size();
+            }
+            fprintf(stderr, "stages: kept stage %d at frame %llu (%zu kept, %zu MB)\n", StageNow(), static_cast<unsigned long long>(machine.frame),
+                    g_kept.size(), all >> 20);
+        }
     }
     // The board put back as it was in that stage's fight, if it has been there (true)
     bool PutBack(Machine &machine, const void *game, int stage) {
@@ -363,16 +380,52 @@ namespace {
 bool MusicVoice(int voice); // (music.cpp)
 
 // Each frame: the board for the choice made (loaded when the choice changes: a moment's pause)
+namespace {
+    bool IsKept(const void *game, int stage) {
+        for (const auto &one : g_kept) {
+            if (one.game == game && one.stage == stage) {
+                return true;
+            }
+        }
+        return false;
+    }
+    // The board back to its own stage (after preloading another): as kept, or (none) left as it is
+    void EndPreload(Machine &machine) {
+        if (!g_pre.on) {
+            return;
+        }
+        g_pre.on = false;
+        const State live = g_pre.live;
+        if (live.stage >= 0 && PutBack(machine, kChoices[live.loaded].game, live.stage)) {
+            return;
+        }
+        g = live;
+        if (live.stage >= 0) {
+            g.fought = false; // (not kept: taken to its fight again)
+            g.offsetKnown = false;
+            g.frames = 0;
+            machine.StageBoard()->Reset();
+        }
+    }
+} // namespace
+
 void StagesBeforeFrame(Machine &machine) {
     if (g_keepNow) {
         g_keepNow = false;
         if (g.loaded && machine.StageBoard()) {
             Keep(machine);
+            if (g_pre.on) {
+                EndPreload(machine); // (that stage kept: the board's own back)
+            }
         }
+    }
+    // (a round about to be on the stage while preloading: the board's own back at once)
+    if (g_pre.on && ((OnStage() && g_pre.live.stage >= 0) || !FeatureOn("stages_preload"))) {
+        EndPreload(machine);
     }
     // (in a fight on the stage board's stage: its music, 3rd Strike's left out; the effects and voices are 3rd Strike's)
     // (the custom soundtrack's file, when one plays, in place of both)
-    const bool music = g.loaded && g.fought && OnStage() && machine.StageBoard() && !machine.soundtrack.Playing() &&
+    const bool music = !g_pre.on && g.loaded && g.fought && OnStage() && machine.StageBoard() && !machine.soundtrack.Playing() &&
                        (kChoices[g.loaded].stage != kOpponents || g.stage >= 0);
     machine.stageSound = music;
     int silenced = 0;
@@ -387,11 +440,35 @@ void StagesBeforeFrame(Machine &machine) {
                 music ? "the stage's music" : "3rd Strike's own", silenced);
     }
     const int choice = std::clamp(FeatureValue("stages"), 0, static_cast<int>(std::size(kChoices)) - 1);
-    if (choice == g.loaded && choice && kChoices[choice].stage == kOpponents && machine.StageBoard() && !OnStage()) {
+    // (between fights; or in one on 3rd Strike's own stage, when the board is idle and may preload)
+    const bool idle = !OnStage() || (g_pre.on ? g_pre.live.stage : g.stage) < 0;
+    if (choice == g.loaded && choice && kChoices[choice].stage == kOpponents && machine.StageBoard() && idle) {
         // (the opponent's: between fights, 3rd Strike's next stage chosen, the board started again on its way to that one)
         const int most = kChoices[choice].game == &kNewGeneration ? 12 : 14;
         // (New Generation's 6, Hugo's number though it has no Hugo, is a beer festival: Hugo's, as Germany's)
         const int next = Ram8(sfiii3::kStage) <= most ? Ram8(sfiii3::kStage) : -1;
+        if (g_pre.on && next != g_pre.live.stage) {
+            EndPreload(machine); // (the next fight's stage is another: that one wanted now)
+        }
+        if (!g_pre.on && next == g.stage && FeatureOn("stages_preload") && (g.fought || g.stage < 0)) {
+            // (idle: another of this game's stages not kept yet taken to its fight meanwhile)
+            for (int stage = 0; stage <= most; stage++) {
+                if (!IsKept(kChoices[choice].game, stage)) {
+                    g_pre.on = true;
+                    g_pre.live = g;
+                    const int loaded = g.loaded;
+                    g = {};
+                    g.loaded = loaded;
+                    g.stage = stage;
+                    machine.StageBoard()->Reset();
+                    break;
+                }
+            }
+            return;
+        }
+        if (g_pre.on) {
+            return; // (preloading goes on)
+        }
         if (next != g.stage) {
             if (!PutBack(machine, kChoices[choice].game, next)) {
                 const int loaded = g.loaded;
@@ -423,6 +500,7 @@ void StagesBeforeFrame(Machine &machine) {
         return;
     }
     g = {};
+    g_pre = {};
     g.loaded = choice;
     g_kept.clear();
     machine.SetStageBoard(choice ? LoadSet(*kChoices[choice].game) : nullptr);
@@ -440,12 +518,17 @@ void RegisterStages(Game &game) {
                              "The opponent's: each fight on that game's stage of the character whose stage 3rd Strike chose (its own "
                              "for the characters that game has not).",
                              kFeatureMenuChoices, {std::begin(kNames), std::end(kNames)}});
+    game.features.push_back({"stages_preload", "Display", "Stages: load ahead",
+                             "With the opponent's stages: between fights, the game's other stages are taken to their fights one by "
+                             "one and kept, so that each opponent's is there at once. It takes the processor's time while no fight "
+                             "is on (the stage game run fast), and about 150 MB of memory.",
+                             kFeatureEnhanced});
     if (Machine *machine = TheMachine()) {
         machine->stageObject = StageObject;
         machine->ownStageObject = OwnStageObject;
         machine->beforeStage = BeforeStage;
         // (composed while 3rd Strike's round is on and the board is in its fight: for the opponent's, on a stage it has)
-        machine->composeNow = [] { return OnStage() && g.fought && (kChoices[g.loaded].stage != kOpponents || g.stage >= 0); };
+        machine->composeNow = [] { return !g_pre.on && OnStage() && g.fought && (kChoices[g.loaded].stage != kOpponents || g.stage >= 0); };
         // (on its way to its fight: eight frames a frame; in it one, its own pace (its animations and music))
         machine->stageFramesNow = [] { return g.fought ? 1 : 8; };
     }
