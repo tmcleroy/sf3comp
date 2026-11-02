@@ -104,6 +104,10 @@ public:
     // stepped by StepStage, once a shown frame (not run-ahead's or rollback's frames: it is scenery, outside the save
     // state), with `beforeStage` from the game's sources first (its camera, keeping it in its fight)
     void SetStageBoard(std::unique_ptr<RomSet> set);
+    // The stage board as it is now (its machine and its sound), kept to come back to, and put back (a stage reached once
+    // is there again at once)
+    void KeepStage(std::vector<uint8_t> &data);
+    void RestoreStage(const std::vector<uint8_t> &data);
     machine::Machine *StageBoard() {
         return m_stage.get();
     }

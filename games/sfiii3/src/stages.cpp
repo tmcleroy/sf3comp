@@ -88,6 +88,19 @@ namespace {
                              // stage places its fighters about 512 left of its camera; the others about 0)
     } g;
 
+    // Stage boards kept as they were once in their fights (a stage reached once is there at once after), by game and
+    // stage; the most recently used kept, up to 16
+    struct Kept {
+        const void *game = nullptr;
+        int stage = -1;
+        State state;
+        std::vector<uint8_t> data;
+        uint64_t used = 0;
+    };
+    std::vector<Kept> g_kept;
+    bool g_keepNow = false;
+    uint64_t g_uses = 0;
+
     uint16_t Word(const uint8_t *ram, uint32_t at) {
         return static_cast<uint16_t>((ram[at & 0x7FFFF] << 8) | ram[(at + 1) & 0x7FFFF]);
     }
@@ -150,6 +163,45 @@ namespace {
         return nullptr;
     }
 
+    int StageNow() {
+        return kChoices[g.loaded].stage == kOpponents ? g.stage : kChoices[g.loaded].stage;
+    }
+    void Keep(Machine &machine) {
+        const void *game = kChoices[g.loaded].game;
+        Kept *slot = nullptr;
+        for (Kept &one : g_kept) {
+            if (one.game == game && one.stage == StageNow()) {
+                slot = &one;
+            }
+        }
+        if (!slot) {
+            if (g_kept.size() >= 16) {
+                slot = &*std::min_element(g_kept.begin(), g_kept.end(), [](const Kept &a, const Kept &b) { return a.used < b.used; });
+            } else {
+                slot = &g_kept.emplace_back();
+            }
+        }
+        slot->game = game;
+        slot->stage = StageNow();
+        slot->state = g;
+        slot->used = ++g_uses;
+        machine.KeepStage(slot->data);
+    }
+    // The board put back as it was in that stage's fight, if it has been there (true)
+    bool PutBack(Machine &machine, const void *game, int stage) {
+        for (Kept &one : g_kept) {
+            if (one.game == game && one.stage == stage && !one.data.empty()) {
+                const int loaded = g.loaded;
+                machine.RestoreStage(one.data);
+                g = one.state;
+                g.loaded = loaded;
+                one.used = ++g_uses;
+                return true;
+            }
+        }
+        return false;
+    }
+
     // Before each of the stage board's frames: on the way to its fight, coins, Start and a character; in it, no clock,
     // nobody hurt, no controls, and its camera where 3rd Strike's is (from one stage's ends to the other's)
     void BeforeStage(Machine &machine, machine::Machine &stage) {
@@ -193,6 +245,7 @@ namespace {
                 return;
             }
             g.offsetKnown = true;
+            g_keepNow = true; // (kept after this frame: StagesBeforeFrame)
             // (only a whole difference of coordinates, as the rainy London stage's 512, is taken: a camera held at its
             // limit as the fight begins, or one this word does not hold (0), is not one)
             const int camera = static_cast<int16_t>(Word(ram, game.camera[1]));
@@ -311,6 +364,12 @@ bool MusicVoice(int voice); // (music.cpp)
 
 // Each frame: the board for the choice made (loaded when the choice changes: a moment's pause)
 void StagesBeforeFrame(Machine &machine) {
+    if (g_keepNow) {
+        g_keepNow = false;
+        if (g.loaded && machine.StageBoard()) {
+            Keep(machine);
+        }
+    }
     // (in a fight on the stage board's stage: its music, 3rd Strike's left out; the effects and voices are 3rd Strike's)
     // (the custom soundtrack's file, when one plays, in place of both)
     const bool music = g.loaded && g.fought && OnStage() && machine.StageBoard() && !machine.soundtrack.Playing() &&
@@ -334,19 +393,38 @@ void StagesBeforeFrame(Machine &machine) {
         // (New Generation's 6, Hugo's number though it has no Hugo, is a beer festival: Hugo's, as Germany's)
         const int next = Ram8(sfiii3::kStage) <= most ? Ram8(sfiii3::kStage) : -1;
         if (next != g.stage) {
-            const int loaded = g.loaded;
-            g = {};
-            g.loaded = loaded;
+            if (!PutBack(machine, kChoices[choice].game, next)) {
+                const int loaded = g.loaded;
+                g = {};
+                g.loaded = loaded;
+                g.stage = next;
+                machine.StageBoard()->Reset();
+            }
             g.stage = next;
-            machine.StageBoard()->Reset();
         }
         return;
     }
     if (choice == g.loaded) {
         return;
     }
+    // (another stage of the game whose board is there: put back if it has been there, else that board started again;
+    // another game: its set loaded)
+    if (choice && g.loaded && kChoices[choice].game == kChoices[g.loaded].game && machine.StageBoard()) {
+        const int was = g.loaded;
+        g.loaded = choice;
+        const int stage = StageNow();
+        if (!PutBack(machine, kChoices[choice].game, stage)) {
+            g = {};
+            g.loaded = choice;
+            g.stage = kChoices[choice].stage == kOpponents ? Ram8(sfiii3::kStage) : -1;
+            machine.StageBoard()->Reset();
+        }
+        (void)was;
+        return;
+    }
     g = {};
     g.loaded = choice;
+    g_kept.clear();
     machine.SetStageBoard(choice ? LoadSet(*kChoices[choice].game) : nullptr);
     if (choice && !machine.StageBoard()) {
         g.loaded = 0; // (not there: as without it)
@@ -368,9 +446,8 @@ void RegisterStages(Game &game) {
         machine->beforeStage = BeforeStage;
         // (composed while 3rd Strike's round is on and the board is in its fight: for the opponent's, on a stage it has)
         machine->composeNow = [] { return OnStage() && g.fought && (kChoices[g.loaded].stage != kOpponents || g.stage >= 0); };
-        // (on its way to its fight: four frames a frame; in it, two while its camera is far from where it was sent (a round
-        // starting near a stage's end), so it gets there sooner and draws its stage's columns on the way)
-        machine->stageFramesNow = [] { return !g.fought ? 4 : std::abs(g.lastCamera - g.given) > 32 ? 2 : 1; };
+        // (on its way to its fight: eight frames a frame; in it one, its own pace (its animations and music))
+        machine->stageFramesNow = [] { return g.fought ? 1 : 8; };
     }
 }
 

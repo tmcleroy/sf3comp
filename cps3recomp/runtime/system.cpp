@@ -156,6 +156,31 @@ void Machine::SetStageBoard(std::unique_ptr<RomSet> set) {
     }
 }
 
+void Machine::KeepStage(std::vector<uint8_t> &data) {
+    data.clear();
+    if (!m_stage) {
+        return;
+    }
+    Archive ar(data, true);
+    m_stage->Serialize(ar);
+    m_stagePcm->Serialize(ar);
+}
+
+void Machine::RestoreStage(const std::vector<uint8_t> &data) {
+    if (!m_stage || data.empty()) {
+        return;
+    }
+    std::vector<uint8_t> copy = data;
+    Archive ar(copy, false);
+    const bool plain = machine::g_flashPlain;
+    Activate(*m_stage);
+    m_stage->Serialize(ar);
+    m_stagePcm->Serialize(ar);
+    StateLoaded(); // (its translated code's dispatcher: where its CPU was is forgotten)
+    Activate(board);
+    machine::g_flashPlain = plain;
+}
+
 void Machine::StepStage() {
     if (!m_stage) {
         return;
