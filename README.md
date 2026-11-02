@@ -9,7 +9,8 @@ ports ([CPS-2 Recomp](https://github.com/tmcleroy/cps2recomp)): training mode, o
 
 **Status:** early. 3rd Strike runs on the port's own CPS-3 machine (an interpreter for now; translation is coming),
 with the launcher, the in-game menu, save states, free play, the CPS-2 ports' display options, and a training mode
-(hit boxes, input display, combo readout, frame meter, the dummy: early, its frame data not checked yet).
+(hit boxes, input display, combo readout, frame meter, the dummy), and online play with rollback between two
+machines (checked on one machine so far).
 
 **No game files are included.** You need your own ROM set (`sfiii3nr1`, Japan 990512). Its cipher's keys are worked out from the set
 itself when the game starts; none are in this repository.

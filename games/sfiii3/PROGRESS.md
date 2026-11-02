@@ -74,7 +74,10 @@
 5. Online play's cost: states kept in memory (rollback, run-ahead) share unchanged character RAM pages (64 KB pages
    stamped at each write; machine/state.cpp), so keeping one takes 0.18 ms and putting one back 0.21 ms (were 2.2
    and 2.1), 1.4 MB a state. The rollback check passes (`--rollback-test 3 --hash-log` equals a plain run over 2600
-   frames); a state saved to a file and loaded continues the same. Online play itself has not been tried.
+   frames); a state saved to a file and loaded continues the same. Online: `ROM=... cps3recomp/tools/check_online.sh
+   3000` (two copies on this machine, 50 ms ± 25 and 5% loss made up): the two sides the same over 2996 frames,
+   337 and 372 rollbacks, names and chat across, the match replayed without the network the same. Not tried
+   between two machines or through the online service's lobby.
 6. Linux / Windows builds (cps2recomp's and fighting_vipers' tools/release as the model).
 
 ## Decisions for the user
