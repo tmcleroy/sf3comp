@@ -49,6 +49,13 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
   board): New Generation's London, cliffs or snowy street, or 2nd Impact's street, factory or market, from the
   sets beside the player's 3rd Strike set. Seen in pictures only.
 
+- 3rd Strike's sound, so far (for its music to give way to the stage game's): the driver is at 0x0613B000-0x0613BD00
+  (the writes to the sound chip: 0613BC66, 0613BBA8/BBBA, 0613B44A and others). The game's code calls into
+  0x06138000-0x0613FFFF at 06138BA0 (r4 0x0E, 0x1B, 0x0C, 0x14...), 0613A182 (r4 0x40C-0x419: effects or voices?),
+  061387DE (r4 0-3, r5 a pointer into 02070B70.. or 0: four at once) and 0613A9B0 (EEPROM addresses: not sound).
+  Skipping any one of the four changes nothing in attract mode's music (67 key-ons either way): the music is started
+  another way. A debugging aid probes them (games/sfiii3/src/sound_probe.cpp: SFIII3_SOUND_PROBE, SFIII3_SOUND_SKIP).
+
 ## To do
 
 1. The stage board on the stage chosen (2nd Impact: its stage byte, above; New Generation's to find), its way to a

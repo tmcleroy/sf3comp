@@ -14,6 +14,7 @@ namespace cps3recomp {
 void RegisterTraining(Game &game);
 void RegisterLifts3rdStrike();
 void RegisterStages(Game &game);
+void RegisterSoundProbe();
 void StagesBeforeFrame(Machine &machine);
 void WidescreenBeforeFrame(Machine &m, bool fighting);
 void TrainingBeforeFrame(Machine &m);
@@ -70,6 +71,7 @@ void RegisterGame() {
     RegisterTraining(game);
     RegisterLifts3rdStrike();
     RegisterStages(game);
+    RegisterSoundProbe();
 }
 
 } // namespace cps3recomp
