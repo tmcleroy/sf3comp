@@ -11,6 +11,7 @@
 #include <vector>
 
 namespace cps3recomp {
+class Archive;
 namespace machine {
     class Machine;
 }
@@ -25,6 +26,7 @@ public:
     void EndFrame(std::vector<int16_t> *out);
     // Volume as a fraction of the chip's
     float gain = 1.0f;
+    void Serialize(Archive &ar);
 
 private:
     machine::Machine &m_machine;

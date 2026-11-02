@@ -37,6 +37,9 @@ namespace {
         return c;
     }
     const bool g_trace = getenv("CPS3RECOMP_TRACE_IO") != nullptr;
+    // (debugging aid, CPS3RECOMP_TRACE_DMA=1: the video DMAs of each frame, counted)
+    const bool g_traceDma = getenv("CPS3RECOMP_TRACE_DMA") != nullptr;
+    unsigned g_charDmas = 0, g_palDmas = 0, g_spriteDmas = 0, g_charBytes = 0;
 } // namespace
 
 Machine::Machine(const RomSet &rom)
@@ -74,7 +77,7 @@ void Machine::Reset() {
 }
 
 double Machine::FramePosition() const {
-    return static_cast<double>(m_now - m_frameStart) / (kLines * kCyclesPerLine);
+    return static_cast<double>(Now() - m_frameStart) / (kLines * kCyclesPerLine);
 }
 
 void Machine::UpdateInterrupts() {
@@ -98,6 +101,11 @@ void Machine::RunFrame() {
     m_irqLines |= 1u << 12;
     UpdateInterrupts();
     RunUntil(m_frameStart + static_cast<uint64>(kLines) * kCyclesPerLine);
+    if (g_traceDma) {
+        fprintf(stderr, "frame %llu: %u character DMAs (%u bytes), %u palette, %u sprite lists (%u objects)\n", static_cast<unsigned long long>(m_frame),
+                g_charDmas, g_charBytes, g_palDmas, g_spriteDmas, m_spriteCount);
+        g_charDmas = g_palDmas = g_spriteDmas = g_charBytes = 0;
+    }
     m_frame++;
 }
 
@@ -112,7 +120,10 @@ void Machine::RunUntil(uint64 target) {
         }
         if (next > m_now) {
             const uint64 slice = next - m_now;
+            m_sliceBase = m_now; // (the CPU starts the slice m_spillover cycles in: its count starts there too)
+            m_inSlice = true;
             const uint64 ran = m_cpu.Advance(slice, m_spillover);
+            m_inSlice = false;
             if (ran >= slice) {
                 m_spillover = ran - slice;
                 m_now = next;
@@ -123,6 +134,9 @@ void Machine::RunUntil(uint64 target) {
         }
         if (m_dmaDoneAt && m_now >= m_dmaDoneAt) {
             m_dmaDoneAt = 0;
+            if (g_traceDma) {
+                fprintf(stderr, "  DMA done (frame %llu, cycle %llu)\n", static_cast<unsigned long long>(m_frame), static_cast<unsigned long long>(m_now - m_frameStart));
+            }
             m_dmaStatus &= ~6;
             m_irqLines |= 1u << 10;
             UpdateInterrupts();
@@ -386,7 +400,7 @@ void Machine::WritePpu(uint32 offset, uint32 v, uint32 mask) {
             if (!(m_dmaStatus & 1) && (m_spriteDma & 9) == 8 && (previous & 9) == 9) {
                 SpriteDma();
                 m_dmaStatus |= 1;
-                m_spriteDmaDoneAt = m_now + 100; // (4 microseconds)
+                m_spriteDmaDoneAt = Now() + 100; // (4 microseconds)
                 m_cpu.RequestYield();
             }
         }
@@ -405,6 +419,10 @@ void Machine::WritePpu(uint32 offset, uint32 v, uint32 mask) {
     } else if (word == 0x98) {
         Combine(m_charDmaOther, v, mask);
         if ((mask & 0xFF000000u) && ((v >> 16) & 0x40)) {
+            if (g_traceDma) {
+                fprintf(stderr, "  character DMA list %06X at PC %08X PR %08X (frame %llu, cycle %llu, status %X)\n", m_charDmaSource | (m_charDmaOther & 0x003F0000u),
+                        m_cpu.PC, m_cpu.PR, static_cast<unsigned long long>(m_frame), static_cast<unsigned long long>(Now() - m_frameStart), m_dmaStatus);
+            }
             CharacterDma(m_charDmaSource | (m_charDmaOther & 0x003F0000u));
         }
     } else if (word == 0xA0) {
@@ -442,6 +460,7 @@ void Machine::SetColour(uint32 index, uint16 value, uint32 fade) {
 // a position, a global scroll, and settings that apply to all of them). The DMA flattens them into one list of
 // objects as the renderer draws them, with the list's settings applied.
 void Machine::SpriteDma() {
+    g_spriteDmas++;
     static constexpr uint32 kWords = 0x2000 / 4, kStop = 0x80000000u;
     uint32 out = 0;
     m_spriteCount = 0;
@@ -494,6 +513,7 @@ void Machine::SpriteDma() {
 
 // The palette DMA: colours from the graphics SIMMs into colour RAM, faded as they go
 void Machine::PaletteDma(uint32 control) {
+    g_palDmas++;
     const uint32 source = (m_palDmaSource << 1) - 0x400000;
     const uint32 length = m_palDmaLength | ((control & 1) << 16);
     const std::vector<uint8> &g = m_rom.graphics;
@@ -504,7 +524,7 @@ void Machine::PaletteDma(uint32 control) {
         SetColour((m_palDmaDest + i) ^ 1, colour, m_palDmaFade);
     }
     m_dmaStatus |= 4;
-    m_dmaDoneAt = m_now + 2500; // (100 microseconds: the DMA's real speed is not known)
+    m_dmaDoneAt = Now() + 2500; // (100 microseconds: the DMA's real speed is not known)
     m_cpu.RequestYield();
 }
 
@@ -556,6 +576,8 @@ void Machine::CharacterDma(uint32 listAddress) {
         }
         const uint32 command = (d1 >> 21) & 7;
         uint32 length = ((d1 & 0x001FFFFFu) + 1) << 3;
+        g_charDmas++;
+        g_charBytes += command == 4 ? 0 : length;
         uint32 destination = d2 << 3;
         uint32 from = (d3 << 1) - 0x400000;
         switch (command) {
@@ -620,7 +642,7 @@ void Machine::CharacterDma(uint32 listAddress) {
         }
     }
     m_dmaStatus |= 2;
-    m_dmaDoneAt = m_now + 2500;
+    m_dmaDoneAt = Now() + 2500;
     m_cpu.RequestYield();
 }
 

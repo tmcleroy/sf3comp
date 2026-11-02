@@ -145,6 +145,12 @@ private:
     uint64 m_now = 0;       // CPU cycles since reset
     uint64 m_frameStart = 0;
     uint64 m_spillover = 0;
+    uint64 m_sliceBase = 0; // (while the CPU runs a slice: the time its count of cycles starts from)
+    bool m_inSlice = false;
+    // The time now, in CPU cycles since reset: inside a slice, as far as the CPU has got
+    uint64 Now() const {
+        return m_inSlice ? m_sliceBase + m_cpu.m_cyclesExecuted : m_now;
+    }
 
     std::vector<uint8> m_spriteRam, m_charRam, m_fram;
     std::vector<uint16> m_colourRam;

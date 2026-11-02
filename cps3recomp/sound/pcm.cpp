@@ -3,6 +3,7 @@
 #include "pcm.h"
 
 #include "machine.h"
+#include "state.h"
 
 #include <algorithm>
 #include <cmath>
@@ -81,6 +82,11 @@ void Pcm::EndFrame(std::vector<int16_t> *out) {
     m_carry += m_perFrame;
     m_frameSamples = static_cast<size_t>(m_carry);
     m_carry -= static_cast<double>(m_frameSamples);
+}
+
+void Pcm::Serialize(Archive &ar) {
+    ar.Pod(m_carry);
+    ar.Pod(m_frameSamples);
 }
 
 void WriteWav(const char *path, const std::vector<int16_t> &samples, double rate) {
