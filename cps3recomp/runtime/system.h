@@ -60,6 +60,9 @@ public:
     // the frame's sound added to `audio`
     void RunFrame();
     bool drawing = true;
+    // The last picture shown again in place of this frame's (set before each frame; for a frame whose picture would
+    // be wrong, as the first after a machine is swapped for another)
+    bool holdPicture = false;
 
     const uint32_t *Picture() const {
         return m_picture.data();

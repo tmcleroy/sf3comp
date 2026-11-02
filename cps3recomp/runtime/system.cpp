@@ -72,6 +72,7 @@ void Machine::RunFrame() {
     board.extra = ~extra;
     board.RunFrame();
     m_pcm.EndFrame(&audio);
+    const bool drawing = this->drawing && !holdPicture;
     m_renderer.text = !hidePanel;
     m_renderer.backdrop = backdrop;
     m_renderer.shift = worldShiftNow && m_renderer.margin ? std::clamp(worldShiftNow(), -m_renderer.margin, m_renderer.margin) : 0;

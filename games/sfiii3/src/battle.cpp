@@ -36,6 +36,7 @@
 #include <cstring>
 #include <iterator>
 #include <string>
+#include <map>
 #include <vector>
 
 namespace cps3recomp {
@@ -109,9 +110,16 @@ namespace {
         uint8_t kept[2][kMost] = {};
         uint8_t stageNow = 0;
         uint32_t tagCool[2] = {};
+        uint32_t taggedAt = 0;      // (the frame of the last tag)
         int8_t madeFor[2][2] = {{-1, -1}, {-1, -1}};
         uint16_t rest = 0;
-        bool startWas[2] = {};
+        bool startWas[4] = {};
+        // (the tag's movements: the one on jumps back and off the picture, the next jumps in from that end)
+        uint8_t move[2] = {};       // 0 none, 1 leaving, 2 coming
+        uint16_t moveFor[2] = {};
+        int8_t from[2] = {};        // the end it left by (-1 the left)
+        bool jumped[2] = {};
+        uint16_t hitsAt[2] = {};    // (hits taken as it began to leave: hit on the way, the tag is off)
     } b;
     Spare g_tag[2]; // (the tag style) each side's next fighter's fight, made ready
     std::vector<uint32_t> g_oldPicture; // (ring out) the old stage's last picture, going up and out as the next comes up
@@ -133,7 +141,25 @@ namespace {
     bool Fought() {
         return Locked() && Ram8(sfiii3::kMatchState) == 2;
     }
+    // (the tag team's people: co-op, players 1 and 2 are side 1's fighters in turn; 2 vs 2, players 1 and 3 side 1's and
+    // 2 and 4 side 2's. Which of the port's controllers plays a side's fighter on now; -1: the usual one)
+    int PeopleStyle() {
+        return b.mode == kTeam && b.tagStyle ? FeatureValue("tag_team") : 0;
+    }
+    int PadOf(int side, int member) {
+        switch (PeopleStyle()) {
+        case 1: return side == 0 ? member % 2 : -1;
+        case 2: return side == 0 ? (member % 2 ? 2 : 0) : (member % 2 ? 3 : 1);
+        default: return -1;
+        }
+    }
     bool Person(int p) {
+        if (b.mode == kTeam && PeopleStyle() == 1) {
+            return p == 0; // (co-op: side 2 the computer's)
+        }
+        if (b.mode == kTeam && PeopleStyle() == 2) {
+            return true;
+        }
         switch (b.mode) {
         case kEndless: return b.touched[p] && b.frames - b.touched[p] < kTakenFor;
         case kSurvival:
@@ -357,6 +383,17 @@ namespace {
 // when it did nothing). In a ring out a fighter knocked back (hit within kKnockedFor frames) is let through.
 namespace {
     bool WallLift(Guest &g) {
+        // (a tag: the one leaving flies off through its wall, the one coming in comes through it)
+        if (b.mode == kTeam && b.tagStyle && b.started && Fought()) {
+            for (int p = 0; p < 2; p++) {
+                if (g.R(4) == sfiii3::kPlayer[p] && b.move[p] != 0) {
+                    g.R(0) = 0;
+                    g.Return(40);
+                    return true;
+                }
+            }
+            return false;
+        }
         if (b.mode != kRingOut || !b.started || !Fought() || b.decided) {
             return false; // (and never for a spare's machine, on its way to its round)
         }
@@ -460,12 +497,33 @@ void BattleAfterFrame(Machine &m) {
 // goes on: the other side's fighter's record (where it is, what it is doing, its health and meter), the camera, the
 // clock and the rounds; the one tagged in comes on where its partner was, with the health it rested with.
 namespace {
+    constexpr uint32_t kClockShown = 0x02028679;           // (the panel's copy of the clock, found as the one other byte that
+                                                          // follows it)
     constexpr uint32_t kRecordSize = 0x498;               // (a player's record: the second is that far on)
     constexpr uint32_t kCameraBlock = 0x02026CA0, kCameraBlockSize = 0x60;
+    constexpr uint32_t kScores = 0x020113A0, kScoresSize = 0x20; // (the players' scores, and their shown copies)
+    constexpr uint32_t kGauge = 0x020695A0, kGaugeSize = 0x2C;   // (each player's super gauge: its fill at +0x15, its stock at +0x1F)
+    constexpr uint32_t kClockDigits = 0x020133F3;
+    constexpr uint32_t kRecordOwn = 0x240, kRecordOwnSize = 0x10; // (a player's record: bytes each machine has its own of)
+    constexpr uint32_t kText = 0x05040000, kTextSize = 0x10000, kTextCharacters = 0x8000; // (the text layer's memory, "SS" RAM)
+    constexpr uint32_t kTagHold = 4;  // frames the picture before a tag is kept (the new machine's first are wrong)
     constexpr uint32_t kTagCool = 90;                     // frames after a tag before the side may tag again
     constexpr int kTagSpareFrames = 3;                    // the tag spares' frames a frame each, on their way
     constexpr uint16_t kRestEvery = 6;                    // a resting fighter gets back a point of health this often
 
+    // Something thrown is on the screen (the game's object list 3, from the index at 0x02068A96 + 6, records 0x800
+    // bytes apart from 0x02028990, the next's index at +0x1C; one with a hurt box list at +0x2A0 is in use)
+    bool Projectiles() {
+        int16_t index = static_cast<int16_t>(Ram16(0x02068A96 + 3 * 2));
+        for (int n = 0; n < 30 && index >= 0; n++) {
+            const uint32_t at = 0x02028990u + (static_cast<uint32_t>(index) << 11);
+            if (Ram32(at + 0x2A0) != 0) {
+                return true;
+            }
+            index = static_cast<int16_t>(Ram16(at + 0x1C));
+        }
+        return false;
+    }
     bool CanAct(int side) {
         const uint32_t base = sfiii3::kPlayer[side];
         return (Ram16(base + sfiii3::kBusy) & 0xFF) == 0 && Ram8(base + sfiii3::kFreeze) == 0 && Ram8(base + sfiii3::kAttacking) == 0 &&
@@ -498,6 +556,29 @@ namespace {
             }
         }
     }
+    // The panel after a tag: the game draws its numbers, names and bars on the text layer only as they change, so the
+    // promoted machine's would show its own (99 on the clock, no score, empty gauges) until each changed. So the text
+    // layer is the replaced machine's, but for the tagging side's half of it (its name, health bar and gauge, the new
+    // fighter's), which is the new one's with the characters it shows. The map: rows of 64 entries of 4 bytes, the
+    // character in the upper half; a character is 0x40 bytes from kText + kTextCharacters.
+    void KeepPanel(Machine &m, const std::vector<uint32_t> &was, int side) {
+        constexpr uint32_t kMapSize = 0x2000;
+        std::vector<bool> theirs(0x200); // (the characters the tagging side's half shows)
+        for (uint32_t at = 0; at < kMapSize; at += 4) {
+            const uint32_t column = (at & 0xFF) / 4;
+            if (column < 21 ? side == 0 : column > 26 && side == 1) { // (the clock, columns 21 to 26, the replaced machine's)
+                theirs[(m.board.BusRead32(kText + at) >> 16) & 0x1FF] = true;
+            } else {
+                m.board.BusWrite32(kText + at, was[at / 4]);
+            }
+        }
+        for (uint32_t at = kMapSize; at < kTextSize; at += 4) {
+            const uint32_t character = (at - kTextCharacters) / 0x40;
+            if (at < kTextCharacters || character >= theirs.size() || !theirs[character]) {
+                m.board.BusWrite32(kText + at, was[at / 4]);
+            }
+        }
+    }
     void Tag(Machine &m, int side) {
         const int next = NextUp(side);
         if (next < 0 || !g_tag[side].ready) {
@@ -516,21 +597,48 @@ namespace {
         const uint16_t x = Ram16(sfiii3::kPlayer[side] + sfiii3::kX);
         const uint8_t health = Ram8(sfiii3::kPlayer[side] + sfiii3::kLife);
         b.kept[side][b.next[side]] = health > 0 && health <= sfiii3::kFullLife ? health : 1;
+        // (the scores, and the super gauge of the one staying on: found by comparing the two machines at a tag)
+        std::vector<uint8_t> scores(kScoresSize), gauge(kGaugeSize);
+        for (uint32_t n = 0; n < kScoresSize; n++) {
+            scores[n] = Ram8(kScores + n);
+        }
+        for (uint32_t n = 0; n < kGaugeSize; n++) {
+            gauge[n] = Ram8(kGauge + other * kGaugeSize + n);
+        }
+        std::vector<uint32_t> text(kTextSize / 4);
+        for (uint32_t n = 0; n < kTextSize / 4; n++) {
+            text[n] = m.board.BusRead32(kText + n * 4);
+        }
         Promote(m, g_tag[side]);
+        KeepPanel(m, text, side);
+        for (uint32_t n = 0; n < kScoresSize; n++) {
+            SetRam8(kScores + n, scores[n]);
+        }
+        for (uint32_t n = 0; n < kGaugeSize; n++) {
+            SetRam8(kGauge + other * kGaugeSize + n, gauge[n]);
+        }
+        // (but for its bytes at +0x240 to +0x24F, the machine's own: copied from another machine some of them hang the
+        // game, its main loop stopped, as tags in 2 vs 2 showed)
         for (uint32_t n = 0; n < kRecordSize; n++) {
+            if (n >= kRecordOwn && n < kRecordOwn + kRecordOwnSize) {
+                continue;
+            }
             SetRam8(sfiii3::kPlayer[other] + n, record[n]);
         }
         for (uint32_t n = 0; n < kCameraBlockSize; n++) {
             SetRam8(kCameraBlock + n, camera[n]);
         }
         SetRam8(sfiii3::kClock, clock);
+        SetRam8(kClockShown, clock); // (the game's clock's other copy, and the panel's in decimal digits)
+        SetRam8(kClockDigits, static_cast<uint8_t>((clock / 10 % 10) << 4 | clock % 10));
         SetRam8(sfiii3::kRoundsWon[0], won[0]);
         SetRam8(sfiii3::kRoundsWon[1], won[1]);
-        SetRam16(sfiii3::kPlayer[side] + sfiii3::kX, x);
+        (void)x;
         SetRam8(sfiii3::kPlayer[side] + sfiii3::kLife, b.kept[side][next]);
         b.next[side] = static_cast<uint8_t>(next);
         b.want[side] = b.member[side][next];
         b.tagCool[side] = b.frames + kTagCool;
+        b.taggedAt = b.frames;
         b.wins[0] = won[0];
         b.wins[1] = won[1];
         if (getenv("SFIII3_BATTLE_LOG")) {
@@ -540,25 +648,131 @@ namespace {
     }
     // Each frame of a tag-style fight: the spares made ready, a tag asked for (Start on a person's side; the game's side
     // when its fighter is low and a partner has more), the resting ones' health coming back
-    void TagFrame(Machine &m, const uint16_t raw[2]) {
+    int16_t X(int side) {
+        return static_cast<int16_t>(Ram16(sfiii3::kPlayer[side] + sfiii3::kX));
+    }
+    bool InAir(int side) {
+        return static_cast<int16_t>(Ram16(sfiii3::kPlayer[side] + sfiii3::kY)) > 0;
+    }
+    int Camera() {
+        return static_cast<int16_t>(Ram16(sfiii3::kCameraX));
+    }
+    constexpr int kOffBy = 240;      // beyond the camera's middle a fighter is off the picture (192 a side and more)
+    constexpr int kLeaveSpeed = 9;   // pixels a frame, flying off
+    constexpr int kLeaveMost = 50;   // frames, at most, of leaving
+    constexpr int kComeMost = 120;   // frames, at most, of coming in
+    constexpr int kComeSteps = 34;   // about the frames a jump in takes, for its speed across
+    // Each frame of a tag-style fight: the spares made ready; a tag asked for (Start on a person's side, or its partner's
+    // Start in co-op and 2 vs 2; the game's side when its fighter is low and a partner has more) and its movements; the
+    // resting ones' health coming back
+    void TagFrame(Machine &m, const uint16_t raw[4]) {
         MakeTagSpares(m);
         if (!Fought()) {
             return;
         }
+        if (getenv("SFIII3_TAG_LOG") && (b.move[0] || b.move[1] || b.frames % 120 == 0)) { // (debugging aid)
+            fprintf(stderr, "tag: frame %u fr %u %u cam %d thrown %d att %u %u moves %d %d (%u %u) state %u clock %u x %d %d y %d %d busy %04X %04X\n", b.frames, Ram8(sfiii3::kPlayer[0] + sfiii3::kFreeze), Ram8(sfiii3::kPlayer[1] + sfiii3::kFreeze), Camera(), Projectiles() ? 1 : 0, Ram8(sfiii3::kPlayer[0] + sfiii3::kAttacking), Ram8(sfiii3::kPlayer[1] + sfiii3::kAttacking), b.move[0], b.move[1],
+                    b.moveFor[0], b.moveFor[1], Ram8(sfiii3::kMatchState), Ram8(sfiii3::kClock), X(0), X(1),
+                    static_cast<int16_t>(Ram16(sfiii3::kPlayer[0] + sfiii3::kY)), static_cast<int16_t>(Ram16(sfiii3::kPlayer[1] + sfiii3::kY)),
+                    Ram16(sfiii3::kPlayer[0] + sfiii3::kBusy), Ram16(sfiii3::kPlayer[1] + sfiii3::kBusy));
+        }
         for (int side = 0; side < 2; side++) {
-            const bool start = (raw[side] & kStart) != 0;
-            const bool pressed = start && !b.startWas[side];
-            b.startWas[side] = start;
-            const int next = NextUp(side);
-            if (next < 0 || b.frames < b.tagCool[side] || !CanAct(side)) {
-                continue;
+            const int other = 1 - side;
+            const int toward = X(other) < X(side) ? -1 : 1;
+            const uint32_t base = sfiii3::kPlayer[side];
+            // (a person's controls for the fighter on: in co-op and 2 vs 2, the one whose fighter it is)
+            const int pad = PadOf(side, b.next[side]);
+            if (pad >= 0 && b.move[side] == 0) {
+                m.players[side] = raw[pad];
             }
-            const uint8_t health = Ram8(sfiii3::kPlayer[side] + sfiii3::kLife);
-            const bool computerTags = !Person(side) && health < sfiii3::kFullLife * 35 / 100 && b.kept[side][next] > health + 30;
-            if ((Person(side) && pressed) || computerTags) {
-                Tag(m, side);
-                return; // (one a frame)
+            switch (b.move[side]) {
+            case 0: {
+                const int next = NextUp(side);
+                if (next < 0 || b.frames < b.tagCool[side] || !CanAct(side)) {
+                    break;
+                }
+                // (asked: Start of the one on, or of the partner whose fighter is next)
+                bool pressed = false;
+                for (int p = 0; p < 4; p++) {
+                    const bool start = (raw[p] & kStart) != 0;
+                    const bool mine = PeopleStyle() ? (p == PadOf(side, b.next[side]) || p == PadOf(side, next)) : p == side;
+                    if (mine && start && !b.startWas[p]) {
+                        pressed = true;
+                    }
+                }
+                const uint8_t health = Ram8(base + sfiii3::kLife);
+                const bool computerTags = !Person(side) && health < sfiii3::kFullLife * 35 / 100 && b.kept[side][next] > health + 30;
+                if ((Person(side) && pressed) || computerTags) {
+                    b.move[side] = 1;
+                    b.moveFor[side] = 0;
+                    b.hitsAt[side] = Ram16(base + sfiii3::kHitCount);
+                }
+                break;
             }
+            case 1: { // leaving: a jump back, then off the picture at speed
+                SetRam8(base + 3, 1); // (its controls are these for the jump, the computer's side too)
+                const int away = -toward;
+                const uint16_t f = b.moveFor[side]++;
+                m.players[side] = f < 3 ? static_cast<uint16_t>(kUp | (away < 0 ? kLeft : kRight)) : 0;
+                if (Ram16(base + sfiii3::kHitCount) != b.hitsAt[side] || (f == 8 && !InAir(side))) {
+                    b.move[side] = 0; // (hit on the way, or it did not jump: the tag is off)
+                    b.tagCool[side] = b.frames + 30;
+                    break;
+                }
+                if (f > 3 && InAir(side) && std::abs(X(side) - Camera()) <= kOffBy) {
+                    SetRam16(base + sfiii3::kX, static_cast<uint16_t>(X(side) + away * kLeaveSpeed));
+                }
+                // (swapped once it is off the picture and the other fighter is free, with nothing of its own on the
+                // screen: what the other is in the middle of goes over to the next machine with its record)
+                const bool gone = std::abs(X(side) - Camera()) > kOffBy || f > kLeaveMost;
+                const uint32_t them = sfiii3::kPlayer[other];
+                const bool quiet = Ram8(them + sfiii3::kAttacking) == 0 && Ram8(them + sfiii3::kFreeze) == 0 && !InAir(other) &&
+                                   Ram8(them + sfiii3::kThrown) == 0 && !Projectiles();
+                if (gone && !quiet) {
+                    SetRam16(base + sfiii3::kY, static_cast<uint16_t>(std::max<int>(InAir(side) ? static_cast<int16_t>(Ram16(base + sfiii3::kY)) : 1, 1)));
+                    break; // (held off the picture until then)
+                }
+                if (gone) {
+                    b.from[side] = static_cast<int8_t>(X(side) < Camera() ? -1 : 1);
+                    Tag(m, side);
+                    // (the next one off the picture at that end, on the floor, to jump in)
+                    SetRam16(base + sfiii3::kX, static_cast<uint16_t>(Camera() + b.from[side] * kOffBy));
+                    SetRam16(base + sfiii3::kY, 0);
+                    b.move[side] = 2;
+                    b.moveFor[side] = 0;
+                    b.jumped[side] = false;
+                    return; // (one swap a frame)
+                }
+                break;
+            }
+            case 2: { // coming: a jump in from that end, across fast enough to land by the other
+                SetRam8(base + 3, 1);
+                b.moveFor[side]++;
+                const bool air = InAir(side);
+                m.players[side] = 0;
+                if (!b.jumped[side]) {
+                    m.players[side] = static_cast<uint16_t>(kUp | (toward < 0 ? kLeft : kRight));
+                    b.jumped[side] = air;
+                } else if (air) {
+                    const int distance = std::abs(X(other) - X(side)) - 60; // (landing about that far from the other)
+                    if (distance > 0) {
+                        SetRam16(base + sfiii3::kX, static_cast<uint16_t>(X(side) + toward * std::min(distance, std::clamp(distance / kComeSteps * 2, 3, 12))));
+                    }
+                }
+                if ((b.jumped[side] && !air) || b.moveFor[side] > kComeMost) {
+                    b.move[side] = 0;
+                    b.tagCool[side] = b.frames + kTagCool;
+                    if (!Person(side)) {
+                        SetRam8(base + 3, 0); // (the computer plays it again)
+                    }
+                }
+                break;
+            }
+            default: break;
+            }
+        }
+        for (int p = 0; p < 4; p++) {
+            b.startWas[p] = (raw[p] & kStart) != 0;
         }
         if (++b.rest >= kRestEvery) {
             b.rest = 0;
@@ -631,7 +845,7 @@ void BattleBeforeFrame(Machine &m) {
         }
         return;
     }
-    const uint16_t raw[2] = {m.players[0], m.players[1]};
+    const uint16_t raw[4] = {m.players[0], m.players[1], m.players[2], m.players[3]};
     // A person takes an endless battle's fighter by touching its controls
     for (int p = 0; p < 2; p++) {
         if (b.mode == kEndless && (m.players[p] & (fight::kSticks | fight::kButtons))) {
@@ -666,8 +880,10 @@ void BattleBeforeFrame(Machine &m) {
     }
     if (b.mode == kTeam && b.tagStyle && !b.decided) {
         TagFrame(m, raw);
-        for (int p = 0; p < 2; p++) {
-            if (Person(p) && Fought()) {
+        // (the picture before the tag kept over its first frames, whose sprites the new machine has not yet made)
+        m.holdPicture = b.taggedAt && b.frames - b.taggedAt < kTagHold;
+        for (int p = 0; p < Machine::kMaxPlayers; p++) {
+            if ((p >= 2 || Person(p)) && Fought()) {
                 m.players[p] = static_cast<uint16_t>(m.players[p] & ~kStart); // (Start is the tag's, not the game's)
             }
         }
@@ -752,6 +968,9 @@ void BattleHud(std::vector<HudLine> &lines) {
                 } else {
                     line += (n ? "  " : "") + (n < b.next[side] ? "(" + name + ")" : n == b.next[side] ? "[" + name + "]" : name);
                 }
+            }
+            if (PadOf(side, b.next[side]) >= 0) {
+                line += "  P" + std::to_string(PadOf(side, b.next[side]) + 1) + " ON";
             }
             lines.push_back({side == 0 ? 0.03f : 0.97f, side == 0 ? 0.235f : 0.275f, side == 0 ? -1 : 1, line, 160, 220, 255});
         }
@@ -853,6 +1072,11 @@ void RegisterBattle(Game &game) {
                              "fighter keeps its own health, and a resting one gets some back. The battle is over when a team has "
                              "nobody left.",
                              0, {"Knock-out", "Tag"}});
+    game.features.push_back({"tag_team", "Team battle", "Tag team",
+                             "With the tag style, each fighter of a team played by a person of its own. Co-op: players 1 and 2 are "
+                             "one team against the computer's. 2 vs 2: players 1 and 3 against players 2 and 4. Whoever's fighter is "
+                             "on plays it, and the partner tags in with Start. The panel says who is on.",
+                             0, {"Off", "Co-op vs. computer", "2 vs 2"}});
     game.features.push_back({"team_size", "Team battle", "Fighters", "How many fighters each team has.", 0, {"2", "3"}});
     game.features.push_back({"team_opponent", "Team battle", "Team 2", "Who plays the second team: the computer, or player 2.", 0,
                              {"Computer", "Player 2"}});
