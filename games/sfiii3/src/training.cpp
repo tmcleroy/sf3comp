@@ -54,7 +54,36 @@ namespace {
         bool animBox = false;
         uint32_t learnedAt = 0;
         int projectileDistance = 1 << 20; // (the dummy's parry: player 1's nearest projectile with its attack out, how far)
+        // (the dummy's guard: moves (by their first animation) that hit it guarding the wrong way, the height to guard
+        // them at next time: 1 standing, 2 crouching; and how it was told to guard last)
+        struct Height {
+            uint16_t anim = 0;
+            uint8_t who = 0, height = 0;
+        } heights[128];
+        bool toldGuard = false, toldStanding = false;
     } g;
+
+    int LearnedHeight(uint8_t who, uint16_t anim) {
+        for (uint32_t n = 0, at = anim % std::size(g.heights); n < std::size(g.heights); n++, at = (at + 1) % std::size(g.heights)) {
+            const auto &one = g.heights[at];
+            if (one.height == 0) {
+                return 0;
+            }
+            if (one.anim == anim && one.who == who) {
+                return one.height;
+            }
+        }
+        return 0;
+    }
+    void LearnHeight(uint8_t who, uint16_t anim, int height) {
+        for (uint32_t n = 0, at = anim % std::size(g.heights); n < std::size(g.heights); n++, at = (at + 1) % std::size(g.heights)) {
+            auto &one = g.heights[at];
+            if (one.height == 0 || (one.anim == anim && one.who == who)) {
+                one = {anim, who, static_cast<uint8_t>(height)};
+                return;
+            }
+        }
+    }
 
     // A move's startup as learned (0: not seen yet)
     int LearnedStartup(uint8_t who, uint16_t anim) {
@@ -249,6 +278,11 @@ namespace {
             const bool hit = hits != g.hits[p];
             const bool guardStarted = Guarding(p) && !g.guarding[p];
             g.hits[p] = hits;
+            // (the dummy told to guard, hit while free (not already reeling: a combo's later hits cannot be guarded) by a
+            // move made on the floor: that move is guarded the other way next time)
+            if (p == 1 && hit && !g.reeling[1] && g.toldGuard && Signed16(Player(0) + sfiii3::kY) <= 0) {
+                LearnHeight(static_cast<uint8_t>(Ram16(Player(0) + 0x3C0)), g.moveAnim[0], g.toldStanding ? 2 : 1);
+            }
             if (hit) {
                 if (getenv("SFIII3_STEPS")) {
                     fprintf(stderr, "contact: player %d hit\n", p + 1);
@@ -575,7 +609,11 @@ void RegisterTraining(Game &game) {
                 inRange = true;
             }
         }
-        standing = Signed16(Player(0) + sfiii3::kY) > 0;
+        // (standing against an attack from the air, or a move learned to be an overhead)
+        const int height = LearnedHeight(static_cast<uint8_t>(Ram16(Player(0) + 0x3C0)), g.moveAnim[0]);
+        standing = (Signed16(Player(0) + sfiii3::kY) > 0 && height != 2) || height == 1;
+        g.toldGuard = inRange;
+        g.toldStanding = standing;
     };
     // Being thrown: the throw escape (light punch and light kick, tapped, as the throw takes hold: kThrown is set two
     // frames after the thrower's buttons)
