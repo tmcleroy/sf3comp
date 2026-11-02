@@ -212,7 +212,7 @@ namespace {
         for (int p = 0; p < 2; p++) {
             const uint32_t base = Player(p);
             const bool idle = Idle(p);
-            if (idle) {
+            if (idle && !wasHit[p]) { // (the frame a hit lands the record still reads as it was: reeling from the next)
                 g.reeling[p] = false;
             }
             fight::StepView view;
@@ -226,7 +226,8 @@ namespace {
             (void)landed;
             // (debugging aid, SFIII3_STEPS=1: what is read of each player, each frame)
             static const bool printSteps = getenv("SFIII3_STEPS") != nullptr;
-            if (printSteps && p == 0) {
+            static const int stepsOf = printSteps ? atoi(getenv("SFIII3_STEPS")) - 1 : 0; // (1: player 1's, 2: player 2's)
+            if (printSteps && p == std::max(stepsOf, 0)) {
                 fprintf(stderr, "step: control %d canAct %d frozen %d attacking %d jumping %d attackOut %d anim %04X -> %d\n", view.control,
                         view.canAct, view.frozen, view.attacking, view.jumping, view.attackOut, Ram16(base + 0x202), static_cast<int>(session::Now(p)));
             }
@@ -264,6 +265,13 @@ void TrainingBeforeFrame(Machine &m) {
                 SetRam8(sfiii3::kGauge[p], 0);
                 SetRam8(sfiii3::kMeterCount[p], most);
                 SetRam8(sfiii3::kMeterUpdate[p], 1);
+            }
+            // (no stun: what it has taken kept at none; one hit: health below full in a round is none)
+            if (FeatureOn(p == 0 ? "no_stun" : "no_stun_2")) {
+                SetRam32(sfiii3::kStunMost[p] + 6, 0);
+            }
+            if (FeatureOn("one_hit") && Ram8(base + sfiii3::kLife) < sfiii3::kFullLife && Ram8(base + sfiii3::kLife) > 0) {
+                SetRam8(base + sfiii3::kLife, 0);
             }
             if (FeatureOn(p == 0 ? "no_damage" : "no_damage_2")) {
                 SetRam8(base + sfiii3::kLife, sfiii3::kFullLife);
@@ -365,6 +373,19 @@ void RegisterTraining(Game &game) {
         {"full_meter_2", session::kPage, "Full meter, player 2", "Player 2's super art meter is always full."},
     };
     d.ownAids = {"hit_boxes", "dummy_parry", "parry_readout", "stun_readout", "full_meter", "full_meter_2"};
+    // Being thrown: the throw escape (light punch and light kick, tapped, as the throw takes hold: kThrown is set two
+    // frames after the thrower's buttons)
+    d.dummy.heldAction = [](int frame, uint16_t, uint16_t) -> uint16_t {
+        return static_cast<uint16_t>((frame & 1) ? 0 : (kPunch1 | kKick1));
+    };
+    d.dummy.heldActionTitle = "Escapes throws";
+    d.dummy.heldActionWords = "Player 2 escapes throws (light punch and light kick as the throw takes hold): always, or one in two at random.";
+    // Knocked down: the quick stand (down tapped as it lands)
+    d.dummy.getUp.push_back({"Quick stand", [](int frame, uint16_t, uint16_t) -> uint16_t {
+                                 return static_cast<uint16_t>(((frame / 2) & 1) ? 0 : kDown);
+                             }});
+    d.dummy.downAfter = 12;
+    d.dummy.getUpWords = "How player 2 gets up after being knocked down: where it fell, a quick stand (down as it lands), or either at random.";
     session::Register(d);
     game.state = [](Archive &ar) {
         WidescreenState(ar);
