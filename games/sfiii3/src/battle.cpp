@@ -150,6 +150,13 @@ namespace {
         bool handed = false;                 // (the winner is in the next match)
         int16_t apexX = 0, ringY = 0, handedY = 0, cameraY = 0;
         int32_t raise = 0;                   // (how far above the next stage the camera is held, 256ths of a pixel)
+        // (ring out: the computer's coach, cps2recomp's: its plan, for how long and at most, which way a throw sends,
+        // in the air on the way, frames to its next look; and how long each fighter has been free, or knocked about)
+        uint8_t plan = 0;
+        int16_t planFor = 0, planMost = 0, think = 0;
+        int8_t planWay = 1;
+        bool planAir = false;
+        uint16_t ringFree[2] = {}, ringBusy[2] = {};
         int16_t jumpX = 0;      // ... where in the picture it was as it went (columns from the picture's middle)
         // (team battle, the tag style) each fighter's health while it rests (0: down), the stage fought on, when each side
         // may tag again, the characters each side's tag spare was made for, and the computer's last look
@@ -1113,6 +1120,134 @@ bool BattleOn() {
 // far up and following it down as it falls, the old stage going up and out as the next comes up from below
 // (Machine::dropRaise). True while the ring out has the machine (the rest of the battle's frame not run).
 namespace {
+    // --- the ring out's coach (cps2recomp's fight/battle.cpp: Think, Follow): a side the game plays is given a plan now
+    // and then, as a person would play a ring out (get out of the way of its own end, push the other over its end, go
+    // round to the better side), its controls the coach's until the plan is done; the rest of the time the game plays it.
+    // The difficulty says how soon it sees a chance and how often it takes one. ---
+    enum Plan : uint8_t { kPlay, kWalk, kJumpOver, kSweep, kThrow };
+    constexpr int kNearEnd = 150;   // pixels from one's own end at which a fighter is to get out
+    constexpr int kAtTheEnd = 100;  // pixels from the other's end at which that one can be knocked over it
+    constexpr int kClose = 50;      // pixels between the two at which a throw reaches
+    constexpr int kOver = 110;      //   and over which a jump is too short to go over the other
+    constexpr int kPlanMost = 120;  // frames, at most, of a plan
+    constexpr int kDownFrames = 20; // frames knocked about after which the other is taken to be down
+    bool Chance(int perMille) {
+        return static_cast<int>(Next() % 1000) < perMille;
+    }
+    int Toward(int side) {
+        return X(1 - side) >= X(side) ? 1 : -1;
+    }
+    uint16_t Stick(int way) {
+        return way > 0 ? kRight : kLeft;
+    }
+    // How far a fighter's back is from the end of the stage behind it (the walls: 164 beyond the camera's limits)
+    int Back(int side) {
+        const int left = Word(sfiii3::kCameraLeft[0]) - 164 + kHalfWidth, right = Word(sfiii3::kCameraRight[0]) + 164 - kHalfWidth;
+        return Toward(side) > 0 ? X(side) - left : right - X(side);
+    }
+    int StageWidth() {
+        return Word(sfiii3::kCameraRight[0]) - Word(sfiii3::kCameraLeft[0]) + 328;
+    }
+    void SetPlan(Plan plan, int most, int way = 1) {
+        if (getenv("SFIII3_BATTLE_LOG")) { // (debugging aid)
+            static const char *const kNames[] = {"play", "walk", "jump over", "sweep", "throw"};
+            fprintf(stderr, "coach: frame %u %s back %d other %d distance %d\n", b.frames, kNames[plan], Back(1), Back(0), std::abs(X(0) - X(1)));
+        }
+        b.plan = plan;
+        b.planFor = 0;
+        b.planMost = static_cast<int16_t>(most);
+        b.planWay = static_cast<int8_t>(way);
+        b.planAir = false;
+    }
+    void Think(int side) {
+        if (--b.think > 0 || !CanAct(side) || InAir(side)) {
+            return;
+        }
+        const int other = 1 - side;
+        const int mine = Back(side), theirs = Back(other), distance = std::abs(X(0) - X(1));
+        const bool near = mine < kNearEnd && mine < theirs;
+        b.think = static_cast<int16_t>(near ? Between(10, 3) + static_cast<int>(Next() % 3) : Between(24, 8) + static_cast<int>(Next() % 8));
+        if (Ram8(sfiii3::kPlayer[other] + sfiii3::kAttacking) != 0) {
+            return; // (never into an attack coming: the game's play guards it, or answers it)
+        }
+        const bool down = b.ringBusy[other] >= kDownFrames;
+        const bool recovering = !KnockedAbout(other) && !CanAct(other) && !InAir(other);
+        const bool standing = CanAct(other);
+        const int opening = down || recovering ? Between(400, 900) : standing ? Between(100, 300) : 0;
+        if (near) {
+            // (out: a throw over one's head, a jump over, or a walk out of the end's way)
+            if (distance < kClose && !down && Chance(opening)) {
+                SetPlan(kThrow, kPlanMost, 1);
+            } else if (distance < kOver && Chance(opening)) {
+                SetPlan(kJumpOver, kPlanMost);
+            } else if (distance >= kOver && Chance(Between(300, 700))) {
+                SetPlan(kWalk, 24);
+            }
+        } else if (theirs < kAtTheEnd && distance < kClose && !down && Chance(opening)) {
+            SetPlan(kThrow, kPlanMost, -1);
+        } else if (theirs < kAtTheEnd && distance < 100 && recovering && Chance(opening)) {
+            SetPlan(kSweep, kPlanMost);
+        } else if (theirs < mine && distance > 90 && !down && Chance(Between(250, 600))) {
+            SetPlan(kWalk, 16 + static_cast<int>(Next() % 16));
+        } else if (mine < theirs && mine < StageWidth() / 3 && distance < kOver && Chance(opening / 2)) {
+            SetPlan(kJumpOver, kPlanMost);
+        }
+    }
+    // A frame of the plan: its controls (3rd Strike's throw is light punch and light kick, its sweep down and hard kick)
+    uint16_t Follow(int side) {
+        const int f = b.planFor++;
+        const uint16_t toward = Stick(Toward(side));
+        const bool air = InAir(side);
+        b.planAir = b.planAir || air;
+        bool done = f >= b.planMost || (f > 3 && KnockedAbout(side));
+        uint16_t panel = 0;
+        switch (b.plan) {
+        case kWalk:
+            panel = toward;
+            done = done || std::abs(X(0) - X(1)) < 70 || Ram8(sfiii3::kPlayer[1 - side] + sfiii3::kAttacking) != 0;
+            break;
+        case kJumpOver:
+            panel = f < 3 ? static_cast<uint16_t>(kUp | toward) : 0;
+            done = done || (b.planAir && !air && CanAct(side)) || (f > 8 && !b.planAir);
+            break;
+        case kSweep:
+            panel = f == 2 ? static_cast<uint16_t>(kDown | kKick3) : f < 10 ? static_cast<uint16_t>(kDown) : 0;
+            done = done || (f > 12 && CanAct(side));
+            break;
+        case kThrow: {
+            const uint16_t way = b.planWay > 0 ? toward : Stick(-Toward(side));
+            panel = f == 1 ? static_cast<uint16_t>(way | kPunch1 | kKick1) : f < 1 ? way : 0;
+            done = done || (f > 6 && CanAct(side));
+            break;
+        }
+        default: break;
+        }
+        if (done) {
+            b.plan = kPlay;
+            b.think = static_cast<int16_t>(Between(24, 8));
+        }
+        return panel;
+    }
+    // Before the frame of a ring out's fight: each fighter watched, and the computer's side coached
+    void RingOutCoach(Machine &m) {
+        for (int side = 0; side < 2; side++) {
+            const bool own = !KnockedAbout(side);
+            b.ringFree[side] = own ? static_cast<uint16_t>(b.ringFree[side] + 1) : 0;
+            b.ringBusy[side] = own ? 0 : static_cast<uint16_t>(b.ringBusy[side] + 1);
+        }
+        const int side = 1; // (the computer's: player 2)
+        if (Person(side) || getenv("SFIII3_NO_COACH")) {
+            return;
+        }
+        if (b.plan == kPlay) {
+            Think(side);
+        }
+        if (b.plan != kPlay) {
+            m.players[side] = Follow(side);
+            SetRam8(sfiii3::kPlayer[side] + 3, 1); // (its controls the coach's this frame, not the game's play)
+        }
+    }
+
     bool RingOutFrame(Machine &m) {
         // (the next match: two frames a frame while this one is fought, four while one falls)
         for (int n = 0; n < (b.ring == 1 ? 4 : 2) && !g_next.ready && !g_next.state.empty(); n++) {
@@ -1127,6 +1262,7 @@ namespace {
             if (!Fought()) {
                 return false;
             }
+            RingOutCoach(m);
             for (int p = 0; p < 2; p++) {
                 const int end = KnockedAbout(p) ? OpenEnd(p) : 0;
                 const int x = Word(sfiii3::kPlayer[p] + sfiii3::kX);
