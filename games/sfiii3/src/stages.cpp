@@ -109,6 +109,17 @@ namespace {
     };
     std::vector<Kept> g_kept;
     bool g_keepNow = false;
+    // The board on its way, its coins in and no game begun (kBaseAt of its frames from its reset): kept once for its
+    // game, and its next trip to another stage's fight begun from there, its start-up (memory checks, warnings, its
+    // logo) passed over. A trip from a reset took ~1600 of its frames, so the opponent's stage came some 200 frames
+    // into 3rd Strike's round's start, 3rd Strike's own stage shown till then; from here it is in time.
+    constexpr uint32_t kBaseAt = 880; // (its coins go in until 900, its Start from 920: its stage is not chosen yet)
+    struct Base {
+        const void *game = nullptr;
+        State state;
+        std::vector<uint8_t> data;
+    } g_base;
+    bool g_keepBaseNow = false;
     // Preloading (stages_preload, with the opponent's): between fights the board is lent to taking another stage of
     // its game to its fight, to keep; the board's own stage put back when it is wanted again
     struct Preload {
@@ -145,10 +156,14 @@ namespace {
         return (Ram8(sfiii3::kLocked[0]) == 0xFF || Ram8(sfiii3::kLocked[1]) == 0xFF) && state >= 1 && state <= 8;
     }
 
-    // 3rd Strike's own stage: a tilemap's lines, or an object with a stage's colours (palettes 0x80 and up)
+    // 3rd Strike's own stage: a tilemap's lines, or an object with a stage's colours (palettes 0x80-0xFF; and 0x1FF, the
+    // blank objects every stage has). Not the round's banners, "ROUND 1" (0x1ED) and "FIGHT!" (0x1E0), drawn with
+    // palettes of their own above the stages': over another game's stage they are 3rd Strike's to show. (Every stage's
+    // objects, in an endless battle on each of the 21 at two moments of a fight: palettes 0x80-0xFC, and 0x1FF.)
     bool OwnStageObject(const machine::Machine &m, uint32_t object) {
         const uint32_t *list = m.SpriteList();
-        return (list[object * 4 + 2] & 3) == 0 || (list[object * 4] & 0x1FF) >= 0x80;
+        const uint32_t palette = list[object * 4] & 0x1FF;
+        return (list[object * 4 + 2] & 3) == 0 || (palette >= 0x80 && palette < 0x100) || palette == 0x1FF;
     }
     // The stage board's stage: all but its fighters (6 bits a pixel and a palette below 0x40: New Generation's 0x08 and
     // 0x10, 2nd Impact's 0x00 and 0x18) and their shadows (palette 0, blending). Its stage's people and things have
@@ -277,6 +292,9 @@ namespace {
 
         }
         if (!g.fought) {
+            if (g.frames == kBaseAt && &stage == machine.StageBoard() && &game != &kThirdStrike && g_base.game != choice.game) {
+                g_keepBaseNow = true; // (kept before the next shown frame: StagesBeforeFrame)
+            }
             const uint32_t phase = g.frames % 40;
             uint32_t inputs = 0, extra = 0;
             if (g.frames < 900) {
@@ -393,6 +411,17 @@ namespace {
                 SetWord(ram, game.players[p] + 0x64, placed[p] + push - g.offset);
             }
             int theirs = theirLeft + (std::clamp(camera, left, right) - left) * (theirRight - theirLeft) / (right - left);
+            // (3rd Strike between rounds, its camera's ends not its stage's yet (1 and 95 seen, before a round's start):
+            // its middle, where 3rd Strike's camera begins a round, its fighters either side of it. Followed from
+            // those ends, it went to its right end, and as the round began panned back across for some 40 frames
+            // over the round's start; and held at its end it learned that place as its end, the stage cut short.)
+            const bool ownEnds = OnStage() && right - left >= 128;
+            if (!ownEnds && g_cameraWanted == kFollow) {
+                theirs = (theirLeft + theirRight) / 2;
+                for (int p = 0; p < 2; p++) {
+                    SetWord(ram, game.players[p] + 0x64, theirs + (p ? 40 : -40) - g.offset);
+                }
+            }
             if (g_cameraWanted != kFollow) {
                 theirs = std::clamp(g_cameraWanted, theirLeft, theirRight); // (the modes' scrolling stage: its camera its own)
                 for (int p = 0; p < 2; p++) {
@@ -404,7 +433,7 @@ namespace {
             g_theirRight = theirRight;
             // (its camera held short of where it was sent, frame after frame: that is its end)
             const int had = g.lastCamera;
-            if (std::abs(theirs - had) > 8 && had == g.stuckAt) {
+            if (std::abs(theirs - had) > 8 && had == g.stuckAt && (ownEnds || g_cameraWanted != kFollow)) {
                 if (++g.stuck > 30) {
                     (theirs < had ? g.realLeft : g.realRight) = had;
                     g.stuck = 0;
@@ -518,6 +547,19 @@ namespace {
         }
         return false;
     }
+    // The board started again on its way to a fight (g.loaded, g.stage say which): from its game's start-up passed
+    // (Base), or from its reset
+    void TripFromStart(Machine &machine) {
+        if (g_base.game && g_base.game == kChoices[g.loaded].game && !g_base.data.empty()) {
+            const int loaded = g.loaded, stage = g.stage;
+            machine.RestoreStage(g_base.data);
+            g = g_base.state;
+            g.loaded = loaded;
+            g.stage = stage;
+            return;
+        }
+        machine.StageBoard()->Reset();
+    }
     // The board back to its own stage (after preloading another): as kept, or (none) left as it is
     void EndPreload(Machine &machine) {
         if (!g_pre.on) {
@@ -533,12 +575,20 @@ namespace {
             g.fought = false; // (not kept: taken to its fight again)
             g.offsetKnown = false;
             g.frames = 0;
-            machine.StageBoard()->Reset();
+            TripFromStart(machine);
         }
     }
 } // namespace
 
 void StagesBeforeFrame(Machine &machine) {
+    if (g_keepBaseNow) {
+        g_keepBaseNow = false;
+        if (g.loaded && machine.StageBoard() && !g.fought) {
+            g_base.game = kChoices[g.loaded].game;
+            g_base.state = g;
+            machine.KeepStage(g_base.data);
+        }
+    }
     if (g_keepNow) {
         g_keepNow = false;
         if (g.loaded && machine.StageBoard()) {
@@ -593,7 +643,7 @@ void StagesBeforeFrame(Machine &machine) {
                     g = {};
                     g.loaded = loaded;
                     g.stage = stage;
-                    machine.StageBoard()->Reset();
+                    TripFromStart(machine);
                     break;
                 }
             }
@@ -608,7 +658,7 @@ void StagesBeforeFrame(Machine &machine) {
                 g = {};
                 g.loaded = loaded;
                 g.stage = next;
-                machine.StageBoard()->Reset();
+                TripFromStart(machine);
             }
             g.stage = next;
         }
@@ -627,13 +677,14 @@ void StagesBeforeFrame(Machine &machine) {
             g = {};
             g.loaded = choice;
             g.stage = kChoices[choice].stage == kOpponents ? Ram8(sfiii3::kStage) : -1;
-            machine.StageBoard()->Reset();
+            TripFromStart(machine);
         }
         (void)was;
         return;
     }
     g = {};
     g_pre = {};
+    g_base = {};
     g.loaded = choice;
     g_kept.clear();
     machine.SetStageBoard(choice ? LoadSet(*kChoices[choice].game) : nullptr);
