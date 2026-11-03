@@ -39,6 +39,9 @@ void WidescreenBeforeFrame(Machine &m, bool fighting);
 void TrainingBeforeFrame(Machine &m);
 void AttractBeforeFrame(Machine &m);
 void RegisterAttract(Game &game);
+void BonusBeforeFrame(Machine &m);
+void RegisterBonus(Game &game);
+bool BonusOn(); // bonus.cpp
 void TrainingAfterFrame(Machine &m);
 int WorldShift();     // widescreen.cpp
 bool ModelViewerOn(); // model.cpp
@@ -51,7 +54,7 @@ namespace {
 
     void BeforeFrame(Machine &m) {
         BoardBeforeFrame(m);
-        if (FeatureOn("skip_intro") && m.frame < kOpening && !session::Booting() && !AttractOn()) {
+        if (FeatureOn("skip_intro") && m.frame < kOpening && !session::Booting() && !AttractOn() && !BonusOn()) {
             if (!g_skipping) {
                 g_skipping = true;
                 SetFastForward(true);
@@ -86,6 +89,7 @@ namespace {
         StagesBeforeFrame(m);
         TrainingBeforeFrame(m);
         BattleBeforeFrame(m);
+        BonusBeforeFrame(m);
         ModelBeforeFrame(m);
         AttractBeforeFrame(m);
     }
@@ -147,7 +151,7 @@ void RegisterGame() {
     game.rewritesNeeded = [] { return BattleOn() || session::InSession(); };
     // The menu's pages for the ways of playing beyond the board's own (as the CPS-2 ports have them)
     game.pages.push_back({"Alternative modes", "", "Ways to play beyond the arcade game: training, attract mode, viewers for the stages "
-                                                   "and the characters, the colour editor, survival, endless and team battles, ring out.", true});
+                                                   "and the characters, the colour editor, survival, endless and team battles, ring out, the bonus games.", true});
     game.pages.push_back({"Training mode", "Alternative modes", "A fight with no clock that nobody loses, and the aids for practising in it."});
     game.pages.push_back({"Dummy", "Training mode", "What player 2 does in a training session."});
     game.pages.push_back({"Attract mode", "Alternative modes", "The game's own show on a loop, as with nobody playing: the opening, "
@@ -161,7 +165,10 @@ void RegisterGame() {
     game.pages.push_back({"Colour editor", "Alternative modes", "The characters' colours changed while you watch: any set, any of its "
                                                                 "lines of colours, 32 levels of red, green and blue."});
     game.pages.push_back({"Tag team battle", "Alternative modes", "Two teams: knock a fighter down and the next of that team comes on. The last team standing wins."});
+    game.pages.push_back({"Bonus games", "Alternative modes", "The one-player game's bonus stages, played straight away: crush the car, "
+                                                              "parry Sean's basketballs."});
     RegisterAttract(game);
+    RegisterBonus(game);
     RegisterSoundProbe();
     RegisterBoard(game);
     // The menu's pages and rows in the CPS-2 ports' order (Street Fighter Alpha 2's), this game's own after them
@@ -198,7 +205,7 @@ void RegisterGame() {
                     "dummy_getup", "dummy_stun_mash", "dummy_computer"});
     {
         static const char *const kPages[] = {"Training mode", "Attract mode", "Stage viewer", "Survival", "Endless battle", "Ring out",
-                                             "Tag team battle", "Model viewer", "Colour editor"};
+                                             "Tag team battle", "Bonus games", "Model viewer", "Colour editor"};
         std::stable_sort(game.pages.begin(), game.pages.end(), [](const Page &a, const Page &b) {
             const auto rank = [](const Page &p) {
                 if (std::string(p.parent) != "Alternative modes") {

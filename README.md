@@ -60,6 +60,7 @@ The in-game menu's first row has ways to play and watch the game that the board 
 | Endless battle | Two fighters the game plays for as long as you like, with no bars and no clock, on stages that scroll by one after another, on stages that fade into one another, or on one stage. Touch the controls to take a fighter over |
 | Ring out | No health: knock your opponent over the end of the stage, then jump down after it onto the next |
 | Tag team battle | Two teams of two or three. **Tag** (the default): tag your next fighter in with the left trigger (or Start); yours flies off the screen and the next jumps in from that side with an attack. Each keeps its own health; one whose bar empties lies there a while and the next jumps in. The computer's team tags too, at good moments. **Knock-out**: one fighter of each team at a time, the next coming on when one is knocked out. **Tag team**: co-op (players 1 and 2 against the computer's team) or 2 vs 2 for four players |
+| Bonus games | The one-player game's bonus stages, Crush the Car and Parry the Ball, straight away with the character you choose |
 
 ## The definitive version's stages
 

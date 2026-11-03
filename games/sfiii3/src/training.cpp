@@ -383,6 +383,7 @@ namespace {
 
 void WidescreenState(Archive &ar);
 void BattleState(Archive &ar);
+void BonusState(Archive &ar);
 void BattleHud(Machine &m, std::vector<HudLine> &lines);
 void ModelHud(std::vector<HudLine> &lines, std::vector<HudBox> &boxes);
 bool ModelViewerOn();
@@ -659,6 +660,7 @@ void RegisterTraining(Game &game) {
     game.state = [](Archive &ar) {
         WidescreenState(ar);
         BattleState(ar);
+        BonusState(ar);
         ar.Pod(g);
         session::State(ar);
     };

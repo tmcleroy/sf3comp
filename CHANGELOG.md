@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Bonus games (Alternative modes): Crush the Car or Parry the Ball, straight from the menu with the character chosen at
+  character select; the menu again when it is over.
 - The alternative modes made as the CPS-2 ports have them. Ring out: a fighter knocked about at an open end goes over
   it and falls, and the winner jumps down onto the next stage, the camera following it. Endless battle: the stages
   scroll by with no break (or fade, as a choice). Tag team battle (so named; tag the default; rested fighters keep
