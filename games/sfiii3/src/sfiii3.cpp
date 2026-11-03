@@ -9,6 +9,11 @@
 #include "state.h"
 #include "system.h"
 
+#include <algorithm>
+#include <iterator>
+#include <string>
+#include <vector>
+
 namespace cps3recomp {
 
 bool AttractOn(); // attract.cpp
