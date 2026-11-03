@@ -95,6 +95,10 @@ namespace {
     constexpr uint32_t kAttacksSeen = 0x02015750; // word: the other's attacks counted (Attack_Counter)
     constexpr uint32_t kGuardedAttack = 0x02015848; // word: kAttacksSeen when the guard was last chosen (Guard_Counter)
     constexpr uint32_t kGuardType = 0x020155FE; // word: the guard chosen (Guard_Type), with 0x8000
+    constexpr uint32_t kReturnMode = 0x02015812; // word: the mode an answer broke off (Return_CP_No)
+    constexpr uint32_t kReturnPlace = 0x02015816; // word: its step to go on with (Return_CP_Index)
+    constexpr uint32_t kReturnPattern = 0x0201581A; // word: its plan (Return_Pattern_Index)
+    constexpr uint32_t kLastEffect = 0x02015830; // word: the last target combo's (Last_Eftype)
     constexpr uint32_t kComboSpeed = 0x020155AE; // byte: frames before the attack's button (Combo_Speed: Check_First_Menu)
     constexpr uint32_t kHitStock = 0x02015661;  // byte: the record's kHitBy, kept as the attack is put in (Stock_Hit_Flag)
 
@@ -175,6 +179,8 @@ namespace {
     constexpr uint32_t kMeetsLimitAir = 0x0600B466; // Check_Term_Sub_Air (r4, r5 a gap, r6 its limit)
     constexpr uint32_t kHeightGap = 0x0600FC54;  // Ck_Distance_Height (r4): how far apart the two are upward
     constexpr uint32_t kReflexTime = 0x0600F93C; // Select_Reflection_Time (r4)
+    constexpr uint32_t kSetupFollow = 0x06010898; // Setup_Follow (r4, r5 the follow-up)
+    constexpr uint32_t kTargetCombo = 0x060101D2; // Check_Meoshi_Attack (r4, r5 the reaction, r6 the power)
     constexpr uint32_t kReaction = 0x0600FE80;   // Reaction_Sub (r4, r5 the reaction, r6 the power): after the attack
 
     // One side of the computer: its fighter's record and its entries in the tables
@@ -2125,6 +2131,205 @@ namespace {
         return true;
     }
 
+    // 0600FE80 (Reaction_Sub, r5 the reaction, r6 the power): what the plan does once its attack is out, by the
+    // reaction's low seven bits, from whether the attack hit (kHitStock: 1-3 guarded or hit, 4 and up a hit that
+    // counts) and whether the fighter is still in it (kDoing 4, its animation not 0x40):
+    //    0-7  a hit: the follow-up (Setup_Follow, the reaction's low twelve bits); guarded: the next step; missed and
+    //         over: the follow-up
+    //    9    guarded or hit: the next step; missed and over: the plan ended (Next_End)
+    //   10    a hit: ended; guarded: the next step; missed and over: the next step
+    //   11    as 10 (missed and over: ended), but not while the fighter attacks or holds the other
+    //   12, 14  the next step, as a counter attack (kCounter)
+    //   13    a hit: ended; a target combo may follow (Check_Meoshi_Attack); over: guarded or hit, back to the plan
+    //         broken off for an answer (mode 6, plan 0) or the next step; missed, ended
+    //   others  not while attacking or holding: hit, guarded or over, the next step
+    // (Each ends in a jump to the routine named, which leaves what the call leaves; or the registers as the game's
+    // code does.)
+    bool Reaction(Guest &g) {
+        Side s(g, g.R(4));
+        Frame frame(g, 24);
+        const uint32_t reaction = Signed(static_cast<int16_t>(g.R(5)));
+        const uint32_t power = Signed(static_cast<int16_t>(g.R(6)));
+        const uint32_t kind = reaction & 127;
+        const uint32_t fighter = kFighters + Signed(static_cast<int16_t>(s.side * kFighterSize));
+        g.R(4) = kHitStock;
+        g.R(6) = kFighters;
+        if (kind < 15) {
+            g.R(1) = kind * 2;
+            g.R(0) = Signed(static_cast<int16_t>(g.Read16(0x0600FEB8 + kind * 2)));
+        } else {
+            g.R(0) = kind;
+            g.R(1) = 15;
+        }
+        const auto jump = [&](uint32_t to, uint32_t r5) {
+            g.R(4) = s.me;
+            g.R(5) = r5;
+            g.Call(to);
+            g.Return(60);
+            return true;
+        };
+        const auto stay = [&]() {
+            g.Return(60);
+            return true;
+        };
+        const uint8_t hit = s.Byte(kHitStock);
+        // The fighter still in its attack (kDoing 4 and its animation not 0x40): r0 left as the game's test leaves it
+        const auto stillIn = [&]() {
+            if (s.Field(kDoing) != 4) {
+                g.R(0) = Signed(s.Field(kDoing));
+                g.SetT(false);
+                return false;
+            }
+            g.R(0) = g.Read8(s.me + kMoveKind);
+            g.SetT(g.R(0) == 0x40);
+            return g.R(0) != 0x40;
+        };
+        // Attacking or holding the other (caution_flag, tsukami_f): r0, r1 and r6 as the game's tests leave them
+        const auto busy = [&]() {
+            g.R(0) = fighter;
+            g.R(1) = Signed(static_cast<int8_t>(g.Read8(fighter + kAttacking)));
+            g.R(3) = kFighterSize;
+            if (g.R(1) != 0) {
+                g.SetT(false);
+                return true;
+            }
+            g.R(6) = fighter;
+            g.R(0) = Signed(static_cast<int8_t>(g.Read8(fighter + kHolding)));
+            g.SetT(g.R(0) == 0);
+            return g.R(0) != 0;
+        };
+        const auto counts = [&]() { // (a hit that counts: kHitStock 4 and up)
+            g.R(0) = Signed(s.side);
+            g.R(3) = static_cast<uint32_t>(hit >> 2);
+            g.SetT(g.R(3) == 0);
+            return g.R(3) != 0;
+        };
+        const auto anyHit = [&]() {
+            g.R(0) = Signed(s.side);
+            g.R(3) = hit;
+            g.SetT(hit == 0);
+            return hit != 0;
+        };
+        switch (kind) {
+        case 0: case 1: case 2: case 3: case 4: case 5: case 6: case 7: {
+            const uint32_t followUp = reaction & 0xFFF;
+            if (counts()) {
+                return jump(kSetupFollow, followUp);
+            }
+            if (anyHit()) {
+                return jump(kReactionExit, g.R(5));
+            }
+            if (stillIn()) {
+                return stay();
+            }
+            return jump(kSetupFollow, followUp);
+        }
+        case 9:
+            if (anyHit()) {
+                return jump(kReactionExit, g.R(5));
+            }
+            if (stillIn()) {
+                return stay();
+            }
+            return jump(kNextEnd, g.R(5));
+        case 10:
+            if (counts()) {
+                return jump(kNextEnd, g.R(5));
+            }
+            if (anyHit() || !stillIn()) {
+                return jump(kReactionExit, g.R(5));
+            }
+            return stay();
+        case 11:
+            if (busy()) {
+                return stay();
+            }
+            if (counts()) {
+                return jump(kNextEnd, g.R(5));
+            }
+            if (anyHit()) {
+                return jump(kReactionExit, g.R(5));
+            }
+            if (stillIn()) {
+                return stay();
+            }
+            return jump(kNextEnd, g.R(5));
+        case 12:
+        case 14:
+            g.R(4) = s.me;
+            g.Call(kReactionExit);
+            s.SetByte(kCounter, 1);
+            g.R(0) = Signed(s.side);
+            g.R(2) = s.At(kCounter, 1);
+            g.R(3) = 1;
+            return stay();
+        case 13:
+            if (counts()) {
+                return jump(kNextEnd, g.R(5));
+            }
+            g.R(0) = g.Read16(s.me + kPermitted);
+            g.SetT((g.R(0) & 0x10) == 0);
+            if (g.R(0) & 0x10) {
+                g.R(4) = s.me;
+                g.R(5) = reaction;
+                g.R(6) = power;
+                g.Call(kTargetCombo);
+                if (Nonzero(g)) {
+                    return stay();
+                }
+            }
+            s.SetWord(kLastEffect, -1);
+            g.R(2) = s.At(kLastEffect, 2);
+            g.R(3) = 0xFFFFFFFF;
+            if (stillIn()) {
+                return stay();
+            }
+            g.R(0) = Signed(s.side);
+            g.R(1) = Signed(static_cast<int8_t>(hit));
+            if (hit == 0) {
+                g.SetT(true);
+                return jump(kNextEnd, g.R(5));
+            }
+            g.R(4) = kMode;
+            g.R(5) = Signed(s.side);
+            g.R(0) = Signed(s.Mode());
+            if (s.Mode() != 6) {
+                g.SetT(false);
+                return jump(kReactionExit, g.R(5));
+            }
+            g.R(2) = Signed(s.side * 2);
+            g.R(0) = kPattern;
+            g.R(3) = Signed(s.Word(kPattern));
+            if (s.Word(kPattern) != 0) {
+                g.SetT(false);
+                return jump(kReactionExit, g.R(5));
+            }
+            // (back to the plan an answer broke off)
+            g.Write16(s.ModeAt(0), g.Read16(s.At(kReturnMode, 2)));
+            s.SetPlace(0, s.Word(kReturnPlace));
+            for (int n = 1; n < 4; n++) {
+                s.SetPlace(n, 0);
+            }
+            s.SetWord(kPattern, s.Word(kReturnPattern));
+            g.R(0) = kPattern;
+            g.R(1) = Signed(s.Word(kReturnPlace));
+            g.R(2) = Signed(s.side * 2);
+            g.R(3) = Signed(s.Word(kReturnPattern));
+            g.R(4) = Signed(s.side * 2);
+            g.R(5) = 0;
+            g.SetT(false);
+            return stay();
+        default:
+            if (busy()) {
+                return stay();
+            }
+            if (anyHit() || !stillIn()) {
+                return jump(kReactionExit, g.R(5));
+            }
+            return stay();
+        }
+    }
+
     // (free: r1-r7 and T for a routine with a result, r0-r7 and T for one with none, where C callers only call it)
     constexpr uint32_t kResult = 0x100FE, kNoResult = 0x100FF;
     const Lift kLifts[] = {
@@ -2200,6 +2405,7 @@ namespace {
         {"ComputerClearHighJump", 0x060B5CD6, 0x24, 0x373A27F2CD6C0C12ull, ClearHighJump, true, 0x14},
         {"ComputerVsAirAttack", 0x0600C196, 0x166, 0x962089A960C3998Eull, VsAirAttack, true, kResult},
         {"ComputerAirGuard", 0x0600B974, 0x194, 0x3DE0946FB87F7C6Aull, AirGuard, true},
+        {"ComputerReaction", 0x0600FE80, 0x350, 0xC63031721D36CBC3ull, Reaction, true},
         {"ComputerRandomPlan", 0x0600A708, 0x92, 0xD3F8F075B257F2A6ull, RandomPlan, true, kResult},
     };
 } // namespace
