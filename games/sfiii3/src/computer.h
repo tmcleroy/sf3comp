@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Tommy McLeroy
+//
+// 3rd Strike's computer player (the code that plays a fighter whose record's byte 3 is 0): what is known of it, for
+// the rewrites of its routines (computer_*.cpp, one file a part).
+//
+// Found by comparing the routines called in a training session with player 2 played by the game against one with it
+// standing (CPS3RECOMP_CALL_GRAPH): 0x06006040, called once a frame for the fighter from 0x06119610, is the computer;
+// about 110 routines under it, most of them between 0x06006000 and 0x06014000. Its parts:
+//   computer_entry.cpp    0x06006040 itself, 0x060060B4 and what it calls (0x060061D0, 0x0600643C, 0x0600653C,
+//                         0x06006610, 0x06006C72, 0x06006CE0, 0x060083A0, 0x060084A4, 0x060088D4, 0x0600FC20,
+//                         0x0600FC6A), and 0x0600899A, 0x06008A08 after it
+//   computer_tactics.cpp  0x06006C22's 0x06008BF0 and what it calls, but for the scripts
+//   computer_scripts.cpp  0x06012588, 0x060125B4 and what they call
+//   computer_moves.cpp    0x06006C22's 0x06066874 and what it calls
+#pragma once
+
+#include "lift.h"
+#include "sfiii3.h"
+
+#include <cstdint>

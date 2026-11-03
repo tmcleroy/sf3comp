@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <iterator>
 #include <string>
+#include <deque>
 #include <vector>
 
 namespace cps3recomp {
@@ -339,20 +340,36 @@ namespace {
     }
 } // namespace
 
-void RegisterLifts3rdStrike() {
-    // (debugging aid, SFIII3_LIFTS_ONLY=NAME,NAME: only those registered, to check a rewrite that the others call)
+// A source file's lifts registered (debugging aid, SFIII3_LIFTS_ONLY=NAME,NAME: only those, to check a rewrite that the
+// others call)
+void RegisterGameLifts(const Lift *lifts, size_t count) {
     if (const char *only = getenv("SFIII3_LIFTS_ONLY")) {
-        static std::vector<Lift> some;
+        static std::deque<std::vector<Lift>> kept;
+        std::vector<Lift> &some = kept.emplace_back();
         const std::string names = std::string(",") + only + ",";
-        for (const Lift &lift : kLifts) {
-            if (names.find(std::string(",") + lift.name + ",") != std::string::npos) {
-                some.push_back(lift);
+        for (size_t n = 0; n < count; n++) {
+            if (names.find(std::string(",") + lifts[n].name + ",") != std::string::npos) {
+                some.push_back(lifts[n]);
             }
         }
         RegisterLifts(some.data(), some.size());
     } else {
-        RegisterLifts(kLifts, std::size(kLifts));
+        RegisterLifts(lifts, count);
     }
+}
+
+// The computer player's rewrites (computer.h), a source file for each part of it
+void RegisterComputerEntry();
+void RegisterComputerTactics();
+void RegisterComputerScripts();
+void RegisterComputerMoves();
+
+void RegisterLifts3rdStrike() {
+    RegisterGameLifts(kLifts, std::size(kLifts));
+    RegisterComputerEntry();
+    RegisterComputerTactics();
+    RegisterComputerScripts();
+    RegisterComputerMoves();
     AddHook("VerticalBlank", 0x06000528, 8, 0xF41697FE6C5AEE4Dull, VerticalBlank);
 }
 
