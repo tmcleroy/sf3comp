@@ -36,6 +36,7 @@ void SH2::Serialize(Archive &ar) {
     ar.Pod(m_dmaOperation);
     ar.Pod(m_cacheControl);
     ar.Pod(m_cacheData);
+    m_bus.Serialize(ar);
 }
 
 void Machine::Serialize(Archive &ar) {

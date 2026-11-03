@@ -123,6 +123,9 @@ static inline bool PlainRead(uint32 a) {
     return (area <= 1 && (address < 0x80000u || (address >> 24) == 6)) || area == 6;
 }
 uint8 SH2::Read8(uint32 a) {
+    if (m_busTiming) [[unlikely]] {
+        m_busExtra += m_bus.Read(a, 1, false);
+    }
     if ((a & kMainRamMask) == kMainRam) [[likely]] {
         return m_machine.mainRam[a & 0x7FFFFu];
     }
@@ -136,6 +139,9 @@ uint8 SH2::Read8(uint32 a) {
     }
 }
 uint16 SH2::Read16(uint32 a) {
+    if (m_busTiming) [[unlikely]] {
+        m_busExtra += m_bus.Read(a, 2, false);
+    }
     a &= ~1u;
     if ((a & kMainRamMask) == kMainRam) [[likely]] {
         return Get16(&m_machine.mainRam[a & 0x7FFFFu]);
@@ -150,6 +156,9 @@ uint16 SH2::Read16(uint32 a) {
     }
 }
 uint32 SH2::Read32(uint32 a) {
+    if (m_busTiming) [[unlikely]] {
+        m_busExtra += m_bus.Read(a, 4, false);
+    }
     a &= ~3u;
     if ((a & kMainRamMask) == kMainRam) [[likely]] {
         return Get32(&m_machine.mainRam[a & 0x7FFFFu]);
@@ -222,6 +231,9 @@ inline void SH2::NoteWriter(uint32 a) {
 }
 
 void SH2::Write8(uint32 a, uint8 v) {
+    if (m_busTiming) [[unlikely]] {
+        m_busExtra += m_bus.Write(a, 1);
+    }
     ++g_activity;
     NoteWriter(a);
     // (debugging aid, CPS3RECOMP_WATCH_WRITE8=address: byte writes there by interpreted code)
@@ -254,6 +266,9 @@ void SH2::Write8(uint32 a, uint8 v) {
     }
 }
 void SH2::Write16(uint32 a, uint16 v) {
+    if (m_busTiming) [[unlikely]] {
+        m_busExtra += m_bus.Write(a, 2);
+    }
     a &= ~1u;
     ++g_activity;
     NoteWriter(a);
@@ -287,6 +302,9 @@ void SH2::Write16(uint32 a, uint16 v) {
     }
 }
 void SH2::Write32(uint32 a, uint32 v) {
+    if (m_busTiming) [[unlikely]] {
+        m_busExtra += m_bus.Write(a, 4);
+    }
     a &= ~3u;
     ++g_activity;
     NoteWriter(a);
@@ -441,6 +459,21 @@ uint32 SH2::ReadRegister(uint32 address, unsigned size) {
 }
 
 void SH2::WriteRegister(uint32 address, unsigned size, uint32 value) {
+    // (the bus state controller's registers and the cache's, for the bus's timing: written with 0xA55A in the top half)
+    if (address == 0x1E0 && size == 4) {
+        m_bus.SetBCR1(static_cast<uint16>(value));
+    } else if (address == 0x1E4 && size == 4) {
+        m_bus.SetBCR2(static_cast<uint16>(value));
+    } else if (address == 0x1E8 && size == 4) {
+        m_bus.SetWCR(static_cast<uint16>(value));
+    } else if (address == 0x092 && size == 1) {
+        m_bus.SetCCR(static_cast<uint8>(value));
+    }
+    // (debugging aid, CPS3RECOMP_BSC_LOG=1: the bus state controller's and the cache's registers as the program sets them)
+    static const bool bscLog = getenv("CPS3RECOMP_BSC_LOG") != nullptr;
+    if (bscLog && (address >= 0x1E0 || address == 0x092)) {
+        fprintf(stderr, "on-chip write %03X (%u bytes) = %08X at PC %08X\n", address, size, value, PC);
+    }
     if (address < 0x100) {
         if (size > 1) {
             for (unsigned i = 0; i < size; i++) {
@@ -744,7 +777,10 @@ uint64 SH2::Advance(uint64 cycles, uint64 spillover) {
 uint64 SH2::RecompInterpretNext() {
     if (m_intrFlags.pending && m_intrFlags.allow && !m_delaySlot) {
         TakeInterrupt();
-        return 9;
+        return 9 + TakeBusExtra();
+    }
+    if (m_busTiming) [[unlikely]] {
+        m_cyclesExecuted += m_bus.Read(PC, 2, true); // (the fetch: before the instruction, as the hardware sees time)
     }
     uint16 opcode;
     if (recompFetchCode && PC - recompFetchBase < recompFetchSize) [[unlikely]] {
@@ -754,7 +790,7 @@ uint64 SH2::RecompInterpretNext() {
     }
     m_intrFlags.allow = true;
     Execute(opcode);
-    return g_opCycles[opcode];
+    return g_opCycles[opcode] + TakeBusExtra();
 }
 
 void SH2::Execute(uint16 opcode) {

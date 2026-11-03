@@ -127,7 +127,7 @@ LABEL:                          \
 #define SN_GOTO_IDLE(LABEL, OFF, CYC, K)                                              \
     {                                                                               \
         base += (CYC);                                                              \
-        if (!hw && !c.m_intrFlags.pending && base < target) {                       \
+        if (!hw && !c.m_busTiming && !c.m_intrFlags.pending && base < target) {    \
             base += (target - base + (CYC) - 1) / (CYC) * (CYC);                    \
         }                                                                           \
         if (c.m_intrFlags.pending || base >= target) [[likely]] {                   \
@@ -146,7 +146,7 @@ LABEL:                          \
     {                                                                               \
         const uint64 untilZero = static_cast<uint32>(R[N] - 1u);                    \
         const uint64 untilTarget = base < target ? (target - base - 1) / (CYC) : 0; \
-        const uint64 skip = untilZero < untilTarget ? untilZero : untilTarget;      \
+        const uint64 skip = c.m_busTiming ? 0 : untilZero < untilTarget ? untilZero : untilTarget; \
         R[N] -= static_cast<uint32>(skip);                                          \
         base += skip * (CYC);                                                       \
     }
@@ -157,6 +157,12 @@ LABEL:                          \
     const uint64 now = base + (CYC);     \
     (void)here;                          \
     (void)now;
+
+// Before each instruction (its code, its branch): its fetch, which the bus's timing charges (machine/bus.h)
+#define SN_FETCH(PCOFF)                                       \
+    if (c.m_busTiming) [[unlikely]] {                         \
+        base += c.m_bus.Read(pc + (PCOFF), 2, true);          \
+    }
 
 // Leave the block: at an instruction of the block, or to another address
 #define SN_LEAVE(PCOFF, CYC)                   \
@@ -177,6 +183,17 @@ LABEL:                          \
     c.m_cyclesExecuted = now;   \
     hw = true;
 
+// The bus's timing (machine/bus.h, the arcade_timing feature): the cycles an access made directly takes beyond its
+// instruction's (one made through the CPU's memory functions has them added up there: TakeBusExtra)
+#define SN_BUS_READ(A, SIZE)                         \
+    if (c.m_busTiming) [[unlikely]] {                \
+        base += c.m_bus.Read((A), (SIZE), false);    \
+    }
+#define SN_BUS_WRITE(A, SIZE)                        \
+    if (c.m_busTiming) [[unlikely]] {                \
+        base += c.m_bus.Write((A), (SIZE));          \
+    }
+
 // Memory reads. V is declared by the macro. ONWAIT: statement that leaves the block when the bus makes the
 // access wait (never, on this board: kept for the generator's shape); the N forms never wait.
 #define SN_RD8N(V, ADDR)                                        \
@@ -185,9 +202,11 @@ LABEL:                          \
         const uint32 a_ = (ADDR);                               \
         if (const uint8_t *p_ = Native::ReadPtr(a_)) [[likely]] { \
             V = *p_;                                            \
+            SN_BUS_READ(a_, 1)                                  \
         } else {                                                \
             SN_HW_BEGIN()                                       \
             V = c.MemReadByte<false>(a_);                       \
+            base += c.TakeBusExtra();                           \
         }                                                       \
     }
 #define SN_RD16X(V, ADDR, ONWAIT)                                                    \
@@ -196,10 +215,12 @@ LABEL:                          \
         const uint32 a_ = (ADDR);                                                    \
         if (const uint8_t *p_ = Native::ReadPtr(a_ & ~1u)) [[likely]] {              \
             V = Native::Get16(p_);                                                   \
+            SN_BUS_READ(a_, 2)                                                       \
         } else {                                                                     \
             SN_HW_BEGIN()                                                            \
             ONWAIT                                                                   \
             V = c.MemReadWord<false>(a_);                                            \
+            base += c.TakeBusExtra();                                                \
         }                                                                            \
     }
 #define SN_RD32X(V, ADDR, ONWAIT)                                                    \
@@ -208,10 +229,12 @@ LABEL:                          \
         const uint32 a_ = (ADDR);                                                    \
         if (const uint8_t *p_ = Native::ReadPtr(a_ & ~3u)) [[likely]] {              \
             V = Native::Get32(p_);                                                   \
+            SN_BUS_READ(a_, 4)                                                       \
         } else {                                                                     \
             SN_HW_BEGIN()                                                            \
             ONWAIT                                                                   \
             V = c.MemReadLong<false>(a_);                                            \
+            base += c.TakeBusExtra();                                                \
         }                                                                            \
     }
 #define SN_RD16(V, ADDR, ONWAIT) SN_RD16X(V, ADDR, )
@@ -228,9 +251,11 @@ LABEL:                          \
         if (uint8_t *p_ = Native::WritePtr(a_)) [[likely]] {    \
             *p_ = v_;                                           \
             Native::Wrote(p_);                                  \
+            SN_BUS_WRITE(a_, 1)                                 \
         } else {                                                \
             SN_HW_BEGIN()                                       \
             c.MemWriteByte<false, false>(a_, v_);               \
+            base += c.TakeBusExtra();                           \
         }                                                       \
     }
 #define SN_WR16X(ADDR, VAL, ONWAIT)                                     \
@@ -241,10 +266,12 @@ LABEL:                          \
         if (uint8_t *p_ = Native::WritePtr(a_ & ~1u)) [[likely]] {      \
             Native::Put16(p_, v_);                                      \
             Native::Wrote(p_);                                          \
+            SN_BUS_WRITE(a_, 2)                                         \
         } else {                                                        \
             SN_HW_BEGIN()                                               \
             ONWAIT                                                      \
             c.MemWriteWord<false, false>(a_, v_);                       \
+            base += c.TakeBusExtra();                                   \
         }                                                               \
     }
 #define SN_WR32X(ADDR, VAL, ONWAIT)                                     \
@@ -255,10 +282,12 @@ LABEL:                          \
         if (uint8_t *p_ = Native::WritePtr(a_ & ~3u)) [[likely]] {      \
             Native::Put32(p_, v_);                                      \
             Native::Wrote(p_);                                          \
+            SN_BUS_WRITE(a_, 4)                                         \
         } else {                                                        \
             SN_HW_BEGIN()                                               \
             ONWAIT                                                      \
             c.MemWriteLong<false, false>(a_, v_);                       \
+            base += c.TakeBusExtra();                                   \
         }                                                               \
     }
 #define SN_WR16(ADDR, VAL, ONWAIT) SN_WR16X(ADDR, VAL, )

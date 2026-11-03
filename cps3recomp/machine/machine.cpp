@@ -120,7 +120,40 @@ void Machine::AcknowledgeExternalInterrupt(SH2 &) {
 
 // The frame starts at the vertical blank: its interrupt, 40 lines of blank, then the 224 lines shown. When it
 // returns, the picture is what the board would show next.
+// (debugging aid, CPS3RECOMP_VBLANK_LOG=FILE: at each vertical blank's start, the frame and a CRC-32 of main RAM,
+// zlib's, to compare with a reference's RAM at its vertical blanks)
+namespace {
+    uint32 Crc32(const uint8 *data, size_t size) {
+        static uint32 table[256];
+        if (!table[1]) {
+            for (uint32 n = 0; n < 256; n++) {
+                uint32 c = n;
+                for (int k = 0; k < 8; k++) {
+                    c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
+                }
+                table[n] = c;
+            }
+        }
+        uint32 crc = 0xFFFFFFFFu;
+        for (size_t i = 0; i < size; i++) {
+            crc = table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
+        }
+        return crc ^ 0xFFFFFFFFu;
+    }
+} // namespace
+
 void Machine::RunFrame() {
+    static FILE *vblankLog = getenv("CPS3RECOMP_VBLANK_LOG") ? fopen(getenv("CPS3RECOMP_VBLANK_LOG"), "w") : nullptr;
+    if (vblankLog) {
+        fprintf(vblankLog, "%llu %08x %08X\n", static_cast<unsigned long long>(m_frame), Crc32(mainRam, 0x80000), m_cpu.PC);
+        fflush(vblankLog);
+    }
+    // (the bus's timing forced on for the timing harness, CPS3RECOMP_BUS_TIMING=1; otherwise the arcade_timing
+    // feature's, set by the port before the frame)
+    static const bool busTiming = getenv("CPS3RECOMP_BUS_TIMING") != nullptr;
+    if (busTiming) {
+        m_cpu.m_busTiming = true;
+    }
     m_frameStart = m_now;
     m_irqLines |= 1u << 12;
     UpdateInterrupts();

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Tommy McLeroy. Part of cps3recomp (sf3comp).
 #include "system.h"
+#include "game.h"
 
 #include "state.h"
 #include "recomp.h"
@@ -45,7 +46,13 @@ void Machine::Reset() {
 
 // The board's controls (MAME's CPS-3 inputs; a pressed button reads 0): the first word has both joysticks, the
 // punches, Start, the coins, service and test and player 2's hard kick; the second the other kicks
+extern bool (*g_rewritesNeededNow)(); // (recomp.cpp)
+
 void Machine::RunFrame() {
+    // (the bus's timing: the arcade_timing feature, or CPS3RECOMP_BUS_TIMING=1 for the timing harness)
+    static const bool forced = getenv("CPS3RECOMP_BUS_TIMING") != nullptr;
+    board.Cpu().m_busTiming = forced || FeatureOn("arcade_timing");
+    g_rewritesNeededNow = TheGame().rewritesNeeded;
     uint32_t inputs = 0, extra = 0;
     for (int p = 0; p < 2; p++) {
         const uint16_t pad = players[p];

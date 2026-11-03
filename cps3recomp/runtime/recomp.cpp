@@ -34,6 +34,12 @@
 #include <vector>
 
 namespace cps3recomp {
+// The game's sources need the readable rewrites now, with the bus's timing on (set by system.cpp from
+// Game::rewritesNeeded; none: never)
+bool (*g_rewritesNeededNow)() = nullptr;
+} // namespace cps3recomp
+
+namespace cps3recomp {
 
 uint8_t *g_mainRam = nullptr;
 const uint8_t *g_bios = nullptr;
@@ -51,11 +57,12 @@ struct Access {
         uint64_t MAC, cycles;
         bool pending, allow, delaySlot, sleep;
         uint32_t delayTarget, resume;
+        machine::Bus bus; // (the bus's timing: its cache's state)
         bool operator==(const Registers &) const = default;
     };
     static Registers Get(SH2 &c) {
         return {c.R, c.PC, c.PR, c.SR.u32, c.GBR, c.VBR, c.MAC.u64, c.m_cyclesExecuted, c.m_intrFlags.pending, c.m_intrFlags.allow,
-                c.m_delaySlot, c.m_sleep, c.m_delaySlotTarget, c.m_recompResume};
+                c.m_delaySlot, c.m_sleep, c.m_delaySlotTarget, c.m_recompResume, c.m_bus};
     }
     static void Set(SH2 &c, const Registers &r) {
         c.R = r.R;
@@ -72,6 +79,7 @@ struct Access {
         c.m_sleep = r.sleep;
         c.m_delaySlotTarget = r.delayTarget;
         c.m_recompResume = r.resume;
+        c.m_bus = r.bus;
     }
     static std::array<uint8_t, 0x1000> &Cache(SH2 &c) {
         return c.m_cacheData;
@@ -849,13 +857,29 @@ namespace {
             }
             const Lift &lift = *e->lift;
             Guest guest(cpu);
+            // (with the bus's timing on, the port's own code takes none of the board's time for what it looks at:
+            // a hook and a lift are charged nothing, a rewrite what it says; and the game's own code runs in place
+            // of the rewrites unless the game's sources need them now: Game::rewritesNeeded)
+            struct BusOff {
+                SH2 &cpu;
+                const bool was;
+                explicit BusOff(SH2 &c) : cpu(c), was(c.m_busTiming) {
+                    cpu.m_busTiming = false;
+                }
+                ~BusOff() {
+                    cpu.m_busTiming = was;
+                    cpu.m_busExtra = 0;
+                }
+            };
+            const bool timed = cpu.m_busTiming;
             if (lift.hookFn) {
                 e->runs++;
+                BusOff off(cpu);
                 lift.hookFn(guest);
                 continue;
             }
             if (lift.rewrite) {
-                if (rt.noRewrites) {
+                if (rt.noRewrites || (timed && !(g_rewritesNeededNow && g_rewritesNeededNow()))) {
                     continue;
                 }
                 LiftCheck &check = rt.liftChecks[&lift];
@@ -867,6 +891,7 @@ namespace {
                     return true;
                 }
             }
+            BusOff off(cpu);
             if (lift.fn && lift.fn(guest)) {
                 e->runs++;
                 return true;

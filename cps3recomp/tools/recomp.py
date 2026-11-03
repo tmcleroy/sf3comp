@@ -132,7 +132,9 @@ class Generator:
             ins = sh2emit.emit(names[i], ops[i], pcx, on_wait, in_slot, None)
             if ins is None:
                 return None, None
-            body = "{ SN_I(%d, %d) %s }" % (i * 2, cycles[i], " ".join(ins.lines)) if ins.lines else ";"
+            # (each instruction's fetch first: the bus's timing charges it, block_native.h)
+            body = "{ SN_FETCH(%d) SN_I(%d, %d) %s }" % (i * 2, i * 2, cycles[i], " ".join(ins.lines)) if ins.lines else \
+                "{ SN_FETCH(%d) }" % (i * 2)
             return ins, body
 
         def fixed_target(i):
@@ -166,7 +168,7 @@ class Generator:
                 cond = "c.SR.T" if name == "BT" else "!c.SR.T"
                 dest = fixed_target(i)
                 idle = dest == pc and first_branch and sh2emit.only_waits(names[:i], ops[:i])
-                lines.append("if (%s) { %s } %s" % (cond, go(dest, expr, cycles[i + 1], idle), text))
+                lines.append("SN_FETCH(%d) if (%s) { %s } %s" % (i * 2, cond, go(dest, expr, cycles[i + 1], idle), text))
                 first_branch = False
                 i += 1
                 continue
@@ -191,6 +193,7 @@ class Generator:
                 else:
                     leave_by = go(dest, "dest", cycles[i + 2])
                 taken.append("  SN_SLOT_END() %s }" % leave_by)
+                lines.append("SN_FETCH(%d)" % (i * 2))
                 if name in UNCOND_DELAYED:
                     if i + 2 != n:
                         return None

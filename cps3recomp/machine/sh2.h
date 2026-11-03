@@ -11,6 +11,7 @@
 
 #include <vector>
 
+#include "bus.h"
 #include "sh2_ops.h"
 
 #include <array>
@@ -149,6 +150,17 @@ public:
     uint32 m_delaySlotTarget = 0;
     uint8 m_wbReg = 0xFF; // (kept for translated code written for the reference machine's timing; unused)
     uint64 m_cyclesExecuted = 0;
+    // The bus's timing (bus.h; the arcade_timing feature): with it on, the cycles each access takes beyond its
+    // instruction's are added up here (the memory functions) and counted with the instruction (RecompInterpretNext;
+    // the translated code's own accesses and fetches: runtime/block_native.h)
+    Bus m_bus;
+    bool m_busTiming = false;
+    uint32 m_busExtra = 0;
+    uint32 TakeBusExtra() {
+        const uint32 extra = m_busExtra;
+        m_busExtra = 0;
+        return extra;
+    }
     uint32 m_recompResume = 0; // where a translated function stopped (block_native.h)
     bool m_recompYield = false, m_recompWaiting = false;
     bool m_sleep = false;
@@ -164,12 +176,6 @@ public:
         uint32 VCRDMA[2] = {};
     } INTC;
 
-    // The bus never makes translated code wait here
-    struct {
-        bool IsBusWait(uint32, uint32, bool) const {
-            return false;
-        }
-    } m_bus;
 
     void SetupDelaySlot(uint32 target) {
         m_delaySlot = true;
