@@ -243,9 +243,44 @@ namespace {
         return level;
     }
 
+    // ... and the registers the game's code leaves (its callers' callers read r5-r7: an answer to crouching passes them
+    // out of Ck_Passive_Term): r1 the table, r2 the last play time compared, r3 kPlayTime's word (or, past the last,
+    // the level), r4 the level, r5 the levels less one, r6 the row's place, r7 kPlayTime, T the last comparison's
+    void LevelRegistersAsTheGame(Guest &g, uint32_t table, int levels, int32_t row) {
+        const int32_t perRow = (levels - 1) * 2;
+        const int32_t sets = static_cast<int8_t>(static_cast<int8_t>(g.Read8(kRank)) * (levels == 8 ? perRow * 3 : perRow));
+        const uint32_t times = table + static_cast<uint32_t>(sets) + static_cast<uint32_t>(static_cast<int8_t>(row * perRow));
+        const int16_t now = static_cast<int16_t>(g.Read16(kPlayTime));
+        int16_t level = 0, last = 0, third = 0;
+        bool t = false;
+        for (;;) {
+            third = now;
+            last = static_cast<int16_t>(g.Read16(times + static_cast<uint32_t>(level) * 2));
+            if (!(now > last)) {
+                t = false; // (cmp/gt: not passed)
+                break;
+            }
+            level++;
+            third = level;
+            if (level >= levels - 1) {
+                t = true; // (cmp/ge: the last level)
+                break;
+            }
+        }
+        g.R(0) = static_cast<uint32_t>(static_cast<int32_t>(level));
+        g.R(1) = table;
+        g.R(2) = static_cast<uint32_t>(static_cast<int32_t>(last));
+        g.R(3) = static_cast<uint32_t>(static_cast<int32_t>(third));
+        g.R(4) = static_cast<uint32_t>(static_cast<int32_t>(level));
+        g.R(5) = static_cast<uint32_t>(levels - 1);
+        g.R(6) = times;
+        g.R(7) = kPlayTime;
+        g.SetT(t);
+    }
+
     // 0600FA14 (Setup_Lv08): the level of eight, r4 the row of the table (three a set)
     bool LevelOf8(Guest &g) {
-        g.R(0) = static_cast<uint32_t>(LevelByPlayTime(g, kLevels8, 8, static_cast<int16_t>(g.R(4))));
+        LevelRegistersAsTheGame(g, kLevels8, 8, static_cast<int16_t>(g.R(4)));
         g.Return(30);
         return true;
     }
@@ -328,10 +363,14 @@ namespace {
         return s.g.Read8(times + static_cast<uint32_t>(Dice(s.g, kDice64) & 7));
     }
 
-    // 060136A4 (Setup_Next_Squat_Timer): how long to crouch: one of eight at random, by the level of eight
+    // 060136A4 (Setup_Next_Squat_Timer): how long to crouch: one of eight at random, by the level of eight. (The
+    // registers as the game's code leaves them: the level's (LevelRegistersAsTheGame), then the dice's, r2 its address.)
     uint8_t CrouchTime(Side &s) {
-        const uint32_t times = kCrouchTimes + static_cast<uint32_t>(LevelByPlayTime(s.g, kLevels8, 8, 0) * 8);
-        return s.g.Read8(times + static_cast<uint32_t>(Dice(s.g, kDice64) & 7));
+        LevelRegistersAsTheGame(s.g, kLevels8, 8, 0);
+        const uint32_t times = kCrouchTimes + static_cast<uint32_t>(static_cast<int16_t>(s.g.R(0)) * 8);
+        s.g.R(2) = kDice64;
+        const uint8_t time = s.g.Read8(times + static_cast<uint32_t>(Dice(s.g, kDice64) & 7));
+        return time;
     }
 
 
@@ -748,13 +787,13 @@ namespace {
         {"ComputerCountHeld", 0x06008A08, 0xB4, 0xE42747AB8F3813B0ull, Lifted<CountHeld>, true, kNoResult},
         {"ComputerCountForwardBack", 0x06008ABC, 0xF4, 0xE932A277FBC388CCull, Lifted<CountForwardBack>, true, kNoResult},
         {"ComputerProjectileCount", 0x06008BB0, 0x30, 0x7DC058BFCE765195ull, Lifted<SetProjectileCount>, true, kNoResult},
-        {"ComputerLevelOf8", 0x0600FA14, 0x3C, 0x5A083F4C70B323FEull, LevelOf8, true, kResult},
+        {"ComputerLevelOf8", 0x0600FA14, 0x3C, 0x5A083F4C70B323FEull, LevelOf8, true, 0},
         {"ComputerMeasureGap", 0x0600FC20, 0x34, 0x7FE48C7BE973F67Aull, Lifted<MeasureGap>, true, kNoResult},
         {"ComputerRangeOfGap", 0x0600FC6A, 0x42, 0x8F7DE92EF7EC5DE8ull, LiftedWithResult<int16_t, RangeOfGap>, true, kResult},
         {"ComputerChooseFollowUp", 0x06010918, 0x70, 0x22262FF97EBFF72Aull, Lifted<ChooseFollowUp>, true, kNoResult},
         {"ComputerCheckGuard", 0x06010F4C, 0x14E, 0x2480BD8272B5C596ull, LiftedCheck<CheckGuard>, true, kResult},
         {"ComputerStandTime", 0x060134CC, 0x96, 0x2074FD8D03405A01ull, LiftedWithResult<uint8_t, StandTime>, true, kResult},
-        {"ComputerCrouchTime", 0x060136A4, 0x22, 0xE60943E34CF13E61ull, LiftedWithResult<uint8_t, CrouchTime>, true, kResult},
+        {"ComputerCrouchTime", 0x060136A4, 0x22, 0xE60943E34CF13E61ull, LiftedWithResult<uint8_t, CrouchTime>, true, 0},
     };
 } // namespace
 

@@ -2679,7 +2679,7 @@ namespace {
         {"ComputerRapidEnd", 0x0600DE3C, 0x3A, 0x4530F836DF66532Cull, RapidEndLift, true, kNoResult},
         {"ComputerCheckRapid", 0x0600DDB8, 0x84, 0x40D4B1BDC544B8B8ull, CheckRapid, true, kNoResult},
         {"ComputerRapidOver", 0x0600E014, 0xF4, 0xEE0D4166CED3020Dull, RapidOverLift, true, kResult},
-        {"ComputerMash", 0x0600DEA4, 0x170, 0x54D345AC75946B4Cull, Mash, true, kNoResult},
+        {"ComputerMashAfterMove", 0x0600DEA4, 0x170, 0x54D345AC75946B4Cull, Mash, true, kNoResult},
         {"ComputerReactionExit", 0x06010350, 0x74, 0xE8B3CB5942CCA38Dull, ReactionExitLift, true},
         {"ComputerNextEnd", 0x0600FD7E, 0x54, 0xB76A0648647012D7ull, NextEnd, true},
         {"ComputerLanded", 0x0600EFB8, 0xE6, 0x9D87B572165F5B50ull, Landed, true},
