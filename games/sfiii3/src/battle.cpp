@@ -58,6 +58,8 @@ bool StageBehindNextEnds(int &left, int &right);
 void StageBehindSlide(Machine &machine, int columns, int gain);
 void StageBehindSlideSwitch(Machine &machine);
 void StageBehindNoSecond(Machine &machine);
+bool StageBehindNextBesideReady();
+void StageBehindBlend(Machine &machine, int part);
 
 namespace {
     constexpr const char *kTeamPage = "Tag team battle";
@@ -70,7 +72,8 @@ namespace {
     constexpr int kSpareFramesAFrame = 6; // the next match's machine, run so many frames a frame on its way
     constexpr uint32_t kShownFor = 240;   // frames of the knock-out (and the end's line) before the next is put on
     constexpr int kShuffleMinutes[] = {1, 2, 3, 5, 10}; // (endless, shuffled) minutes on a stage before it fades into another
-    constexpr int kFadeFor = 75;                        //   frames of fading out (and as many in)
+    constexpr int kFadeFor = 75;                        //   frames of fading out (and as many in: scrolling, Fade)
+    constexpr int kBlend = 150;                         // (endless, shuffled) frames one stage takes to fade into the next
     constexpr int kScrollSpeeds[] = {64, 128, 256};     // (endless, scrolling) 256ths of a pixel a frame
     constexpr int32_t kViewerStick = 384;               // (the stage viewer) ... with the stick held
     enum { kStageScroll, kStageShuffle };               // (endless_stage's first two choices; then the stages)
@@ -118,6 +121,7 @@ namespace {
         int32_t scroll = 0;         // (scrolling) the camera's middle, in 256ths of a pixel
         bool scrolled = false;      // ... across to its right end
         int32_t slide = 0;          // ... and the next stage come in from the right since (256ths of a pixel; continuous)
+        int blend = 0;              // (shuffled) frames of the next stage fading in (of kBlend)
         // team
         uint8_t member[2][kMost] = {};
         uint8_t size = 2;
@@ -629,9 +633,27 @@ namespace {
             b.nextStage = scrolling ? static_cast<uint8_t>((b.stage + 1) % kCharacterCount) : AnotherStage(b.stage);
             if (continuous) {
                 StageBehindNextBeside(m, b.nextStage);
+            } else if (!scrolling) {
+                StageBehindNextBeside(m, b.nextStage); // (shuffled: beside, following the fight, to fade into)
+                StageBehindNextCamera(StageBehindFollow());
             } else {
                 StageBehindNext(b.nextStage);
             }
+        }
+        if (!scrolling && b.fade == 0) {
+            // (shuffled, as the CPS-2 ports have it: the next stage fades in over this one, the fight going on over both)
+            if (due && b.nextStage != b.stage && StageBehindNextBesideReady()) {
+                b.blend = std::min(b.blend + 1, kBlend);
+                StageBehindBlend(m, b.blend * 256 / kBlend);
+                if (b.blend >= kBlend) {
+                    StageBehindSlideSwitch(m);
+                    b.stage = b.nextStage;
+                    b.onStageFor = 0;
+                    b.blend = 0;
+                    StageBehindCamera(StageBehindFollow());
+                }
+            }
+            return;
         }
         if (getenv("SFIII3_SCROLL_LOG")) { // (debugging aid)
             fprintf(stderr, "scroll %u %d %d %d\n", b.frames, b.stage, b.scroll / 256, b.slide / 256);

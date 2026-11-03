@@ -723,10 +723,18 @@ bool StageBehindNextEnds(int &left, int &right) {
     right = g_make.right;
     return g_make.on && g_make.second && g_make.ready && right > left;
 }
+bool StageBehindNextBesideReady() {
+    return g_make.on && g_make.second && g_make.ready;
+}
 // The second board's picture coming in: `columns` of it at the right, its sound `gain` of 256
 void StageBehindSlide(Machine &machine, int columns, int gain) {
     machine.stageSlide = columns;
     machine.secondStageGain = gain;
+}
+// ... or faded in over the first by `part` of 256, its sound as much
+void StageBehindBlend(Machine &machine, int part) {
+    machine.stageBlend = part;
+    machine.secondStageGain = part;
 }
 // The second board is the stage now
 void StageBehindSlideSwitch(Machine &machine) {

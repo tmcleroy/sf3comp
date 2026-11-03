@@ -131,6 +131,8 @@ public:
     void RestoreSecondStage(const std::vector<uint8_t> &data);
     void SwapStageBoards();
     int stageSlide = 0;
+    // ... or with `stageBlend` (of 256) the second's picture over the first's by so much (one stage fading into another)
+    int stageBlend = 0;
     int secondStageGain = 0;
     void (*beforeSecondStage)(Machine &machine, machine::Machine &stage) = nullptr;
     int (*secondStageFramesNow)() = nullptr; // (how many of its frames the second runs this shown frame; none: one)

@@ -126,7 +126,25 @@ void Machine::RunFrame() {
             return me.stageObject(*me.m_stage, object);
         };
         m_stageRenderer.Draw(*m_stage, m_picture, m_width, m_height);
-        if (m_stage2 && stageSlide > 0) {
+        if (m_stage2 && stageBlend > 0) {
+            m_stage2Renderer.margin = m_renderer.margin;
+            m_stage2Renderer.text = false;
+            m_stage2Renderer.drawGroupContext = this;
+            m_stage2Renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
+                const Machine &me = *static_cast<Machine *>(self);
+                return me.stageObject(*me.m_stage2, object);
+            };
+            int w2 = 0, h2 = 0;
+            m_stage2Renderer.Draw(*m_stage2, m_stage2Picture, w2, h2);
+            if (w2 == m_width && h2 == m_height && m_stage2Picture.size() == m_picture.size()) {
+                const uint32_t put = static_cast<uint32_t>(std::clamp(stageBlend, 0, 256)), keep = 256 - put;
+                for (size_t i = 0; i < m_picture.size(); i++) {
+                    const uint32_t a = m_picture[i], b = m_stage2Picture[i];
+                    m_picture[i] = ((((a & 0xFF00FF) * keep + (b & 0xFF00FF) * put) >> 8) & 0xFF00FF) |
+                                   ((((a & 0x00FF00) * keep + (b & 0x00FF00) * put) >> 8) & 0x00FF00);
+                }
+            }
+        } else if (m_stage2 && stageSlide > 0) {
             // (the next stage coming in: the first's picture moved left, the second's left edge in the columns freed)
             m_stage2Renderer.margin = m_renderer.margin;
             m_stage2Renderer.text = false;
@@ -276,6 +294,7 @@ void Machine::SetSecondStageBoard(bool on) {
         m_stage2Pcm.reset();
         m_stage2.reset();
         stageSlide = 0;
+        stageBlend = 0;
         secondStageGain = 0;
         return;
     }
@@ -323,6 +342,7 @@ void Machine::SwapStageBoards() {
     std::swap(m_stagePcm, m_stage2Pcm);
     std::swap(m_stageAudio, m_stage2Audio);
     stageSlide = 0;
+    stageBlend = 0;
     secondStageGain = 0;
 }
 
