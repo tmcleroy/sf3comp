@@ -11,6 +11,9 @@
 - The zoom on a fighter works (it had nothing to follow). Custom colours are always on. The endless battle's scroll
   never stops at a stage's end; the model viewer keeps its character in place with nothing else drawn; a mode that is
   over opens the menu on its page instead of starting the board again.
+- The menu in the CPS-2 ports' order and words (Alpha 2's, row by row). Endless battle's shuffle fades one stage into
+  the next. In a ring out the computer plays the mode: out of its own corner, pushing you to yours. Training's hit
+  boxes in widescreen were drawn 64 columns left of the fighters.
 - Arcade timing (the Game page, off unless chosen): the processor takes the board's time, its memory's waits, its
   cache's misses and its pipeline's stalls, so the game slows down where the board does. Checked against jotego's
   CPS-3 core simulated: the start-up, the attract mode and a fight, frame by frame.
