@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The alternative modes made as the CPS-2 ports have them. Ring out: a fighter knocked about at an open end goes over
+  it and falls, and the winner jumps down onto the next stage, the camera following it. Endless battle: the stages
+  scroll by with no break (or fade, as a choice). Tag team battle (so named; tag the default; rested fighters keep
+  their health). Attract mode with free play on. The stage viewer with only music. The model viewer straight to its
+  character, with Reset options and the animation's name at the top. The colour editor's panel: any character, set,
+  line and colour, random colours, a library of saved sets.
 - Arcade timing (the Game page, off unless chosen): the processor takes the board's time, its memory's waits, its
   cache's misses and its pipeline's stalls, so the game slows down where the board does. Checked against jotego's
   CPS-3 core simulated: the start-up, the attract mode and a fight, frame by frame.

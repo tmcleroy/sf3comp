@@ -143,7 +143,8 @@ void RegisterGame() {
                                                                  "to take one over."});
     game.pages.push_back({"Stage viewer", "Alternative modes", "A stage with nobody on it, to look at and listen to."});
     game.pages.push_back({"Model viewer", "Alternative modes", "A character alone, to look at: on a stage or plain, at any size."});
-    game.pages.push_back({"Colour editor", "Alternative modes", "Your own colours for the characters: change any of them, and fight with them."});
+    game.pages.push_back({"Colour editor", "Alternative modes", "The characters' colours changed while you watch: any set, any of its "
+                                                                "lines of colours, 32 levels of red, green and blue."});
     game.pages.push_back({"Tag team battle", "Alternative modes", "Two teams: knock a fighter down and the next of that team comes on. The last team standing wins."});
     RegisterAttract(game);
     RegisterSoundProbe();

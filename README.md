@@ -54,11 +54,11 @@ The in-game menu's first row has ways to play and watch the game that the board 
 | Attract mode | The game's own show on a loop: everything, the intro only, or one demonstration fight after another |
 | Stage viewer | Any stage with nobody on it and no panel, scrolled with the stick or by itself, with any stage's tune. "Infinite" goes through every stage in turn |
 | Model viewer | One character alone, on a stage or plain white or black, from half its size to eight times, moved with your controls or going through any of its animations, at full speed or slower |
-| Colour editor | Change a character's colours while you watch, then fight in them |
+| Colour editor | Change a character's colours while you watch, any of its seven sets, then fight in them: random colours, and sets saved to a library and loaded into any set |
 | Survival | One computer opponent after another on the health you have left |
-| Endless battle | Two fighters the game plays for as long as you like, with no bars and no clock, on one stage, on stages that fade into one another, or on stages that scroll by. Touch the controls to take a fighter over |
+| Endless battle | Two fighters the game plays for as long as you like, with no bars and no clock, on stages that scroll by one after another, on stages that fade into one another, or on one stage. Touch the controls to take a fighter over |
 | Ring out | No health: knock your opponent over the end of the stage, then jump down after it onto the next |
-| Team battle | Two teams of two or three. **Knock-out**: one fighter of each team at a time, the next coming on when one is knocked out. **Tag**: tag your next fighter in with the left trigger (or Start); yours flies off the screen and the next jumps in from that side with an attack. Each keeps its own health and a resting one gets some back; one whose bar empties lies there a while and the next jumps in. The computer's team tags too, at good moments. **Tag team**: co-op (players 1 and 2 against the computer's team) or 2 vs 2 for four players |
+| Tag team battle | Two teams of two or three. **Tag** (the default): tag your next fighter in with the left trigger (or Start); yours flies off the screen and the next jumps in from that side with an attack. Each keeps its own health; one whose bar empties lies there a while and the next jumps in. The computer's team tags too, at good moments. **Knock-out**: one fighter of each team at a time, the next coming on when one is knocked out. **Tag team**: co-op (players 1 and 2 against the computer's team) or 2 vs 2 for four players |
 
 ## The definitive version's stages
 

@@ -1139,12 +1139,7 @@ namespace {
             SetRam16(base + sfiii3::kX, static_cast<uint16_t>(b.fx / 256));
             SetRam16(base + sfiii3::kY, static_cast<uint16_t>(b.fy / 256));
             SetRam8(base + sfiii3::kFreeze, 3);
-            if (getenv("SFIII3_BATTLE_LOG") && b.since % 4 == 0) { // (debugging aid)
-                fprintf(stderr, "out: since %u set %d %d, was %d %d, freeze %u camera %d\n", b.since, b.fx / 256, b.fy / 256, b.ringY, b.apexX,
-                        Ram8(base + sfiii3::kFreeze), Word(sfiii3::kCameraX));
-            }
-            b.ringY = Word(base + sfiii3::kY);
-            b.apexX = Word(base + sfiii3::kX);
+
             if (++b.since >= kFallFor) {
                 if (b.outWho == 0) {
                     b.over = true; // (the player out: the run is over)
@@ -1162,14 +1157,7 @@ namespace {
         }
         // The way down
         b.since++;
-        if (getenv("SFIII3_BATTLE_LOG") && b.since % 2 == 0 && b.since > 20 && b.since < 60) { // (debugging aid)
-            fprintf(stderr, "ring: frame %u since %u handed %d ready %d y %d raise %d locked %d fought %d stage %u cam:", b.frames, b.since, b.handed,
-                    g_next.ready, Word(sfiii3::kPlayer[0] + sfiii3::kY), b.raise / 256, Locked(), Fought(), Ram8(sfiii3::kStage));
-            for (uint32_t at = 0x02026C90; at < 0x02026D10; at += 2) {
-                fprintf(stderr, " %d", Word(at));
-            }
-            fprintf(stderr, "\n");
-        }
+
         const uint32_t winner = sfiii3::kPlayer[0];
         if (!b.handed) {
             // (on the old stage: the one out still falling; the winner jumps at kDropJump, once the next match is ready)
@@ -1334,6 +1322,9 @@ void BattleBeforeFrame(Machine &m) {
             b.started = true;
             b.colour = Ram8(sfiii3::kSelectColour[0]);
             b.art = Ram8(sfiii3::kSelectArt[0]);
+            if (getenv("SFIII3_BATTLE_LOG")) { // (debugging aid)
+                fprintf(stderr, "battle: chose colours %u, super art %u\n", b.colour, b.art);
+            }
             if (chooses) {
                 b.want[0] = static_cast<uint8_t>(Ram16(sfiii3::kPlayer[0] + 0x3C0) % kCharacterCount);
             }

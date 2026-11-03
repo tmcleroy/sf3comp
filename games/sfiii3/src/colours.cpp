@@ -37,6 +37,7 @@ namespace {
                                   "Ken", "Sean", "Urien", "Akuma", "Akuma (red)", "Chun-Li", "Makoto", "Q", "Twelve", "Remy"};
     std::map<uint32_t, uint16_t> g_custom;      // graphics word: colour
     std::map<uint32_t, uint32_t> g_wordOf;      // colour RAM index (player 1's and 2's): the graphics word it came from
+    std::map<uint32_t, uint16_t> g_original;    // graphics word: the game's own colour there
     std::map<std::string, std::map<uint32_t, uint16_t>> g_byCharacter; // (for writing each character's file)
     bool g_loaded = false;
     bool g_forced = false; // (the editor on: custom colours whatever the feature says)
@@ -76,6 +77,7 @@ namespace {
         if (index < 0x800) {
             g_wordOf[index] = word;
         }
+        g_original[word] = static_cast<uint16_t>(colour & 0x7FFF);
         if (!g_loaded) {
             Load();
         }
@@ -142,6 +144,98 @@ void SaveCustomColours(const std::string &character) {
 
 void ForceCustomColours(bool on) {
     g_forced = on;
+}
+
+// The game's own colour at player 1's colour `index` (0-0x1FF), as its graphics word has it (false: none known)
+bool GameColourAt(uint32_t index, uint16_t &colour) {
+    uint32_t word;
+    if (!ColourWord(index, word)) {
+        return false;
+    }
+    const auto it = g_original.find(word);
+    if (it == g_original.end()) {
+        return false;
+    }
+    colour = it->second;
+    return true;
+}
+
+// The character's colours written out again, every one of them the game's: its file removed (the editor's "Game's
+// colours for this character"); and the folder's files read again
+void ReloadCustomColours() {
+    g_loaded = false;
+}
+
+// The character's library of sets (palettes/library/<name>/<saved>.txt, as cps2recomp's colours.h has it): sets of
+// player 1's colours saved on their own, to be put into any set. A file: lines "INDEX = COLOUR" (player 1's colour,
+// 000-1FF, then the colour), "#" a remark.
+namespace {
+    std::filesystem::path Library(const std::string &character) {
+        return Folder() / "library" / character;
+    }
+} // namespace
+std::vector<std::string> SavedSets(const std::string &character) {
+    std::vector<std::string> names;
+    std::error_code error;
+    for (std::filesystem::directory_iterator it(Library(character), error); !error && it != std::filesystem::directory_iterator(); it.increment(error)) {
+        if (it->path().extension() == ".txt") {
+            names.push_back(it->path().stem().string());
+        }
+    }
+    // (in order: "Ryu 2" before "Ryu 10")
+    std::sort(names.begin(), names.end(), [](const std::string &a, const std::string &b) {
+        const size_t sa = a.find_last_not_of("0123456789") + 1, sb = b.find_last_not_of("0123456789") + 1;
+        if (a.compare(0, sa, b, 0, sb) == 0 && sa < a.size() && sb < b.size()) {
+            return atoi(a.c_str() + sa) < atoi(b.c_str() + sb);
+        }
+        return a < b;
+    });
+    return names;
+}
+bool SaveSet(const std::string &character, const std::map<uint32_t, uint16_t> &colours, std::string &saved) {
+    std::error_code error;
+    std::filesystem::create_directories(Library(character), error);
+    if (error) {
+        return false;
+    }
+    for (int n = 1; n < 1000; n++) {
+        saved = character + " " + std::to_string(n);
+        if (!std::filesystem::exists(Library(character) / (saved + ".txt"))) {
+            break;
+        }
+    }
+    std::ofstream file(Library(character) / (saved + ".txt"));
+    if (!file) {
+        return false;
+    }
+    file << "# " << saved << ": a set of " << character << "'s colours for sf3comp (3rd Strike): player 1's colour (000-1FF), then the\n"
+         << "# colour (15 bits: red the lowest five, then green, then blue), both in hexadecimal\n";
+    char line[32];
+    for (const auto &[index, colour] : colours) {
+        snprintf(line, sizeof(line), "%03X = %04X\n", index, colour);
+        file << line;
+    }
+    return static_cast<bool>(file);
+}
+bool ReadSavedSet(const std::string &character, const std::string &saved, std::map<uint32_t, uint16_t> &colours) {
+    std::ifstream file(Library(character) / (saved + ".txt"));
+    if (!file) {
+        return false;
+    }
+    std::string line;
+    while (std::getline(file, line)) {
+        line = line.substr(0, line.find('#'));
+        const size_t eq = line.find('=');
+        if (eq != std::string::npos) {
+            colours[static_cast<uint32_t>(strtoul(line.substr(0, eq).c_str(), nullptr, 16)) & 0x1FF] =
+                static_cast<uint16_t>(strtoul(line.substr(eq + 1).c_str(), nullptr, 16) & 0x7FFF);
+        }
+    }
+    return true;
+}
+bool RemoveSavedSet(const std::string &character, const std::string &saved) {
+    std::error_code error;
+    return std::filesystem::remove(Library(character) / (saved + ".txt"), error) && !error;
 }
 
 void RegisterColours(Game &game) {

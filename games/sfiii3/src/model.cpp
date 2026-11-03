@@ -12,8 +12,12 @@
 #include "state.h"
 #include "system.h"
 
+#include "../../../cps3recomp/recomp-common/text.h"
+
 #include <algorithm>
 #include <cstdio>
+#include <map>
+#include <random>
 #include <cstdlib>
 #include <cstring>
 #include <iterator>
@@ -36,14 +40,27 @@ namespace {
         uint32_t namedAt = 0;
         uint32_t cellSince = 0;      // when the animation's cell last changed (one held 3 seconds is its end)
         int character = 0, background = 0; // (the menu's when it started: another chosen while viewing goes to it)
-        int row = 0, line = 0, colour = 1; // the panel's row; player 1's line (0-7: colour RAM line * 64) and colour (0-63)
-        uint16_t held = 0;           // player 1's controls at the last frame (for presses)
-        uint32_t heldFor = 0, frames = 0;
-        uint32_t changedAt = 0;      // when the last change was made (written to the file a second after)
-        bool unsaved = false;
-        uint32_t blinkUntil = 0;     // the colour chosen blinks till then
+        // (the colour editor: its row; the set (restarting the viewer with it chosen), player 1's line (0-7: colour RAM
+        // line * 64) and colour (1-63))
+        int row = 6, set = 0, line = 0, colour = 1; // (row 6: the Colour row)
+        uint16_t before = 0, held = 0; // player 1's controls the frame before, and the direction held and for how long
+        int heldFor = 0;
+        uint32_t frames = 0;
+        int unsaved = -1;            // frames since the last change not yet written (-1: none)
+        int blink = 0;               // frames the colour chosen still blinks for
         uint16_t blinkWas = 0;       // ... its own colour, put back
         bool blinking = false;
+        int copied = -1;             // a colour copied with LP (-1: none)
+        // The character's saved sets, the one being tried on the Load row (0: none), the colours from before it
+        std::vector<std::string> saved;
+        int loading = 0;
+        bool trying = false;
+        std::map<uint32_t, uint16_t> kept;
+        int deleteFor = 0, randomFor = 0;
+        bool canUndo = false;        // (the colours from before the last random ones, for HK)
+        std::map<uint32_t, uint16_t> undo;
+        std::string said;            // a message, and frames it is still shown for
+        int saidFor = 0;
         uint32_t tick = 0;           // (slow motion: frames counted)
         // (the animation shown: the menu's choice it was made from, the animation, and when it last ended)
         int choice = 0;
@@ -81,7 +98,20 @@ namespace {
         }
         return Peek32(at + 4 * static_cast<uint32_t>(n));
     }
-    enum Row { kLine, kColour, kRed, kGreen, kBlue, kReset, kRows };
+    // The colour editor's panel (as cps2recomp's fight/colour_editor.cpp has it)
+    enum Row { kRowCharacter, kRowBackground, kRowSize, kRowAnimation, kRowSet, kRowLine, kRowColour, kRowRed, kRowGreen, kRowBlue,
+               kRowRandom, kRowSave, kRowLoad, kRows };
+    constexpr const char *kRowNames[kRows] = {"Character", "Background", "Size", "Animation", "Set", "Line", "Colour",
+                                              "Red", "Green", "Blue", "Random colours", "Save set", "Load"};
+    // 3rd Strike's seven sets of a character's colours, by the button that chooses them (character select's colour byte,
+    // 0-6: LP to HK seen; the seventh the game's own other)
+    constexpr const char *kSetNames[] = {"LP", "MP", "HP", "LK", "MK", "HK", "Extra"};
+    constexpr int kSets = 7, kLines = 8, kInLine = 64; // (player 1's colours: eight lines of 64, colour 0 of each not seen)
+    constexpr int kHeldFirst = 20, kHeldEvery = 8, kHeldEveryLevel = 3; // frames a direction is held before it repeats
+    constexpr int kBlinkFor = 48, kBlinkEvery = 6; // frames the colour chosen blinks for, and how fast
+    constexpr int kSaveAfter = 45;                 // frames after the last change that the file is written
+    constexpr int kSaidFor = 120;                  // frames a message is shown for
+    constexpr int kPanelWidth = 140, kShift = 72;  // the panel's width, and how far left the character goes
 
     int16_t Signed16(uint32_t at) {
         return static_cast<int16_t>(Ram16(at));
@@ -117,6 +147,16 @@ namespace {
         Start(machine);
         v.editing = true;
     }
+    // (the editor started again, as it is: another set or character)
+    void RestartEditor(Machine &machine) {
+        const int set = v.set, row = v.row, line = v.line, colour = v.colour, copied = v.copied;
+        StartEditor(machine);
+        v.set = set;
+        v.row = row;
+        v.line = line;
+        v.colour = colour;
+        v.copied = copied;
+    }
 } // namespace
 
 // (colours.cpp)
@@ -126,6 +166,11 @@ void SetCustomColour(Machine &m, const std::string &character, uint32_t index, u
 void SaveCustomColours(const std::string &character);
 void ForgetCustomColours(const std::string &character);
 void ForceCustomColours(bool on);
+bool GameColourAt(uint32_t index, uint16_t &colour);
+std::vector<std::string> SavedSets(const std::string &character);
+bool SaveSet(const std::string &character, const std::map<uint32_t, uint16_t> &colours, std::string &saved);
+bool ReadSavedSet(const std::string &character, const std::string &saved, std::map<uint32_t, uint16_t> &colours);
+bool RemoveSavedSet(const std::string &character, const std::string &saved);
 
 namespace {
     // (shown so only while the character is on its stage: the choice and the rest as they are)
@@ -139,9 +184,6 @@ namespace {
     }
     uint32_t Index() {
         return static_cast<uint32_t>(v.line * 64 + v.colour);
-    }
-    uint16_t ColourNow(Machine &m) {
-        return v.blinking ? v.blinkWas : m.board.ColourRam()[Index()];
     }
     void StopBlink(Machine &m) {
         if (v.blinking) {
@@ -218,62 +260,420 @@ namespace {
         }
     }
 
-    // The panel worked with player 1's controls: up and down a row, left and right its value (held: again and again)
-    void Editor(Machine &m) {
-        const uint16_t now = m.players[0];
-        const uint16_t pressed = static_cast<uint16_t>(now & ~v.held);
-        v.heldFor = now && now == v.held ? v.heldFor + 1 : 0;
-        const bool repeat = v.heldFor > 20 && v.heldFor % 3 == 0;
-        const uint16_t act = repeat ? now : pressed;
-        v.held = now;
-        m.players[0] = 0; // (the character stands; the controls are the panel's)
-        StopBlink(m);
-        if (act & kUp) {
-            v.row = (v.row + kRows - 1) % kRows;
+    // --- the colour editor (cps2recomp's fight/colour_editor.cpp, on 3rd Strike's colours) ---
+
+    std::string Fit(std::string text, size_t most) {
+        return text.size() <= most ? text : text.substr(0, most - 2) + "..";
+    }
+    constexpr size_t kValueMost = 15, kLineMost = 21; // characters: beside a row's name, and a whole line
+    void Say(std::string text) {
+        v.said = Fit(std::move(text), kLineMost);
+        v.saidFor = kSaidFor;
+    }
+    std::string ShortName(const std::string &saved, size_t most) {
+        const std::string prefix = Character() + " ";
+        const bool own = saved.size() > prefix.size() && saved.compare(0, prefix.size(), prefix) == 0;
+        return Fit(own ? saved.substr(prefix.size()) : saved, most);
+    }
+    // Player 1's colours that are the character's (their graphics word known): its set as it is now
+    bool Known(uint32_t index) {
+        uint32_t word;
+        return ColourWord(index, word);
+    }
+    uint16_t ColourAt(Machine &m, uint32_t index) {
+        return v.blinking && index == Index() ? v.blinkWas : static_cast<uint16_t>(m.board.ColourRam()[index] & 0x7FFF);
+    }
+    uint16_t GameColour(Machine &m, uint32_t index) {
+        uint16_t colour;
+        return GameColourAt(index, colour) ? colour : ColourAt(m, index);
+    }
+    void Put(Machine &m, uint32_t index, uint16_t colour) {
+        if (Known(index)) {
+            SetCustomColour(m, Character(), index, static_cast<uint16_t>(colour & 0x7FFF));
         }
-        if (act & kDown) {
-            v.row = (v.row + 1) % kRows;
-        }
-        const int step = (act & kRight) ? 1 : (act & kLeft) ? -1 : 0;
-        bool chosen = false;
-        if (step) {
-            uint16_t c = ColourNow(m);
-            int r = c & 31, g = (c >> 5) & 31, b = (c >> 10) & 31;
-            switch (v.row) {
-            case kLine: v.line = (v.line + 8 + step) % 8; chosen = true; break;
-            case kColour: v.colour = (v.colour + 64 + step) % 64; chosen = true; break;
-            case kRed: r = std::clamp(r + step, 0, 31); break;
-            case kGreen: g = std::clamp(g + step, 0, 31); break;
-            case kBlue: b = std::clamp(b + step, 0, 31); break;
-            default: break;
-            }
-            if (v.row >= kRed && v.row <= kBlue) {
-                c = static_cast<uint16_t>((c & 0x8000) | r | (g << 5) | (b << 10));
-                SetCustomColour(m, Character(), Index(), c);
-                v.changedAt = v.frames;
-                v.unsaved = true;
-            }
-        }
-        if (v.row == kReset && (pressed & (kPunch1 | kKick1))) {
-            ForgetCustomColours(Character());
-            v.unsaved = false;
-            StartEditor(m); // (the game's colours again, from the start of a fight)
+    }
+    void Change(Machine &m, uint16_t colour) {
+        if (colour == ColourAt(m, Index())) {
             return;
         }
-        if (chosen) {
-            v.blinkUntil = v.frames + 40;
+        StopBlink(m);
+        Put(m, Index(), colour);
+        v.unsaved = 0;
+        v.canUndo = false;
+    }
+    void Save() {
+        if (v.unsaved < 0) {
+            return;
         }
+        v.unsaved = -1;
+        SaveCustomColours(Character());
+        Say("Saved " + Character());
+    }
+    // The set's colours now (every one that is the character's), and put back
+    std::map<uint32_t, uint16_t> SetNow(Machine &m) {
+        std::map<uint32_t, uint16_t> colours;
+        for (uint32_t index = 0; index < kLines * kInLine; index++) {
+            if (index % kInLine && Known(index)) {
+                colours[index] = ColourAt(m, index);
+            }
+        }
+        return colours;
+    }
+    void PutSet(Machine &m, const std::map<uint32_t, uint16_t> &colours) {
+        StopBlink(m);
+        for (const auto &[index, colour] : colours) {
+            Put(m, index, colour);
+        }
+    }
+    void PutBack(Machine &m) {
+        if (v.trying) {
+            PutSet(m, v.kept);
+            v.trying = false;
+        }
+        v.loading = 0;
+    }
+    void Try(Machine &m, int choice) {
+        PutBack(m);
+        v.loading = choice;
+        if (!choice) {
+            return;
+        }
+        v.kept = SetNow(m);
+        std::map<uint32_t, uint16_t> colours;
+        if (!ReadSavedSet(Character(), v.saved[static_cast<size_t>(choice - 1)], colours)) {
+            Say("Cannot read it");
+            return;
+        }
+        v.trying = true;
+        PutSet(m, colours);
+    }
+    void Load() {
+        if (!v.trying) {
+            return;
+        }
+        v.trying = false; // (kept)
+        v.unsaved = 0;
+        Say("Loaded " + ShortName(v.saved[static_cast<size_t>(v.loading - 1)], kLineMost - 7));
+    }
+    void Delete(Machine &m) {
+        if (!v.loading) {
+            return;
+        }
+        if (v.deleteFor <= 0) {
+            v.deleteFor = 90;
+            Say("MK again: delete");
+            return;
+        }
+        const std::string name = v.saved[static_cast<size_t>(v.loading - 1)];
+        PutBack(m);
+        v.deleteFor = 0;
+        Say(RemoveSavedSet(Character(), name) ? "Deleted " + ShortName(name, kLineMost - 8) : std::string("Not deleted"));
+        v.saved = SavedSets(Character());
+    }
+    // Every colour of the set that is seen at random (any of the board's 32 levels of each of red, green and blue)
+    void Randomise(Machine &m) {
+        PutBack(m);
+        static std::mt19937 random(std::random_device{}());
+        std::uniform_int_distribution<int> level(0, 0x7FFF);
+        v.undo = SetNow(m);
+        std::map<uint32_t, uint16_t> colours = v.undo;
+        for (auto &[index, colour] : colours) {
+            colour = static_cast<uint16_t>(level(random));
+        }
+        PutSet(m, colours);
+        v.unsaved = 0;
+        v.canUndo = true;
+        Say("Random: HK undoes it");
+    }
+    void AskRandom(Machine &m) {
+        if (v.randomFor > 0) {
+            v.randomFor = 0;
+            Randomise(m);
+        } else {
+            v.randomFor = 90;
+            Say("Again: random colours");
+        }
+    }
+    void Undo(Machine &m) {
+        if (!v.canUndo) {
+            return;
+        }
+        PutSet(m, v.undo);
+        v.canUndo = false;
+        v.unsaved = 0;
+        Say("Random colours undone");
+    }
+    void ResetSet(Machine &m) {
+        if (!v.editing || !Showing()) {
+            return;
+        }
+        PutBack(m);
+        std::map<uint32_t, uint16_t> colours = SetNow(m);
+        for (auto &[index, colour] : colours) {
+            colour = GameColour(m, index);
+        }
+        PutSet(m, colours);
+        v.unsaved = 0;
+    }
+    void RandomCommand(Machine &m) {
+        if (v.editing && Showing()) {
+            Randomise(m);
+        }
+    }
+    void ResetCharacter(Machine &m) {
+        if (!v.editing || !Showing()) {
+            return;
+        }
+        PutBack(m);
+        ForgetCustomColours(Character()); // (every set's: the file removed)
+        v.unsaved = -1;
+        RestartEditor(m); // (the game's colours again, from the start of a fight)
+    }
+    int StepChoice(const char *name, int count, int by) {
+        const int value = (std::clamp(FeatureValue(name), 0, count - 1) + by + count) % count;
+        SetFeatureValue(name, value);
+        return value;
+    }
+    int AnimationStep(int choice, int by) {
+        int next = choice;
+        for (int n = 0; n < kLists * kMostInList + 1; n++) {
+            next += by;
+            if (next > kLists * kMostInList) {
+                next = 0;
+            } else if (next < 0) {
+                next = kLists * kMostInList;
+            }
+            if (next == 0 || AnimationOf(next)) {
+                return next;
+            }
+        }
+        return 0;
+    }
+    // Left or right on a row
+    void Step(Machine &m, int by) {
+        switch (v.row) {
+        case kRowCharacter:
+            Save();
+            StepChoice("model_character", kCount, by); // (the viewer goes to the new one)
+            break;
+        case kRowBackground: StepChoice("model_background", kCount + 2, by); break;
+        case kRowSize: StepChoice("model_size", static_cast<int>(std::size(kSizes)), by); break;
+        case kRowAnimation: SetFeatureValue("colours_animation", AnimationStep(FeatureValue("colours_animation"), by)); break;
+        case kRowSet:
+            Save();
+            v.set = (v.set + by + kSets) % kSets;
+            RestartEditor(m); // (the character chosen again with that set)
+            break;
+        case kRowLine:
+            StopBlink(m);
+            v.line = (v.line + by + kLines) % kLines;
+            v.blink = kBlinkFor;
+            break;
+        case kRowColour:
+            StopBlink(m);
+            v.colour = (v.colour - 1 + by + (kInLine - 1)) % (kInLine - 1) + 1;
+            v.blink = kBlinkFor;
+            break;
+        case kRowRandom: AskRandom(m); break;
+        case kRowSave: {
+            std::string name;
+            Say(SaveSet(Character(), SetNow(m), name) ? "Saved as " + ShortName(name, kLineMost - 9) : std::string("Not saved: no folder"));
+            break;
+        }
+        case kRowLoad:
+            if (v.saved.empty()) {
+                Say("None saved yet");
+            } else {
+                Try(m, (v.loading + by + static_cast<int>(v.saved.size()) + 1) % (static_cast<int>(v.saved.size()) + 1));
+            }
+            break;
+        default: {
+            const int shift = 5 * (v.row - kRowRed);
+            const uint16_t c = ColourAt(m, Index());
+            const int level = std::clamp(((c >> shift) & 31) + by, 0, 31);
+            Change(m, static_cast<uint16_t>((c & ~(31 << shift)) | (level << shift)));
+            break;
+        }
+        }
+    }
+
+    // The panel worked with player 1's controls: up and down a row, left and right its value (held: again and again),
+    // the buttons as cps2recomp's editor has them (LP copy, MP paste, HP the game's colour, HK undo random; on the Load
+    // row LP loads and MK deletes)
+    void Editor(Machine &m) {
+        const uint16_t now = m.players[0];
+        m.players[0] = 0; // (the character stands; the controls are the panel's)
+        const uint16_t pressed = static_cast<uint16_t>(now & ~v.before);
+        v.before = now;
+        const uint16_t direction = now & (kUp | kDown | kLeft | kRight);
+        v.heldFor = direction && direction == v.held ? v.heldFor + 1 : 0;
+        v.held = direction;
+        const int every = v.row >= kRowRed && v.row <= kRowBlue ? kHeldEveryLevel : kHeldEvery;
+        const bool acts = v.heldFor == 0 || (v.heldFor >= kHeldFirst && (v.heldFor - kHeldFirst) % every == 0);
+        if (direction && acts) {
+            if (direction & (kUp | kDown)) {
+                if (v.row == kRowLoad) {
+                    if (v.trying) {
+                        Say("Put back");
+                    }
+                    PutBack(m);
+                }
+                v.row = (v.row + (direction & kUp ? kRows - 1 : 1)) % kRows;
+                if (v.row == kRowLoad) {
+                    v.saved = SavedSets(Character());
+                    v.loading = 0;
+                }
+            } else {
+                Step(m, direction & kRight ? 1 : -1);
+                if (!v.on || !v.arrived) {
+                    return; // (started again)
+                }
+            }
+        }
+        v.deleteFor = std::max(v.deleteFor - 1, 0);
+        v.randomFor = v.row == kRowRandom ? std::max(v.randomFor - 1, 0) : 0;
+        if (v.row == kRowLoad) {
+            if (pressed & kPunch1) {
+                Load();
+            } else if (pressed & kKick2) {
+                Delete(m);
+            }
+        } else if (pressed & kPunch1) {
+            v.copied = ColourAt(m, Index());
+            Say("Copied");
+        } else if ((pressed & kPunch2) && v.copied >= 0) {
+            Change(m, static_cast<uint16_t>(v.copied));
+        } else if (pressed & kPunch3) {
+            Change(m, GameColour(m, Index()));
+        } else if ((pressed & kKick1) && v.row == kRowRandom) {
+            AskRandom(m);
+        } else if (pressed & kKick3) {
+            Undo(m);
+        }
+        if (v.unsaved >= 0 && ++v.unsaved >= kSaveAfter) {
+            Save();
+        }
+        v.saidFor = std::max(v.saidFor - 1, 0);
         // (the colour chosen blinks white and black for a moment, so that it is found on the character)
-        if (v.frames < v.blinkUntil && (v.frames / 6) % 2 == 0) {
-            v.blinkWas = m.board.ColourRam()[Index()];
-            const uint16_t flash = ((v.frames / 12) % 2) ? 0x0000 : 0x7FFF;
-            m.board.WriteColour(Index(), flash);
-            m.board.WriteColour(Index() + 0x200, flash);
-            v.blinking = true;
+        StopBlink(m);
+        if (v.blink > 0) {
+            v.blink--;
+            if ((v.blink / kBlinkEvery) % 2 == 1) {
+                v.blinkWas = static_cast<uint16_t>(m.board.ColourRam()[Index()]);
+                const uint16_t flash = ((v.blink / (2 * kBlinkEvery)) % 2) ? 0x0000 : 0x7FFF;
+                m.board.WriteColour(Index(), flash);
+                m.board.WriteColour(Index() + 0x200, flash);
+                v.blinking = true;
+            }
         }
-        if (v.unsaved && v.frames - v.changedAt > 60) {
-            SaveCustomColours(Character());
-            v.unsaved = false;
+    }
+
+    // The panel over the right of the picture (the board's colours: 15 bits, red the lowest five)
+    recomp::text::Color Shown(uint16_t c) {
+        return {static_cast<uint8_t>((c & 31) * 255 / 31), static_cast<uint8_t>(((c >> 5) & 31) * 255 / 31),
+                static_cast<uint8_t>(((c >> 10) & 31) * 255 / 31), 255};
+    }
+    void DrawPanel(Machine &m) {
+        using recomp::text::Color;
+        const int width = m.PictureWidth(), height = Video::kHeight;
+        const recomp::text::Canvas canvas{m.Picture(), width, height};
+        const Color white{255, 255, 255, 255}, dim{150, 150, 170, 255}, black{0, 0, 0, 255};
+        const int x = width - kPanelWidth - 4, right = width - 10;
+        int y = 6;
+        canvas.Fill(static_cast<float>(x), 4, kPanelWidth, static_cast<float>(height - 8), {18, 20, 30, 235});
+        auto text = [&](int at, int row, const char *str, Color c, int align) {
+            const float w = recomp::text::TextWidth(str, 1);
+            canvas.Text(align < 0 ? static_cast<float>(at) : static_cast<float>(at) - w, static_cast<float>(row), 1, 0, c, str);
+        };
+        text(x + 6, y + 2, "COLOUR EDITOR", white, -1);
+        y += 13;
+        const uint16_t colour = ColourAt(m, Index());
+        for (int row = 0; row < kRows; row++) {
+            const bool chosen = row == v.row;
+            if (chosen) {
+                canvas.Fill(static_cast<float>(x + 2), static_cast<float>(y - 1), kPanelWidth - 4, 10, {64, 70, 110, 255});
+            }
+            text(x + 6, y, kRowNames[row], chosen ? white : dim, -1);
+            std::string value;
+            switch (row) {
+            case kRowCharacter: value = Character(); break;
+            case kRowBackground: {
+                const int background = FeatureValue("model_background");
+                value = background >= kCount ? (background == kCount ? "White" : "Black") : Fit(kCharacters[background] + std::string("'s"), kValueMost);
+                break;
+            }
+            case kRowSize: {
+                char size[16];
+                snprintf(size, sizeof(size), "%gx", kSizes[std::clamp(FeatureValue("model_size"), 0, static_cast<int>(std::size(kSizes)) - 1)]);
+                value = size;
+                break;
+            }
+            case kRowAnimation: {
+                const int choice = FeatureValue("colours_animation");
+                char name[16];
+                snprintf(name, sizeof(name), "%c%d", 'A' + (choice - 1) / kMostInList, (choice - 1) % kMostInList);
+                value = choice <= 0 ? "Standing" : name;
+                break;
+            }
+            case kRowSet: value = kSetNames[v.set]; break;
+            case kRowLine: value = std::to_string(v.line + 1); break;
+            case kRowColour: value = std::to_string(v.colour) + (Known(Index()) ? "" : " (not its)"); break;
+            case kRowRandom:
+            case kRowSave: value = chosen ? "< >" : ""; break;
+            case kRowLoad:
+                value = v.loading ? ShortName(v.saved[static_cast<size_t>(v.loading - 1)], kValueMost) : !chosen ? "" : v.saved.empty() ? "none saved" : "< >";
+                break;
+            default: {
+                // a bar of 32 levels, and the level
+                const int part = row - kRowRed, level = (colour >> (5 * part)) & 31;
+                const Color fill = part == 0 ? Color{230, 60, 60, 255} : part == 1 ? Color{60, 200, 80, 255} : Color{70, 110, 240, 255};
+                const int barX = x + 52;
+                canvas.Fill(static_cast<float>(barX), static_cast<float>(y + 1), 64, 6, {50, 52, 64, 255});
+                canvas.Fill(static_cast<float>(barX), static_cast<float>(y + 1), static_cast<float>(2 * (level + 1)), 6, fill);
+                value = std::to_string(level);
+                break;
+            }
+            }
+            text(right, y, value.c_str(), chosen ? white : dim, 1);
+            y += 10;
+        }
+        // The line's colours (two rows of 32), the one chosen marked
+        y += 3;
+        for (int n = 0; n < kInLine; n++) {
+            const int sx = x + 6 + (n % 32) * 4, sy = y + (n / 32) * 8;
+            const bool here = n == v.colour;
+            canvas.Fill(static_cast<float>(sx), static_cast<float>(sy), 4, 7, Shown(ColourAt(m, static_cast<uint32_t>(v.line * kInLine + n))));
+            if (here) {
+                canvas.Fill(static_cast<float>(sx), static_cast<float>(sy + 7), 4, 1, white);
+                canvas.Fill(static_cast<float>(sx), static_cast<float>(sy - 1), 4, 1, white);
+            }
+        }
+        y += 18;
+        // The colour chosen, large, with its value and the game's (and the one copied with LP)
+        canvas.Fill(static_cast<float>(x + 6), static_cast<float>(y), 26, 18, Shown(colour));
+        char hex[16];
+        snprintf(hex, sizeof(hex), "#%02X%02X%02X", (colour & 31) * 255 / 31, ((colour >> 5) & 31) * 255 / 31, ((colour >> 10) & 31) * 255 / 31);
+        text(x + 38, y + 1, hex, white, -1);
+        text(x + 38, y + 11, "game", dim, -1);
+        canvas.Fill(static_cast<float>(x + 64), static_cast<float>(y + 11), 10, 8, Shown(GameColour(m, Index())));
+        if (v.copied >= 0) {
+            text(x + 80, y + 11, "copy", dim, -1);
+            canvas.Fill(static_cast<float>(x + 106), static_cast<float>(y + 11), 10, 8, Shown(static_cast<uint16_t>(v.copied)));
+        }
+        y += 22;
+        const char *const help[] = {"Arrows: choose/change", "LP copy  MP paste",
+                                    v.canUndo ? "HK undo random" : v.row == kRowRandom ? "LK twice: random" : "HP game's colour"};
+        const char *const loadHelp[] = {"Left/Right: try one", "LP load it  MK delete", "Up/Down: put it back"};
+        const char *const *lines = v.row == kRowLoad ? loadHelp : help;
+        for (int n = 0; n < 2; n++) {
+            text(x + 6, y + 10 * n, lines[n], dim, -1);
+        }
+        if (v.saidFor > 0) {
+            text(x + 6, y + 20, v.said.c_str(), white, -1);
+        } else if (v.unsaved >= 0) {
+            text(x + 6, y + 20, "Saving...", dim, -1);
+        } else {
+            text(x + 6, y + 20, lines[2], dim, -1);
         }
     }
 } // namespace
@@ -314,6 +714,9 @@ void ModelBeforeFrame(Machine &m) {
     const bool locked = Ram8(sfiii3::kLocked[0]) == 0xFF || Ram8(sfiii3::kLocked[1]) == 0xFF;
     if (!locked) {
         SetRam8(sfiii3::kChosen[0], static_cast<uint8_t>(std::clamp(FeatureValue("model_character"), 0, kCount - 1)));
+        if (v.editing && Ram8(sfiii3::kSelectState[0]) >= 4) {
+            SetRam8(sfiii3::kSelectColour[0], static_cast<uint8_t>(v.set)); // (the colour editor's set)
+        }
         SetRam8(sfiii3::kStage, static_cast<uint8_t>(std::min(background, kCount - 1)));
     }
     if (on) {
@@ -361,55 +764,28 @@ void ModelHud(std::vector<HudLine> &lines, std::vector<HudBox> &boxes) {
         snprintf(name, sizeof(name), "%c%d", 'A' + (v.choice - 1) / kMostInList, (v.choice - 1) % kMostInList);
         lines.push_back({0.5f, 0.04f, 0, name});
     }
-    if (!Showing() || !v.editing) {
-        return;
-    }
-    Machine *m = TheMachine();
-    if (!m) {
-        return;
-    }
-    const uint16_t c = ColourNow(*m);
-    uint32_t word = 0;
-    const bool known = ColourWord(Index(), word);
-    char text[6][48];
-    snprintf(text[0], sizeof(text[0]), "LINE %d", v.line + 1);
-    snprintf(text[1], sizeof(text[1]), "COLOUR %d%s", v.colour, known ? "" : " (NOT THE CHARACTER'S)");
-    snprintf(text[2], sizeof(text[2]), "RED %d", c & 31);
-    snprintf(text[3], sizeof(text[3]), "GREEN %d", (c >> 5) & 31);
-    snprintf(text[4], sizeof(text[4]), "BLUE %d", (c >> 10) & 31);
-    snprintf(text[5], sizeof(text[5]), "THE GAME'S COLOURS AGAIN");
-    std::string title = "COLOUR EDITOR: " + Character();
-    for (char &ch : title) {
-        ch = static_cast<char>(toupper(static_cast<unsigned char>(ch)));
-    }
-    lines.push_back({0.97f, 0.06f, 1, title, 255, 230, 120});
-    for (int r = 0; r < kRows; r++) {
-        const bool here = r == v.row;
-        lines.push_back({0.97f, 0.13f + 0.055f * r, 1, std::string(here ? "> " : "") + text[r], here ? uint8_t(255) : uint8_t(200),
-                         here ? uint8_t(255) : uint8_t(200), here ? uint8_t(120) : uint8_t(200)});
-    }
-    // (the colour itself, and the line's 64)
-    const int width = m->PictureWidth();
-    const auto rgb = [](uint16_t x, uint8_t &r, uint8_t &g, uint8_t &b) {
-        r = static_cast<uint8_t>((x & 31) << 3);
-        g = static_cast<uint8_t>(((x >> 5) & 31) << 3);
-        b = static_cast<uint8_t>(((x >> 10) & 31) << 3);
-    };
-    uint8_t r, g, b;
-    rgb(c, r, g, b);
-    boxes.push_back({width - 46, 152, 40, 20, r, g, b, 255});
-    for (int n = 0; n < 64; n++) {
-        const uint16_t x = n == v.colour ? c : m->board.ColourRam()[v.line * 64 + n];
-        rgb(x, r, g, b);
-        boxes.push_back({width - 134 + (n % 16) * 8, 178 + (n / 16) * 8, n == v.colour ? 8 : 7, n == v.colour ? 8 : 7, r, g, b, 255});
-    }
+}
+
+namespace {
+    void Zoom(Machine &m);
 }
 
 // After the frame: the picture zoomed about the character's feet
 void ModelAfterFrame(Machine &m) {
-    if (!Showing() || v.editing) {
+    if (!Showing()) {
         return;
     }
+    if (v.editing) {
+        Zoom(m);
+        DrawPanel(m); // (the colour editor's panel over the right of the picture)
+        return;
+    }
+    Zoom(m);
+}
+
+namespace {
+    // The picture zoomed about the character's feet (the colour editor's: moved left, out from under its panel)
+    void Zoom(Machine &m) {
     const double size = kSizes[std::clamp(FeatureValue("model_size"), 0, static_cast<int>(std::size(kSizes)) - 1)];
     if (size == 1 && !Plain()) {
         return; // (on a stage, at its own size: as the game shows it; on plain white or black, moved to the middle)
@@ -420,7 +796,7 @@ void ModelAfterFrame(Machine &m) {
     const int feet = height - (Signed16(base + sfiii3::kY) - Signed16(sfiii3::kCameraY)) - 23;
     // (the character in the middle; up to 1.5 times, its feet kept a little above the bottom, larger its body's middle,
     // about 55 above its feet, at the picture's)
-    const double anchorX = width / 2.0, anchorY = size <= 1.5 ? height - 16.0 : height / 2.0;
+    const double anchorX = width / 2.0 - (v.editing ? kShift : 0), anchorY = size <= 1.5 ? height - 16.0 : height / 2.0;
     const int point = size <= 1.5 ? feet : feet - 55;
     static std::vector<uint32_t> from;
     from.assign(m.Picture(), m.Picture() + static_cast<size_t>(width) * height);
@@ -433,7 +809,8 @@ void ModelAfterFrame(Machine &m) {
             to[static_cast<size_t>(y) * width + x] = sx >= 0 && sx < width && sy >= 0 && sy < height ? from[static_cast<size_t>(sy) * width + sx] : fill;
         }
     }
-}
+    }
+} // namespace
 
 namespace {
     // The menu's "Reset options": every choice of the viewer's page back to what it is when nothing is chosen
@@ -501,15 +878,24 @@ void RegisterModel(Game &game) {
     game.features.push_back({"model_all", kPage, "Play all",
                              "Goes through all of the character's animations, one after another: each shown once (and its end held for "
                              "\"Repeat after\"), then the next."});
+
+    game.commands.push_back({"colours_start", "Colour editor", "Start",
+                             "The model viewer's character with a panel worked with player 1's controls. Changes are saved to the "
+                             "palettes folder and used in play (Custom colours). Reset ends it.",
+                             StartEditor});
     game.features.push_back({"colours_animation", "Colour editor", "Animation",
                              "What the character does in the editor: stands, or goes through one of its animations (as in the model "
-                             "viewer).",
+                             "viewer). The panel has this row too.",
                              kFeatureMenuChoices, choices});
-    game.commands.push_back({"colours_start", "Colour editor", "Start",
-                             "The model viewer with a panel: player 1's controls choose a line of the character's colours, a colour of "
-                             "it (it blinks on the character), and its red, green and blue. Changes are kept for the character (the "
-                             "palettes folder) and used in every fight with the Display page's Custom colours on.",
-                             StartEditor});
+    game.commands.push_back({"colours_reset_set", "Colour editor", "Game's colours for this set",
+                             "While editing: every colour of the set being edited back to the game's.", ResetSet});
+    game.commands.push_back({"colours_random", "Colour editor", "Random colours for this set",
+                             "While editing: every colour of the set being edited at random (the panel's Random row does it too, "
+                             "pressed twice: LK, left or right). HK puts back the colours from before, until the next change; \"Game's "
+                             "colours for this set\" puts back the game's.",
+                             RandomCommand});
+    game.commands.push_back({"colours_reset_character", "Colour editor", "Game's colours for this character",
+                             "While editing: every set of the character being edited back to the game's colours.", ResetCharacter});
 }
 
 } // namespace cps3recomp
