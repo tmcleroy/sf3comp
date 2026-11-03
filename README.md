@@ -25,12 +25,13 @@ or sponsored by Capcom. *Street Fighter* is a trademark of Capcom Co., Ltd.
 - **A launcher and an in-game menu** (Esc or F1; on a gamepad, the left stick's click, or Start and Select
   together): every feature, save states, speed, the cheats, the board's own settings (difficulty, damage, timer,
   rounds, bonus games) and its test menu. Keyboard, gamepad or arcade stick, every button changeable per player.
-- **Pure or Enhanced**: Pure plays exactly as the board does; Enhanced (the default) adds free play and your own
-  character colours. Every other feature is a switch of its own.
+- **Pure or Enhanced**: Pure plays exactly as the board does; Enhanced (the default) adds free play. Every other
+  feature is a switch of its own. Colours made in the colour editor are always used.
 - **Widescreen**: the stage drawn out to 16:9, or 16:9 played exactly as the board plays (invisible walls at the
   board's own ends). Shaders, scaling and picture shapes as the other recomp ports have them.
 - **Online play** with rollback, by a code or the lobby, from the launcher's Online page.
-- **Zoom**: the left stick's click held and a shoulder pressed zooms in on a fighter, or on both.
+- **Zoom**: the left stick's click held and a shoulder pressed zooms in on a fighter, or on both (or the Display page's
+  Zoom row).
 - **A custom soundtrack**: your own music in place of the game's, by song or as a playlist; or any stage's music
   for every fight.
 - **Gill playable**, for either player.

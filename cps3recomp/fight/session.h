@@ -46,6 +46,9 @@ struct Description {
     void (*guardView)(Machine &machine, bool &inRange, bool &standing) = nullptr;
     // The game's own readouts, beside the toolkit's (lines and boxes of the HUD)
     void (*hud)(Machine &machine, std::vector<HudLine> &lines, std::vector<HudBox> &boxes) = nullptr;
+    // The session's aids (readouts, inputs, frames, the dummy's line) left out now, the game's `hud` alone shown (a
+    // model viewer run in a session)
+    bool (*aidsOff)() = nullptr;
     float inputY = 0.30f, inputSpacing = 0.062f, framesY = 0.72f;
     int framesTop = 193;
     fight::DummyOptions dummy;
@@ -68,6 +71,8 @@ void StartSession(Machine &machine);
 bool InSession();
 // On the way to a session's character choice (it runs the game unseen meanwhile)
 bool Booting();
+// How many sessions have been started (a mode run in a session tells another's start from its own)
+uint32_t Starts();
 // No clock and nobody knocked out (a session)
 bool NoClock();
 bool NoKnockOut();

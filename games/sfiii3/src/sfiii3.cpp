@@ -35,6 +35,8 @@ void TrainingBeforeFrame(Machine &m);
 void AttractBeforeFrame(Machine &m);
 void RegisterAttract(Game &game);
 void TrainingAfterFrame(Machine &m);
+int WorldShift();     // widescreen.cpp
+bool ModelViewerOn(); // model.cpp
 
 namespace {
     // The board's start-up (its checks, the region's warning, Capcom's logo) runs unseen when skip_intro is on: the
@@ -126,6 +128,21 @@ void RegisterGame() {
     RegisterMusic(game);
     RegisterBattle(game);
     RegisterModel(game);
+    // (the port's zoom on a fighter, port/zoom.h: where its feet are in the picture, while a round is fought; not in the
+    // model viewer, which has sizes of its own)
+    game.focus = [](int player, int &x, int &y) {
+        Machine *m = TheMachine();
+        const bool fought = (Ram8(sfiii3::kLocked[0]) == 0xFF || Ram8(sfiii3::kLocked[1]) == 0xFF) && Ram8(sfiii3::kMatchState) == 2;
+        if (!m || !fought || ModelViewerOn() || player < 0 || player > 1) {
+            return false;
+        }
+        const uint32_t base = sfiii3::kPlayer[player];
+        x = static_cast<int16_t>(Ram16(base + sfiii3::kX)) - static_cast<int16_t>(Ram16(sfiii3::kCameraX)) + m->PictureWidth() / 2 - WorldShift();
+        y = Video::kHeight - (static_cast<int16_t>(Ram16(base + sfiii3::kY)) - static_cast<int16_t>(Ram16(sfiii3::kCameraY))) - 23 - 44;
+        return true;
+    };
+    game.focusLift = 44;
+    game.focusTall = 120;
     RegisterColours(game);
     game.noRunAhead = BattleOn; // (a mode with a spare machine: its frames are not run ahead)
     // (with arcade timing: the readable rewrites where the port's own features work inside them)

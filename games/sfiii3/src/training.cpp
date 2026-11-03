@@ -381,6 +381,7 @@ void WidescreenState(Archive &ar);
 void BattleState(Archive &ar);
 void BattleHud(Machine &m, std::vector<HudLine> &lines);
 void ModelHud(std::vector<HudLine> &lines, std::vector<HudBox> &boxes);
+bool ModelViewerOn();
 
 void TrainingBeforeFrame(Machine &m) {
     if (InMatch()) {
@@ -520,7 +521,12 @@ void RegisterTraining(Game &game) {
     d.choosing = [] { return !InMatch() && (Ram8(sfiii3::kSelectState[0]) >= 1 || Ram8(sfiii3::kSelectState[1]) >= 1) &&
                              (Ram8(sfiii3::kSelectState[0]) < 5 || Ram8(sfiii3::kSelectState[1]) < 5); };
     d.facingLeft = [](int p) { return Ram8(sfiii3::kPlayer[p] + sfiii3::kFacing) == 0; };
+    d.aidsOff = ModelViewerOn; // (the model viewer and the colour editor: none of training's aids)
     d.hud = [](Machine &m, std::vector<HudLine> &lines, std::vector<HudBox> &boxes) {
+        if (ModelViewerOn()) {
+            ModelHud(lines, boxes);
+            return;
+        }
         BattleHud(m, lines);
         ModelHud(lines, boxes);
         if (FeatureOn("hit_boxes")) {

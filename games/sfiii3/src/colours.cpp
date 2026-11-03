@@ -10,7 +10,7 @@
 // Ryu, each with lines of its own and some shared (0x2F6AC00, 0x2F6AD00: effects). Each colour is 15 bits, five each
 // of red, green and blue (red the lowest), as the board shows them.
 //
-// Custom colours (the Display page's custom_colours): a colour read from a word of the graphics that a file in the
+// Custom colours (always on, so that what the editor makes is always seen): a colour read from a word of the graphics that a file in the
 // folder "palettes" beside settings.ini gives another for is that one instead, as it is read, so the game's code is
 // the same with them as without. A character's file (palettes/<Name>.txt, the editor writes it) is lines of
 // "WORD = COLOUR" in hexadecimal (the graphics word, then the colour); "#" starts a remark. The editor (the model
@@ -80,9 +80,6 @@ namespace {
         g_original[word] = static_cast<uint16_t>(colour & 0x7FFF);
         if (!g_loaded) {
             Load();
-        }
-        if (!g_forced && !FeatureOn("custom_colours")) {
-            return colour;
         }
         const auto it = g_custom.find(word);
         return it == g_custom.end() ? colour : static_cast<uint16_t>((colour & 0x8000) | it->second);
@@ -239,10 +236,7 @@ bool RemoveSavedSet(const std::string &character, const std::string &saved) {
 }
 
 void RegisterColours(Game &game) {
-    game.features.push_back({"custom_colours", "Display", "Custom colours",
-                             "The characters' own colours made with the colour editor (Alternative modes, Model viewer) or written in "
-                             "the palettes folder beside settings.ini, in place of the game's. Taken as each fight begins.",
-                             kFeatureEnhanced});
+
     if (Machine *machine = TheMachine()) {
         machine->board.paletteColour = PaletteColour;
     }

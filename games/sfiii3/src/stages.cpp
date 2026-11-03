@@ -776,8 +776,9 @@ void RegisterStages(Game &game) {
         machine->ownStageObject = OwnStageObject;
         machine->beforeStage = BeforeStage;
         machine->beforeSecondStage = BeforeSecondStage;
-        // (the second board, on its way to its fight: four frames a frame)
-        machine->secondStageFramesNow = [] { return g_make.on && g_make.second && !g_make.state.fought ? 4 : 1; };
+        // (the second board, until it is ready (past its fight's banners): eight frames a frame, so that it is there before
+        // the stage shown has been crossed even at the fastest scroll)
+        machine->secondStageFramesNow = [] { return g_make.on && g_make.second && !g_make.ready ? 8 : 1; };
         // (composed while 3rd Strike's round is on and the board is in its fight: for the opponent's, on a stage it has)
         machine->composeNow = [] { return !g_pre.on && OnStage() && g.fought && (kChoices[g.loaded].game != &kThirdStrike || g.inFight > kBannersFor) && (kChoices[g.loaded].stage != kOpponents || g.stage >= 0); };
         // (on its way to its fight: eight frames a frame; in it one, its own pace (its animations and music))

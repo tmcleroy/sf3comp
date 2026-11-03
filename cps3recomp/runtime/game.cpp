@@ -157,6 +157,18 @@ void EndSessionFeatures() {
     }
 }
 
+namespace {
+    bool g_menuAsked = false;
+}
+void AskMenu() {
+    g_menuAsked = true;
+}
+bool TakeMenuAsk() {
+    const bool asked = g_menuAsked;
+    g_menuAsked = false;
+    return asked;
+}
+
 void SetFastForward(bool on) {
     g_fastForward = on;
 }

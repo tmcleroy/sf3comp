@@ -136,7 +136,15 @@ namespace {
     }
 } // namespace
 
+namespace {
+    uint32_t g_starts = 0;
+}
+uint32_t Starts() {
+    return g_starts;
+}
+
 void StartSession(Machine &machine) {
+    g_starts++;
     SetFeature("training_mode", true);
     machine.Reset();
     StateLoaded();
@@ -226,6 +234,14 @@ void Frame(Machine &machine) {
     g_combos.Frame();
     std::vector<HudLine> lines;
     std::vector<HudBox> boxes;
+    if (d.aidsOff && d.aidsOff()) {
+        if (d.hud) {
+            d.hud(machine, lines, boxes);
+        }
+        SetBoxes(std::move(boxes));
+        SetHud(std::move(lines));
+        return;
+    }
     const bool readout = FeatureOn("damage_readout"), refill = FeatureOn("health_refill"), inputs = FeatureOn("input_display");
     for (int n = 0; n < 2; n++) {
         const uint8_t health = Ram8(d.player[n] + d.health);

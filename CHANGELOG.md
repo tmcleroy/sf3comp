@@ -8,6 +8,9 @@
   their health). Attract mode with free play on. The stage viewer with only music. The model viewer straight to its
   character, with Reset options and the animation's name at the top. The colour editor's panel: any character, set,
   line and colour, random colours, a library of saved sets.
+- The zoom on a fighter works (it had nothing to follow). Custom colours are always on. The endless battle's scroll
+  never stops at a stage's end; the model viewer keeps its character in place with nothing else drawn; a mode that is
+  over opens the menu on its page instead of starting the board again.
 - Arcade timing (the Game page, off unless chosen): the processor takes the board's time, its memory's waits, its
   cache's misses and its pipeline's stalls, so the game slows down where the board does. Checked against jotego's
   CPS-3 core simulated: the start-up, the attract mode and a fight, frame by frame.

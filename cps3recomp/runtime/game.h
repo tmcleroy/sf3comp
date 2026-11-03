@@ -155,6 +155,10 @@ void EndSessionFeatures();
 // The game's sources can ask for the game to run as fast as it goes, unseen and unheard (through a start-up
 // they are working the controls for, say); the window does that while this is set
 void SetFastForward(bool on);
+// The in-game menu opened by the game's sources (a mode over, to start another from its page: the menu opens on the
+// page it was last left on); the frontend takes the ask
+void AskMenu();
+bool TakeMenuAsk();
 bool FastForward();
 // Run-ahead (the port's "run_ahead" feature) is running frames that will be taken back: the game's sources skip
 // what must happen once (writing a file, say). Also set while the frame before them is put back.

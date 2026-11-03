@@ -633,6 +633,9 @@ namespace {
                 StageBehindNext(b.nextStage);
             }
         }
+        if (getenv("SFIII3_SCROLL_LOG")) { // (debugging aid)
+            fprintf(stderr, "scroll %u %d %d %d\n", b.frames, b.stage, b.scroll / 256, b.slide / 256);
+        }
         if (continuous && b.fade == 0) {
             // (across this stage, then this one out to the left and the next in from the right, its camera at its left
             // end; once it is all there, it is the stage)
@@ -1293,12 +1296,13 @@ void BattleBeforeFrame(Machine &m) {
         StageBehindFrame(m);
     }
     if (b.over) {
-        // (the battle won or the run over: said for a while, then the mode ends and the board starts over)
+        // (the battle won or the run over: said for a while, then the mode ends and the menu opens on the page it was
+        // started from, for another; the board goes on as it is underneath)
         if (b.frames - b.overAt > kShownFor + 60) {
             b.mode = kNone;
             StageBehind(-1);
-            m.Reset(); // (back to the board's start, as after a reset)
-            StateLoaded();
+            SetHud({});
+            AskMenu();
         }
         return;
     }

@@ -443,6 +443,9 @@ int RunWindowed(Port &port) {
     bool running = true;
     while (running && !port.quit && (port.opt.frames == 0 || port.frame < port.opt.frames)) {
         SDL_Event ev;
+        if (cps3recomp::TakeMenuAsk() && !port.menu.IsOpen() && !port.net) {
+            toggleMenu(); // (the game's sources asked for it: a mode over)
+        }
         if (port.typing && (!port.net || port.connecting)) {
             chatOpen(false); // (the match over, or waited for again)
         }

@@ -40,6 +40,9 @@ namespace {
         uint32_t namedAt = 0;
         uint32_t cellSince = 0;      // when the animation's cell last changed (one held 3 seconds is its end)
         int character = 0, background = 0; // (the menu's when it started: another chosen while viewing goes to it)
+        uint32_t session = 0;        // the session it runs in
+        int16_t holdX = 0;           // (an animation shown: where the character is held, so that it plays in place)
+        uint64_t zoomed = ~0ull;     // the machine's frame whose picture was last zoomed (zoomed once only)
         // (the colour editor: its row; the set (restarting the viewer with it chosen), player 1's line (0-7: colour RAM
         // line * 64) and colour (1-63))
         int row = 6, set = 0, line = 0, colour = 1; // (row 6: the Colour row)
@@ -75,6 +78,7 @@ namespace {
     // the animation playing, +0x204 the cell (in fours of bytes), +0x214 the frames left of it (0x06089848 advances it).
     constexpr int kLists = 10, kMostInList = 160;
     constexpr uint32_t kAnimation = 0x200, kCell = 0x204, kCellLeft = 0x214;
+    constexpr int kBeside = 120;           // how far right of the character the viewer keeps player 2 (not seen)
     constexpr uint32_t kNamedFor = 120;    // frames an animation's name is shown for after it changes (the CPS-2 ports' viewer's)
     constexpr uint32_t kLongestFrame = 180; // frames a frame is held before it counts as the animation's end
     int ListCount(uint32_t list) {
@@ -127,7 +131,24 @@ namespace {
         if (Plain() && (tilemap || palette >= 0x80)) {
             return true;
         }
-        return !tilemap && palette >= 0x10 && palette <= 0x17;
+        if (!tilemap && palette >= 0x10 && palette <= 0x17) {
+            return true;
+        }
+        // (player 2's shadow: the blended objects of palette 0 under its fighter, between its objects' ends)
+        if (!tilemap && palette == 0 && ((list[object * 4] >> 10) & 1)) {
+            int left = 0x7FFF, right = -0x7FFF;
+            for (uint32_t n = 0; n < std::min<uint32_t>(board.SpriteCount(), 0x200); n++) {
+                const uint32_t p = list[n * 4] & 0x1FF;
+                if ((list[n * 4 + 2] & 3) != 0 && p >= 0x10 && p <= 0x17) {
+                    const int x = static_cast<int>((list[n * 4 + 1] >> 16) & 0x3FF);
+                    left = std::min(left, x);
+                    right = std::max(right, x + static_cast<int>(((list[n * 4 + 2] >> 16) & 0x7F) + 1));
+                }
+            }
+            const int x = static_cast<int>((list[object * 4 + 1] >> 16) & 0x3FF);
+            return left <= right && x >= left - 48 && x <= right + 16;
+        }
+        return false;
     }
     // Player 1's fighter (its objects' palettes 0x08-0x0F), drawn over the stage's pieces in front of the fighters
     // ("Stage in front": Behind)
@@ -140,6 +161,7 @@ namespace {
         session::StartSession(machine);
         v = {};
         v.on = true;
+        v.session = session::Starts(); // (another session started after it, training's: the viewer is over)
         v.character = FeatureValue("model_character");
         v.background = FeatureValue("model_background");
     }
@@ -218,6 +240,12 @@ namespace {
         }
         m.players[0] = 0; // (the animation plays; the controls are not the character's)
         const bool startNow = animation != v.target;
+        // (in place, as the CPS-2 ports' viewer shows them: a dash or a jump does not take the character, or the camera, away)
+        if (startNow && v.target == 0 && v.holdX == 0) {
+            v.holdX = static_cast<int16_t>(Ram16(base + sfiii3::kX));
+        }
+        SetRam16(base + sfiii3::kX, static_cast<uint16_t>(v.holdX));
+        SetRam16(base + sfiii3::kY, 0);
         // (over: the game has gone on to another, it holds (a cell of 0xFF frames), or it has come round to its start (one
         // that repeats by itself))
         const uint16_t cell = Ram16(base + kCell);
@@ -683,8 +711,9 @@ bool ModelViewerOn() {
 }
 
 void ModelBeforeFrame(Machine &m) {
-    if (v.on && !session::InSession()) {
-        v.on = false;
+    if (v.on && (!session::InSession() || session::Starts() != v.session)) {
+        v.on = false; // (the board reset, or another session started: training's)
+        v.editing = false;
     }
     v.frames++;
     ForceCustomColours(v.on && v.editing);
@@ -732,7 +761,18 @@ void ModelBeforeFrame(Machine &m) {
         }
     }
     if (on && Ram8(sfiii3::kMatchState) == 2) {
+        if (!v.arrived) {
+            // (the character put in the middle of the stage, so that the camera has the stage all round it)
+            const int middle = (static_cast<int16_t>(Ram16(sfiii3::kCameraLeft[0])) + static_cast<int16_t>(Ram16(sfiii3::kCameraRight[0]))) / 2;
+            SetRam16(sfiii3::kPlayer[0] + sfiii3::kX, static_cast<uint16_t>(middle - kBeside / 2));
+            v.holdX = static_cast<int16_t>(middle - kBeside / 2);
+        }
         v.arrived = true; // (the round is on: the entrances and its banners were run at speed)
+    }
+    if (on) {
+        // (player 2, not seen, kept a little to player 1's right: the camera, which keeps both in the picture, follows player
+        // 1, and the two never overlap (overlapping, the game swaps their palettes, by which player 2's is left out))
+        SetRam16(sfiii3::kPlayer[1] + sfiii3::kX, static_cast<uint16_t>(static_cast<int16_t>(Ram16(sfiii3::kPlayer[0] + sfiii3::kX)) + kBeside));
     }
     {
         const bool fast = !v.arrived && !session::Booting();
@@ -772,8 +812,8 @@ namespace {
 
 // After the frame: the picture zoomed about the character's feet
 void ModelAfterFrame(Machine &m) {
-    if (!Showing()) {
-        return;
+    if (!Showing() || !v.arrived) {
+        return; // (not till the round is on: the entrances and banners run unseen before it)
     }
     if (v.editing) {
         Zoom(m);
@@ -784,8 +824,13 @@ void ModelAfterFrame(Machine &m) {
 }
 
 namespace {
-    // The picture zoomed about the character's feet (the colour editor's: moved left, out from under its panel)
+    // The picture zoomed about the character's feet (the colour editor's: moved left, out from under its panel); once
+    // for a picture the machine made (a frame not drawn, or run again in slow motion, leaves the zoomed one as it is)
     void Zoom(Machine &m) {
+    if (!m.drawing || m.frame == v.zoomed) {
+        return;
+    }
+    v.zoomed = m.frame;
     const double size = kSizes[std::clamp(FeatureValue("model_size"), 0, static_cast<int>(std::size(kSizes)) - 1)];
     if (size == 1 && !Plain()) {
         return; // (on a stage, at its own size: as the game shows it; on plain white or black, moved to the middle)
@@ -881,7 +926,7 @@ void RegisterModel(Game &game) {
 
     game.commands.push_back({"colours_start", "Colour editor", "Start",
                              "The model viewer's character with a panel worked with player 1's controls. Changes are saved to the "
-                             "palettes folder and used in play (Custom colours). Reset ends it.",
+                             "palettes folder and used in every fight. Reset ends it.",
                              StartEditor});
     game.features.push_back({"colours_animation", "Colour editor", "Animation",
                              "What the character does in the editor: stands, or goes through one of its animations (as in the model "
