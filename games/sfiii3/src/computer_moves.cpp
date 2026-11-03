@@ -2612,6 +2612,9 @@ namespace {
 
     // (free: r1-r7 and T for a routine with a result, r0-r7 and T for one with none, where C callers only call it)
     constexpr uint32_t kResult = 0x100FE, kNoResult = 0x100FF;
+    // (The entries commented out are rewrites the check has not yet met, so not registered: ETC_Term_0004 (Ken's),
+    // Turn_Over_On (Hugo's and Akuma's), Only_Shot (Akuma's), and six of the character routines, whose code is the
+    // others' byte for byte but for their tables.)
     const Lift kLifts[] = {
         {"ComputerDice32", 0x0611E106, 24, 0x93BD163910B52512ull, Dice32, true, 0x108FE},
         {"ComputerTableByLowBits", 0x061210DC, 16, 0x065C5F1E0ADD13DDull, TableByLowBits, true},
