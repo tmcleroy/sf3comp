@@ -51,6 +51,7 @@ public:
     bool operator==(const Bus &) const = default;
     // All the cycles charged so far (for the timing harness's log, CPS3RECOMP_VBLANK_LOG; not saved)
     uint64_t charged = 0;
+    uint64_t busCycles = 0; // (and the external bus cycles, each piece of each access)
 
     // For save states: everything above (the cache's tags and LRU included)
     void Serialize(Archive &ar);
@@ -59,7 +60,7 @@ private:
     // One bus cycle's states in an area, and how many a `size`-byte access takes there
     unsigned CycleStates(unsigned area) const;
     unsigned Width(unsigned area) const; // (bytes)
-    unsigned External(uint32_t address, unsigned size) const;
+    unsigned External(uint32_t address, unsigned size);
     unsigned ReadCycles(uint32_t address, unsigned size, bool fetch);
     unsigned WriteCycles(uint32_t address, unsigned size);
 

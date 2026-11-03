@@ -57,12 +57,14 @@ struct Access {
         uint64_t MAC, cycles;
         bool pending, allow, delaySlot, sleep;
         uint32_t delayTarget, resume;
-        machine::Bus bus; // (the bus's timing: its cache's state)
+        machine::Bus bus; // (the bus's timing: its cache's state, and the pipeline's)
+        uint8_t pipeMemory;
+        int8_t pipeLoads;
         bool operator==(const Registers &) const = default;
     };
     static Registers Get(SH2 &c) {
         return {c.R, c.PC, c.PR, c.SR.u32, c.GBR, c.VBR, c.MAC.u64, c.m_cyclesExecuted, c.m_intrFlags.pending, c.m_intrFlags.allow,
-                c.m_delaySlot, c.m_sleep, c.m_delaySlotTarget, c.m_recompResume, c.m_bus};
+                c.m_delaySlot, c.m_sleep, c.m_delaySlotTarget, c.m_recompResume, c.m_bus, c.m_pipeMemory, c.m_pipeLoads};
     }
     static void Set(SH2 &c, const Registers &r) {
         c.R = r.R;
@@ -80,6 +82,8 @@ struct Access {
         c.m_delaySlotTarget = r.delayTarget;
         c.m_recompResume = r.resume;
         c.m_bus = r.bus;
+        c.m_pipeMemory = r.pipeMemory;
+        c.m_pipeLoads = r.pipeLoads;
     }
     static std::array<uint8_t, 0x1000> &Cache(SH2 &c) {
         return c.m_cacheData;

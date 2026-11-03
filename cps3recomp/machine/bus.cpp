@@ -67,10 +67,11 @@ unsigned Bus::Width(unsigned area) const {
     const unsigned sz = (m_bcr2 >> (area * 2)) & 3;
     return sz == 1 ? 1 : sz == 2 ? 2 : 4;
 }
-unsigned Bus::External(uint32_t address, unsigned size) const {
+unsigned Bus::External(uint32_t address, unsigned size) {
     const unsigned area = (address >> 25) & 3, width = Width(area);
     const unsigned pieces = size > width ? size / width : 1;
-    return pieces * CycleStates(area);
+    busCycles += pieces;
+    return pieces * (CycleStates(area) - 1); // (each bus cycle's states but one: that one overlaps the pipeline's)
 }
 
 unsigned Bus::Read(uint32_t address, unsigned size, bool fetch) {
@@ -91,7 +92,7 @@ unsigned Bus::ReadCycles(uint32_t address, unsigned size, bool fetch) {
     }
     const bool cached = space == 0 && (m_ccr & kCacheOn) && !(m_ccr & (fetch ? kNoFetches : kNoData));
     if (!cached) {
-        return space <= 1 ? External(address, size) - 1 : 0;
+        return space <= 1 ? External(address, size) : 0;
     }
     const unsigned entry = (address >> 4) & 63;
     const uint32_t tag = ((address >> 10) & 0x7FFFF) | 0x80000000u;
@@ -107,7 +108,7 @@ unsigned Bus::ReadCycles(uint32_t address, unsigned size, bool fetch) {
     const int way = WayToFill(m_lru[entry], twoWays);
     ways[way] = tag;
     m_lru[entry] = Used(way, m_lru[entry]);
-    return 4 * External(address, 4) - 1;
+    return 4 * External(address, 4);
 }
 
 unsigned Bus::WriteCycles(uint32_t address, unsigned size) {
@@ -126,7 +127,7 @@ unsigned Bus::WriteCycles(uint32_t address, unsigned size) {
     if (space > 1) {
         return 0;
     }
-    return External(address, size) - 1; // (a line there is updated: its tag stays as it is)
+    return External(address, size); // (a line there is updated: its tag stays as it is)
 }
 
 void Bus::Serialize(Archive &ar) {
@@ -136,6 +137,38 @@ void Bus::Serialize(Archive &ar) {
     ar.Pod(m_ccr);
     ar.Pod(m_tags);
     ar.Pod(m_lru);
+}
+
+} // namespace cps3recomp::machine
+
+#include "sh2.h"
+#include "sh2_pipeline.h"
+
+namespace cps3recomp::machine {
+
+const PipeInfo &PipeOf(uint16_t opcode) {
+    static const std::array<PipeInfo, 0x10000> table = [] {
+        std::array<PipeInfo, 0x10000> t{};
+        PipeKind byOp[256] = {};
+        for (const PipeKind &k : kPipeKinds) {
+            byOp[static_cast<unsigned>(k.op)] = k;
+        }
+        for (unsigned op = 0; op < 0x10000; op++) {
+            const PipeKind &k = byOp[static_cast<unsigned>(g_opKinds[op])];
+            const auto reg = [op](int8_t r) { return r == kRn ? static_cast<int>((op >> 8) & 15) : r == kRm ? static_cast<int>((op >> 4) & 15) : r; };
+            PipeInfo &p = t[op];
+            for (const int8_t r : k.reads) {
+                if (r != kNone) {
+                    p.reads |= 1u << reg(r);
+                }
+            }
+            p.memory = k.memory != 0;
+            p.bra12 = k.bra12 != 0;
+            p.loads = k.loads == kNone ? -1 : static_cast<int8_t>(reg(k.loads));
+        }
+        return t;
+    }();
+    return table[opcode];
 }
 
 } // namespace cps3recomp::machine

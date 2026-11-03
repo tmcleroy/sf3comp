@@ -148,8 +148,9 @@ void Machine::RunFrame() {
         // (and CPS3RECOMP_VBLANK_WATCH=ADDRESS: the long there)
         static const uint32 watch = getenv("CPS3RECOMP_VBLANK_WATCH") ? static_cast<uint32>(strtoul(getenv("CPS3RECOMP_VBLANK_WATCH"), nullptr, 16)) & 0x7FFFC : 0;
         const uint8 *w = mainRam + watch;
-        fprintf(vblankLog, "%llu %08x %08X %08x %llu\n", static_cast<unsigned long long>(m_frame), Crc32(mainRam, 0x80000), m_cpu.PC,
-                (uint32(w[0]) << 24) | (uint32(w[1]) << 16) | (uint32(w[2]) << 8) | w[3], static_cast<unsigned long long>(m_cpu.m_bus.charged));
+        fprintf(vblankLog, "%llu %08x %08X %08x %llu %llu\n", static_cast<unsigned long long>(m_frame), Crc32(mainRam, 0x80000), m_cpu.PC,
+                (uint32(w[0]) << 24) | (uint32(w[1]) << 16) | (uint32(w[2]) << 8) | w[3], static_cast<unsigned long long>(m_cpu.m_bus.charged),
+                static_cast<unsigned long long>(m_cpu.m_bus.busCycles));
         fflush(vblankLog);
     }
     // (the bus's timing forced on for the timing harness, CPS3RECOMP_BUS_TIMING=1; otherwise the arcade_timing

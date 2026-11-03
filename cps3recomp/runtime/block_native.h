@@ -159,9 +159,10 @@ LABEL:                          \
     (void)now;
 
 // Before each instruction (its code, its branch): its fetch, which the bus's timing charges (machine/bus.h)
-#define SN_FETCH(PCOFF)                                       \
+#define SN_FETCH(PCOFF, OPCODE)                               \
     if (c.m_busTiming) [[unlikely]] {                         \
         base += c.m_bus.Read(pc + (PCOFF), 2, true);          \
+        base += c.PipeStall((OPCODE), pc + (PCOFF));          \
     }
 
 // Leave the block: at an instruction of the block, or to another address

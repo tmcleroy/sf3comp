@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Tommy McLeroy. Part of cps3recomp (sf3comp); from satrecomp: https://github.com/tmcleroy/satrecomp
 #include "sh2.h"
+#include "sh2_pipeline.h"
 
 #include "machine.h"
 
@@ -724,6 +725,8 @@ void SH2::EnterException(uint8 vector, uint32 returnAddress) {
 }
 
 void SH2::TakeInterrupt() {
+    m_pipeMemory = 0; // (the pipeline emptied)
+    m_pipeLoads = -1;
     const uint8 level = INTC.pending.level, vector = INTC.pending.vector, source = INTC.pending.source;
     // (debugging aid, CPS3RECOMP_TRACE_IRQ=1: every interrupt taken)
     static const bool traceIrq = getenv("CPS3RECOMP_TRACE_IRQ") != nullptr;
@@ -788,9 +791,23 @@ uint64 SH2::RecompInterpretNext() {
     } else {
         opcode = Fetch(PC);
     }
+    if (m_busTiming) [[unlikely]] {
+        m_cyclesExecuted += PipeStall(opcode, PC);
+    }
     m_intrFlags.allow = true;
     Execute(opcode);
     return g_opCycles[opcode] + TakeBusExtra();
+}
+
+uint32 SH2::PipeStall(uint16 opcode, uint32 pc) {
+    const PipeInfo &p = PipeOf(opcode);
+    const bool fetchClash = m_pipeMemory && !(pc & 2) && !p.bra12;
+    const bool loadUse = m_pipeLoads >= 0 && (p.reads >> m_pipeLoads) & 1;
+    m_pipeMemory = p.memory;
+    m_pipeLoads = p.loads;
+    const uint32 stall = fetchClash || loadUse ? 1 : 0;
+    m_bus.charged += stall;
+    return stall;
 }
 
 void SH2::Execute(uint16 opcode) {
