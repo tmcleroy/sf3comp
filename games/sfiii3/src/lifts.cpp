@@ -361,14 +361,14 @@ void RegisterGameLifts(const Lift *lifts, size_t count) {
 // The computer player's rewrites (computer.h), a source file for each part of it
 void RegisterComputerEntry();
 void RegisterComputerTactics();
-void RegisterComputerScripts();
+void RegisterComputerAnswers();
 void RegisterComputerMoves();
 
 void RegisterLifts3rdStrike() {
     RegisterGameLifts(kLifts, std::size(kLifts));
     RegisterComputerEntry();
     RegisterComputerTactics();
-    RegisterComputerScripts();
+    RegisterComputerAnswers();
     RegisterComputerMoves();
     AddHook("VerticalBlank", 0x06000528, 8, 0xF41697FE6C5AEE4Dull, VerticalBlank);
 }
