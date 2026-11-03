@@ -19,9 +19,25 @@
 // code. (Names only: that project is AGPL-3.0, and none of its code is here; what the routines do was read from the
 // arcade's own program and checked call by call against it.)
 //
+// A step's routine is called with the plan's arguments, and it does what it does over several frames: an attack, for
+// example (Normal_Attack, Command_Attack), first waits until the fighter's last attack may be cancelled into it
+// (Check_Start_..._Attack), then the frames of kComboSpeed (the level's reaction speed), then puts in its buttons or
+// its command a lever a frame (Command_Type_00 and the like, from the character's list of commands), mashes the
+// button if the move says so (Check_Rapid, Rapid_Sub), and once the attack is out, its reaction (Reaction_Sub)
+// decides from whether it hit what comes next: the next step, a follow-up, or the plan's end. A jump's attack
+// (Jump_Attack_Term) jumps, guards in the air if it must (Check_Air_Guard), attacks when the gap and the height meet
+// the plan's ranges or against one in the air (Check_VS_Air_Attack), and waits to land (Check_Landed). Throughout, an
+// answer to the other's attack (Check_Passive) or a guard (Check_Guard) can break the plan off.
+//
 // Registers: the routines here are reached by tail jumps from the plans (a plan's step ends in `jmp` to one of them),
 // so what each leaves in r0-r7 reaches the plan's caller; where liveout.py could not see that every caller ignores
-// them, the rewrites leave the registers as the game's code does.
+// them, the rewrites leave the registers as the game's code does, and the stack pointer what they call sees is the
+// game's (Frame). They call the routines not here (and each other) through the game's calls (Guest::Call), so a call
+// runs the rewrite of the routine called if there is one.
+//
+// The check (checklifts.sh) compares a rewrite only when it is the outermost one running: while one is compared, the
+// routines it calls run as the game's code. With the entry's rewrites on (computer_entry.cpp), these are never the
+// outermost; they were checked in layers, SFIII3_LIFTS_ONLY naming those of one layer.
 #include "computer.h"
 
 #include <cstdint>
@@ -35,20 +51,25 @@ namespace {
     constexpr uint32_t kFacesRight = 0x0A;      // byte: the way it faces (rl_flag)
     constexpr uint32_t kMovesFaceRight = 0x0B;  // byte: the way its moves face (rl_waza): forward is 8 on the lever, else 4
     constexpr uint32_t kOpponent = 0x0C;        // long: the other fighter's record (target_adrs)
-    constexpr uint32_t kDoing = 0x26;           // word: what the fighter is doing (routine_no[1]): 4 free to act
+    constexpr uint32_t kDoing = 0x26;           // word: what the fighter is doing (routine_no[1]): 2 throwing, 4 in an
+                                                // attack (the rest: computer_entry.cpp)
     constexpr uint32_t kX = 0x64, kY = 0x68;    // words: where it is, along the floor and up from it
     constexpr uint32_t kWasUp = 0x72;           // word: its height the frame before (old_pos[1])
     constexpr uint32_t kRising = 0x80;          // word: its speed upward (mvxy.a[1]): below 0 coming down
     constexpr uint32_t kHealth = 0x9E;          // word: its health (vital_new), 160 full
     constexpr uint32_t kPose = 0x20E;           // byte: its pose (pat_status)
     constexpr uint32_t kAttackReach = 0x210;    // byte: how far its attack reaches, a class (hit_range)
-    constexpr uint32_t kMoveKind = 0x215;       // byte: what its animation is (cg_type): 0x40 not to be broken into
-    constexpr uint32_t kCancel = 0x221;         // byte: what may not be cancelled into (cg_cancel): 4 nothing, 8 a
-                                                // lever attack, 1 a high jump
+    constexpr uint32_t kMoveKind = 0x215;       // byte: the kind of its animation (cg_type): 0x40 the attack's end, free
+                                                // to act again
+    constexpr uint32_t kCancel = 0x221;         // byte: what the attack may be cancelled into now (cg_cancel): 4 a
+                                                // normal, 8 a lever attack (and a normal but for reaction 14), 2 a dash,
+                                                // 0x20 a special move, 0x40 a move of bit 0x8000, 1 a high jump
     constexpr uint32_t kStuck = 0x3C9;          // byte (micchaku_flag): pressed against the other
     constexpr uint32_t kPushed = 0x3CB;         // byte (hos_em_flag)
     constexpr uint32_t kHitBy = 0x312;          // byte (hf.hit.player)
     constexpr uint32_t kCharacter = 0x3C0;      // word: the character (player_number)
+    constexpr uint32_t kSuperArt = 0x3F0;       // long: the super art's state (sa): word +0 the art chosen (0-2),
+                                                // byte +10 -1 while it may be used (ok)
     constexpr uint32_t kHolding = 0x3CE;        // byte (tsukami_f): holding the other in a throw
     constexpr uint32_t kRunning = 0x3E4;        // byte (running_f): a dash under way
     constexpr uint32_t kAttackStep = 0x298;     // word (cg_ja.atix): the attack's hit box out        // byte (running_f): a dash under way          // byte (hf.hit.player)
@@ -104,6 +125,9 @@ namespace {
 
     // --- the game's, for everyone ---
     constexpr uint32_t kChosen = 0x02011387;    // bytes, a side: the character played (My_char)
+    constexpr uint32_t kPlayerId = 0x02015500;  // byte (Player_id)
+    constexpr uint32_t kAirReach = 0x0613E75C;  // words, a character each: added to a range against one in the air
+                                                // (Correct_VS_Air_Data)
     constexpr int kNecro = 5;
 
     // --- tables in the program ---
@@ -180,6 +204,16 @@ namespace {
     constexpr uint32_t kHeightGap = 0x0600FC54;  // Ck_Distance_Height (r4): how far apart the two are upward
     constexpr uint32_t kReflexTime = 0x0600F93C; // Select_Reflection_Time (r4)
     constexpr uint32_t kSetupFollow = 0x06010898; // Setup_Follow (r4, r5 the follow-up)
+    constexpr uint32_t kPackCommand = 0x061210EC; // datacmd_conpanecmd (r4 a command's lever): as the controls have it
+    constexpr uint32_t kButtonForPower = 0x061210DC; // renbanshot_conpaneshot (r4 the command, r5 the power): its button
+    constexpr uint32_t kFindProjectile = 0x060DBB8A; // get_vs_shell_adrs (r4 a fighter, r5 the side, r6 which, r7
+                                                  // where to put it): not 0 when there is one
+    constexpr uint32_t kFrontOrBack = 0x0600F15A; // Setup_Front_or_Back (r4, r5 the gap to it)
+    constexpr uint32_t kHitsShell = 0x0600F184;  // Check_Hit_Shell (r4, r5 the projectile, r6 the dash)
+    constexpr uint32_t kBehind = 0x06011A60;     // Check_Behind (r4, r5 the projectile)
+    constexpr uint32_t kShellComing = 0x06011500; // Check_Ignore_Shell2 (r4 the projectile)
+    constexpr uint32_t kShellAboveChances = 0x06177244; // bytes, by level of 8 (VS_Diagonal_Shell_Data)
+    constexpr uint32_t kShellKind = 0x05;       // in a projectile's record, a byte (charset_id)
     constexpr uint32_t kTargetCombo = 0x060101D2; // Check_Meoshi_Attack (r4, r5 the reaction, r6 the power)
     constexpr uint32_t kReaction = 0x0600FE80;   // Reaction_Sub (r4, r5 the reaction, r6 the power): after the attack
 
@@ -399,8 +433,9 @@ namespace {
         return true;
     }
 
-    // 0600C164: a guard's lever (r5): with bit 0x8000, forward and down are added to it (and the bit goes)
-    bool GuardControls(Guest &g) {
+    // 0600C164 (Check_SP_Jump_Attack, r5 a jump attack's lever and buttons): with bit 0x8000, forward and down are
+    // added to them (and the bit goes)
+    bool JumpAttackLever(Guest &g) {
         const uint32_t me = g.R(4);
         const uint32_t guard = Signed(static_cast<int16_t>(g.R(5)));
         if ((guard & 0x8000) == 0) {
@@ -438,6 +473,37 @@ namespace {
         const int32_t limit = static_cast<int16_t>(g.R(6)), value = static_cast<int16_t>(g.R(5));
         g.R(0) = MeetsLimit(value, limit) ? 1 : 0;
         g.Return(8);
+        return true;
+    }
+
+    // 0600B466 (Check_Term_Sub_Air, r5 a gap, r6 a limit): as MeetsLimit, an "at most" widened by the character's own
+    // reach in the air (Correct_VS_Air_Data, by the character of the side Player_id names)
+    bool AirGapMeetsLimit(Guest &g) {
+        const int32_t value = static_cast<int16_t>(g.R(5));
+        int32_t limit = static_cast<int16_t>(g.R(6));
+        bool yes;
+        if (limit == -1 || !(limit & 0x8000)) {
+            yes = MeetsLimit(value, limit);
+        } else {
+            const uint8_t character = g.Read8(kChosen + g.Read8(kPlayerId));
+            limit = static_cast<int16_t>(limit + static_cast<int16_t>(g.Read16(kAirReach + character * 2u))) & 0x7FFF;
+            yes = value <= limit;
+        }
+        g.R(0) = yes ? 1 : 0;
+        g.Return(12);
+        return true;
+    }
+
+    // 0600B4F0 (Check_Term_Sub_Y, r5 a height, r6 a limit): as MeetsLimit, but an "at most" holds only while the other
+    // is not rising
+    bool OtherHeightMeetsLimit(Guest &g) {
+        const int32_t limit = static_cast<int16_t>(g.R(6)), value = static_cast<int16_t>(g.R(5));
+        bool yes = MeetsLimit(value, limit);
+        if (limit != -1 && (limit & 0x8000) && static_cast<int16_t>(g.Read16(g.Read32(g.R(4) + kOpponent) + kRising)) > 0) {
+            yes = false;
+        }
+        g.R(0) = yes ? 1 : 0;
+        g.Return(10);
         return true;
     }
 
@@ -495,28 +561,29 @@ namespace {
         return true;
     }
 
-    // Free to act: doing 4 (free), its animation not one that may not be broken into, and it may cancel
-    bool FreeToAct(Side &s) {
+    // Still in an attack that may not be cancelled into a normal (kDoing 4, not at its end, kCancel without 4)
+    bool InAttack(Side &s) {
         return s.Field(kDoing) == 4 && s.g.Read8(s.me + kMoveKind) != 0x40 && (s.g.Read8(s.me + kCancel) & 4) == 0;
     }
 
-    // 0600A046 (Check_Start_Lever_Attack): may a lever attack start now?
-    bool MayLeverAttack(Guest &g) {
+    // 0600A046 (Check_Start_Lever_Attack): 1 while a lever attack may not start: in an attack that may not be cancelled
+    // into one
+    bool LeverAttackBusy(Guest &g) {
         Side s(g, g.R(4));
-        g.R(0) = FreeToAct(s) && (g.Read8(s.me + kCancel) & 8) == 0 ? 1 : 0;
+        g.R(0) = InAttack(s) && (g.Read8(s.me + kCancel) & 8) == 0 ? 1 : 0;
         g.Return(12);
         return true;
     }
 
-    // 06009D4C (Check_Start_Normal_Attack, r5 the reaction): may a normal attack start now? Not while kPermitted bars
-    // it, and the cancel's bit 8 bars only reaction 14.
-    bool MayNormalAttack(Guest &g) {
+    // 06009D4C (Check_Start_Normal_Attack, r5 the reaction): 1 while a normal attack may not start: in an attack that
+    // may not be cancelled into one (kPermitted's 0x10 lets it; kCancel's 8 does too, but for reaction 14)
+    bool AttackBusy(Guest &g) {
         Side s(g, g.R(4));
-        bool yes = FreeToAct(s) && (g.Read16(s.me + kPermitted) & 0x10) == 0;
-        if (yes && (g.Read8(s.me + kCancel) & 8) != 0 && static_cast<int16_t>(g.R(5)) == 14) {
-            yes = false;
+        bool busy = InAttack(s) && (g.Read16(s.me + kPermitted) & 0x10) == 0;
+        if (busy && (g.Read8(s.me + kCancel) & 8) != 0 && static_cast<int16_t>(g.R(5)) == 14) {
+            busy = false;
         }
-        g.R(0) = yes ? 1 : 0;
+        g.R(0) = busy ? 1 : 0;
         g.Return(14);
         return true;
     }
@@ -2330,6 +2397,219 @@ namespace {
         }
     }
 
+    // 060107A6 (Check_SA_Active, r5 where to put the answer): which kind of plan the super art under way calls for,
+    // when the art's gauge is ready (its byte 10 -1): Oro 3 with art I, else 2; Yun and Yang 1 with art III (Genei
+    // Jin); Q 4 with art III (the PlayStation 2 build has Makoto, 17, where this has Q, 18); 0 for the rest (and then
+    // nothing is put).
+    bool SuperArtPlan(Guest &g) {
+        Side s(g, g.R(4));
+        const uint32_t answer = g.R(5);
+        uint32_t plan = 0;
+        if (static_cast<int8_t>(g.Read8(g.Read32(s.me + kSuperArt) + 10)) == -1) {
+            const uint32_t fighter = kFighters + Signed(static_cast<int16_t>(s.side * kFighterSize));
+            const int16_t art = static_cast<int16_t>(g.Read16(g.Read32(fighter + kSuperArt)));
+            switch (s.Byte(kChosen)) {
+            case 9: plan = art == 0 ? 3 : 2; break;
+            case 3:
+            case 10: plan = art == 2 ? 1 : 0; break;
+            case 18: plan = art == 2 ? 4 : 0; break;
+            default: break;
+            }
+            if (plan != 0) {
+                g.Write16(answer, static_cast<uint16_t>(plan));
+            }
+        }
+        g.R(0) = plan;
+        g.Return(40);
+        return true;
+    }
+
+    // 06011414 (Check_Diagonal_Shell): is a projectile coming down at the computer from above (one of the other's, or
+    // one of eight)? Looked for only as often as the level of 8 has it (a die of 64 against the level's chance): one
+    // not being thrown back, facing the computer, not behind it (Check_Behind), of a kind other than 2, and coming
+    // (Check_Ignore_Shell2: 1).
+    bool ShellAbove(Guest &g) {
+        Side s(g, g.R(4));
+        Frame frame(g, 28);
+        g.R(4) = 0;
+        g.Call(kLevelOf8);
+        g.Write8(kLevelNow, static_cast<uint8_t>(g.R(0)));
+        if (g.Read8(kDemo) == 0 && g.Read8(kWeakSide) == static_cast<uint32_t>(s.side)) {
+            g.Write8(kLevelNow, 2);
+        }
+        g.Call(kDice64);
+        g.Write8(kDiceNow, static_cast<uint8_t>(g.R(0)));
+        g.Write8(kLevelNow, static_cast<uint8_t>(g.Read8(kLevelNow) + g.Read8(kLevelBonus)));
+        if (g.Read8(kBrokenInto) == 2) {
+            g.Write8(kLevelNow, 7);
+        }
+        const auto result = [&](uint32_t r0) {
+            g.R(0) = r0;
+            g.Return(80);
+            return true;
+        };
+        if (static_cast<int8_t>(g.Read8(kDiceNow)) > g.Read8(kShellAboveChances + Signed(static_cast<int8_t>(g.Read8(kLevelNow))))) {
+            return result(0);
+        }
+        const uint32_t other = s.Other();
+        const uint32_t local = g.R(15); // (where the routine keeps the projectile found)
+        for (int16_t n = 0; n < 8; n++) {
+            const auto find = [&](uint32_t whose) {
+                g.R(4) = whose;
+                g.R(5) = Signed(static_cast<int16_t>(g.Read16(other + kSide)));
+                g.R(6) = Signed(n);
+                g.R(7) = local;
+                g.Call(kFindProjectile);
+                return g.R(0) != 0;
+            };
+            if (!find(other) && !find(s.me)) {
+                return result(0);
+            }
+            const uint32_t shell = g.Read32(local);
+            if (static_cast<int16_t>(g.Read16(shell + kDoing)) == 2) {
+                continue;
+            }
+            if (static_cast<int8_t>(g.Read8(s.me + kMovesFaceRight)) == static_cast<int8_t>(g.Read8(shell + kFacesRight))) {
+                continue;
+            }
+            g.R(4) = s.me;
+            g.R(5) = shell;
+            g.Call(kBehind);
+            if (g.R(0) != 0) {
+                continue;
+            }
+            if (g.Read8(shell + kShellKind) == 2) {
+                continue;
+            }
+            g.R(4) = shell;
+            g.Call(kShellComing);
+            if (g.R(0) != 0) {
+                return result(1);
+            }
+        }
+        return result(0);
+    }
+
+    // 0600F09E (Check_Dash_Hit, r5 the move): would a dash (move 0 forward, 1 back) run into a projectile? For each of
+    // eight (the other's, or the computer's own list), not one being thrown back: on the side the dash goes
+    // (Setup_Front_or_Back) and within the dash's reach (Check_Hit_Shell).
+    bool DashHit(Guest &g) {
+        Side s(g, g.R(4));
+        Frame frame(g, 36);
+        const uint32_t move = g.R(5) & 0xFFFF;
+        const auto result = [&](uint32_t r0) {
+            g.R(0) = r0;
+            g.Return(80);
+            return true;
+        };
+        if (move != 0 && move != 1) {
+            return result(0);
+        }
+        const uint32_t other = s.Other();
+        const uint32_t local = g.R(15);
+        for (int16_t n = 0; n < 8; n++) {
+            const auto find = [&](uint32_t whose) {
+                g.R(4) = whose;
+                g.R(5) = Signed(static_cast<int16_t>(g.Read16(other + kSide)));
+                g.R(6) = Signed(n);
+                g.R(7) = local;
+                g.Call(kFindProjectile);
+                return g.R(0) != 0;
+            };
+            if (!find(other) && !find(s.me)) {
+                return result(0);
+            }
+            const uint32_t shell = g.Read32(local);
+            if (static_cast<int16_t>(g.Read16(shell + kDoing)) == 2) {
+                continue;
+            }
+            g.R(4) = s.me;
+            g.R(5) = Signed(static_cast<int16_t>(s.Field(kX) - static_cast<int16_t>(g.Read16(shell + kX))));
+            g.Call(kFrontOrBack);
+            const int16_t side = static_cast<int16_t>(g.R(0));
+            if (move == 0 ? side == 1 : side == 0) {
+                continue;
+            }
+            g.R(4) = s.me;
+            g.R(5) = shell;
+            g.R(6) = move;
+            g.Call(kHitsShell);
+            if (g.R(0) != 0) {
+                return result(1);
+            }
+        }
+        return result(0);
+    }
+
+    // 0600F254 (Command_Type_00, r5 the power, r6 the move, r7 Ex_Shot): the command's next step, a frame's lever. A
+    // command is a list of words, four a step from kTechIndex (12 at the start): the step's lever (its fourth word, its
+    // left and right as the moves face), the next step's kind fifth (28: the last). Not the last: the lever (packed as
+    // the controls have it) and 1. The last: its lever with the button the power picks (or an EX move's two buttons,
+    // when the gauge allows), and 0, the attack's phase moved on; -1 when the command is all put in (its eighth word
+    // 0x80). Ryu's Denjin Hadoken (0x8015, but at power 8) holds its buttons instead (kLeverNow) for its charge; in mode
+    // 10 the buttons are kept for a mash; Hugo's 0x8016 goes to phase 5 (the run); Ibuki's 31 ends at once.
+    bool CommandStep0(Guest &g) {
+        Side s(g, g.R(4));
+        Frame frame(g, 44);
+        const int16_t power = static_cast<int16_t>(g.R(5));
+        const uint32_t move = g.R(6) & 0xFFFF;
+        const int16_t exShot = static_cast<int16_t>(g.R(7));
+        const uint32_t address = g.Read32(s.At(kTechAddress, 4));
+        const uint32_t step = address + (Signed(s.Word(kTechIndex)) << 1);
+        const auto flipped = [&]() { // (left and right as the moves face)
+            if (g.Read8(s.me + kMovesFaceRight) != 0 && (g.Read16(s.At(kLever, 2)) & 12) != 0) {
+                s.SetWord(kLever, s.Word(kLever) ^ 12);
+            }
+        };
+        const auto result = [&](uint32_t r0) {
+            g.R(0) = r0;
+            g.Return(80);
+            return true;
+        };
+        s.SetWord(kLever, g.Read16(step + 6) & 0x7FFF);
+        if (g.Read16(step + 8) != 28) {
+            g.R(4) = g.Read16(s.At(kLever, 2));
+            g.Call(kPackCommand);
+            s.SetWord(kLever, static_cast<int32_t>(g.R(0)));
+            flipped();
+            s.SetWord(kTechIndex, s.Word(kTechIndex) + 4);
+            return result(1);
+        }
+        flipped();
+        if (g.Read16(address + 14) == 0x80) {
+            return result(0xFFFFFFFF);
+        }
+        s.SetWord(kTechIndex, 7);
+        const uint32_t fighter = kFighters + Signed(static_cast<int16_t>(s.side * kFighterSize));
+        if (g.Read8(g.Read32(fighter + kSuperArt) + 12) != 0 && (exShot == 0x70 || exShot == 0x380)) {
+            s.SetWord(kLever, s.Word(kLever) | exShot);
+        } else {
+            g.R(4) = address;
+            g.R(5) = Signed(power);
+            g.Call(kButtonForPower);
+            s.SetWord(kLever, s.Word(kLever) | static_cast<int16_t>(g.R(0)));
+        }
+        if (s.Byte(kChosen) == 2 && move == 0x8015 && power != 8) {
+            s.SetPlace(0, s.Place(0) + 1);
+            s.SetWord(kLeverNow, s.Word(kLever) & 0x3F0);
+            s.SetPlace(1, power == 10 ? 1 : 0);
+            return result(0);
+        }
+        if (s.Mode() == 10) {
+            s.SetWord(kRapidButtons, s.Word(kLever) & 0x3F0);
+            s.SetWord(kJumpLever, s.Word(kLever) & 0x3F0);
+        }
+        if (s.Field(kCharacter) == 6 && move == 0x8016) {
+            s.SetPlace(1, 5);
+        } else if (s.Field(kCharacter) == 7 && move == 31) {
+            g.R(4) = s.me;
+            g.Call(kReactionExit);
+        } else {
+            s.SetPlace(1, s.Place(1) + 1);
+        }
+        return result(0);
+    }
+
     // (free: r1-r7 and T for a routine with a result, r0-r7 and T for one with none, where C callers only call it)
     constexpr uint32_t kResult = 0x100FE, kNoResult = 0x100FF;
     const Lift kLifts[] = {
@@ -2341,13 +2621,13 @@ namespace {
         {"ComputerJumpGap", 0x0600FD36, 0x48, 0x9FFA7E9EB96C3068ull, JumpGapLift, true},
         {"ComputerStartJump", 0x0600F1DC, 0x68, 0x86B7953CFBC0F80Eull, StartJump, true, 0x100FF},
         {"ComputerLeverFor", 0x06009FF4, 0x52, 0x8703FF0AF7C756ECull, LeverForLift, true},
-        {"ComputerGuardControls", 0x0600C164, 0x32, 0x0AA3870DCDB14671ull, GuardControls, true, kResult},
+        {"ComputerJumpAttackLever", 0x0600C164, 0x32, 0x0AA3870DCDB14671ull, JumpAttackLever, true, kResult},
         {"ComputerMeetsLimit", 0x0600B4AC, 0x32, 0x05D510F362DD9032ull, MeetsLimitLift, true, kResult},
         {"ComputerHeightMeetsLimit", 0x0600CB34, 0x3E, 0xDA24C846E94761C9ull, HeightMeetsLimit, true, kResult},
         {"ComputerJumpAttackTime", 0x0600CABC, 0x4E, 0x37D03C5B414958DEull, JumpAttackTime, true, kResult},
         {"ComputerOtherUp", 0x0600AEA2, 0x6E, 0xB3D33F1DCAAC40E7ull, OtherUp, true, kResult},
-        {"ComputerMayLeverAttack", 0x0600A046, 0x38, 0x1379569F1C19B12Aull, MayLeverAttack, true, kResult},
-        {"ComputerMayNormalAttack", 0x06009D4C, 0x4C, 0x2F1348DA6C8EBA32ull, MayNormalAttack, true, kResult},
+        {"ComputerLeverAttackBusy", 0x0600A046, 0x38, 0x1379569F1C19B12Aull, LeverAttackBusy, true, kResult},
+        {"ComputerAttackBusy", 0x06009D4C, 0x4C, 0x2F1348DA6C8EBA32ull, AttackBusy, true, kResult},
         {"ComputerBeFree", 0x06008706, 0x48, 0x37378FA8F43CA43Aull, BeFreeLift, true},
         {"ComputerEndPattern", 0x06008C24, 6, 0xA998A4FA22CA6249ull, EndPattern, true},
         {"ComputerAnotherPlan", 0x0600FE10, 0x5E, 0xB8126AE1FF220605ull, AnotherPlanLift, true},
@@ -2393,7 +2673,7 @@ namespace {
         {"ComputerFirstMenu", 0x0601047C, 0x38, 0x7F78EF7925DEA5AFull, FirstMenuLift, true},
         {"ComputerCommandBusy", 0x0600E108, 0xA2, 0xE32B87BB9B1E8834ull, CommandBusy, true, kResult},
         {"ComputerLeverNotBack", 0x0600D7DE, 0x7C, 0x08C09C8C296940A6ull, LeverNotBack, true, kResult},
-        // {"ComputerRapidEnd", 0x0600DE3C, 0x3A, 0x4530F836DF66532Cull, RapidEndLift, true, kNoResult},
+        {"ComputerRapidEnd", 0x0600DE3C, 0x3A, 0x4530F836DF66532Cull, RapidEndLift, true, kNoResult},
         {"ComputerCheckRapid", 0x0600DDB8, 0x84, 0x40D4B1BDC544B8B8ull, CheckRapid, true, kNoResult},
         {"ComputerRapidOver", 0x0600E014, 0xF4, 0xEE0D4166CED3020Dull, RapidOverLift, true, kResult},
         {"ComputerMash", 0x0600DEA4, 0x170, 0x54D345AC75946B4Cull, Mash, true, kNoResult},
@@ -2406,6 +2686,12 @@ namespace {
         {"ComputerVsAirAttack", 0x0600C196, 0x166, 0x962089A960C3998Eull, VsAirAttack, true, kResult},
         {"ComputerAirGuard", 0x0600B974, 0x194, 0x3DE0946FB87F7C6Aull, AirGuard, true},
         {"ComputerReaction", 0x0600FE80, 0x350, 0xC63031721D36CBC3ull, Reaction, true},
+        {"ComputerSuperArtPlan", 0x060107A6, 0xDA, 0xFA2BAF1CDF7E85DAull, SuperArtPlan, true, kResult},
+        {"ComputerShellAbove", 0x06011414, 0xEC, 0x25088C3C3F1A7949ull, ShellAbove, true, kResult},
+        {"ComputerDashHit", 0x0600F09E, 0xBC, 0xC30C1AC705D2E0D0ull, DashHit, true, kResult},
+        {"ComputerAirGapMeetsLimit", 0x0600B466, 0x46, 0x374E3AFDD96D240Bull, AirGapMeetsLimit, true, kResult},
+        {"ComputerOtherHeightMeetsLimit", 0x0600B4F0, 0x68, 0xB8E0B8612B503BA3ull, OtherHeightMeetsLimit, true, kResult},
+        {"ComputerCommandStep0", 0x0600F254, 0x244, 0xE2267F4FE03BE50Aull, CommandStep0, true, kResult},
         {"ComputerRandomPlan", 0x0600A708, 0x92, 0xD3F8F075B257F2A6ull, RandomPlan, true, kResult},
     };
 } // namespace
