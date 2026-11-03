@@ -41,6 +41,7 @@ namespace {
     constexpr uint32_t kRising = 0x80;          // word: its speed upward (mvxy.a[1]): below 0 coming down
     constexpr uint32_t kHealth = 0x9E;          // word: its health (vital_new), 160 full
     constexpr uint32_t kPose = 0x20E;           // byte: its pose (pat_status)
+    constexpr uint32_t kAttackReach = 0x210;    // byte: how far its attack reaches, a class (hit_range)
     constexpr uint32_t kMoveKind = 0x215;       // byte: what its animation is (cg_type): 0x40 not to be broken into
     constexpr uint32_t kCancel = 0x221;         // byte: what may not be cancelled into (cg_cancel): 4 nothing, 8 a
                                                 // lever attack, 1 a high jump
@@ -89,6 +90,11 @@ namespace {
                                                 // time), [3] that end's own count
     constexpr uint32_t kRapidButtons = 0x0201573C; // word: what is pressed at each mash (Rapid_Index)
     constexpr uint32_t kLastLevers = 0x0201576E; // words, twenty a side: the levers of the last twenty frames (Resume_Lever)
+    constexpr uint32_t kOtherAttacking = 0x0201562A; // byte: the other is attacking (Attack_Flag)
+    constexpr uint32_t kWidth = 0x02015632;     // word: the computer's character's width (Com_Width_Data)
+    constexpr uint32_t kAttacksSeen = 0x02015750; // word: the other's attacks counted (Attack_Counter)
+    constexpr uint32_t kGuardedAttack = 0x02015848; // word: kAttacksSeen when the guard was last chosen (Guard_Counter)
+    constexpr uint32_t kGuardType = 0x020155FE; // word: the guard chosen (Guard_Type), with 0x8000
     constexpr uint32_t kComboSpeed = 0x020155AE; // byte: frames before the attack's button (Combo_Speed: Check_First_Menu)
     constexpr uint32_t kHitStock = 0x02015661;  // byte: the record's kHitBy, kept as the attack is put in (Stock_Hit_Flag)
 
@@ -117,6 +123,13 @@ namespace {
     constexpr uint32_t kLevelOf8 = 0x0600FA14;   // Setup_Lv08 (r4 the row; computer_entry.cpp)
     constexpr uint32_t kLevelOf18 = 0x0600FAC4;  // Setup_Lv18 (r4 the row)
     constexpr uint32_t kDice128 = 0x0611E0D6;    // random_32_com: the next of a table of 128
+    constexpr uint32_t kDice16 = 0x0611E11E;     // random_16_ex_com: the next of a table of 16
+    constexpr uint32_t kLevelOf10 = 0x0600FA84;  // Setup_Lv10 (r4 the row)
+    constexpr uint32_t kDiceNow = 0x0200DCF5;    // byte: the random number just taken (Rnd)
+    constexpr uint32_t kBossRank = 0x02016B33;   // byte: not 0: the boss's tables (row 18) (EM_Rank)
+    constexpr uint32_t kGuardChoices = 0x06175EBA; // bytes: [character, 18 the boss: 0xB0][level: 16][16 at random]:
+                                                 // the guard to do, 3 none (Guard_Data)
+    constexpr uint32_t kReachByClass = 0x061773DE; // words, by kAttackReach: an attack's reach (Hit_Range_Data)
     constexpr uint32_t kMashes = 0x06176E9C;     // bytes: [level of 8][8 at random]: how to mash (Rapid_SA_Data)
     constexpr uint32_t kHadouMoves = 0x0613E78C; // two longs a character: whether, and which move, needs the lever
                                                  // back first (Hadou_Check_Data)
@@ -159,6 +172,9 @@ namespace {
     constexpr uint32_t kMeetsLimit = 0x0600B4AC; // Check_Term_Sub (r4, r5 a value, r6 its limit)
     constexpr uint32_t kHeightMeetsLimit = 0x0600CB34; // Check_Com_Add_Y (r4, r5 the height, r6 its limit)
     constexpr uint32_t kJumpAttackLever = 0x0600C164; // Check_SP_Jump_Attack (r4, r5 the lever)
+    constexpr uint32_t kMeetsLimitAir = 0x0600B466; // Check_Term_Sub_Air (r4, r5 a gap, r6 its limit)
+    constexpr uint32_t kHeightGap = 0x0600FC54;  // Ck_Distance_Height (r4): how far apart the two are upward
+    constexpr uint32_t kReflexTime = 0x0600F93C; // Select_Reflection_Time (r4)
     constexpr uint32_t kReaction = 0x0600FE80;   // Reaction_Sub (r4, r5 the reaction, r6 the power): after the attack
 
     // One side of the computer: its fighter's record and its entries in the tables
@@ -1959,6 +1975,156 @@ namespace {
         return true;
     }
 
+    // 0600C196 (Check_VS_Air_Attack, r5 Range_JX, r6 Range_JY, r7 the lever of the attack): an attack at the other in
+    // the air (or in a jumping pose): when the gap (Check_Term_Sub_Air) and the height between them (Ck_Distance_Height)
+    // meet the ranges, it waits the reflex time (Select_Reflection_Time), then attacks: the lever (1), or with bit 0x4000
+    // the command `lever & 0x3FFF` (-1, two phases on). Either way the plan ends after it (kContinue).
+    bool VsAirAttack(Guest &g) {
+        Side s(g, g.R(4));
+        Frame frame(g, 32);
+        const int16_t rangeJX = static_cast<int16_t>(g.R(5)), rangeJY = static_cast<int16_t>(g.R(6));
+        const int16_t lever = static_cast<int16_t>(g.R(7));
+        const auto result = [&](uint32_t r0) {
+            g.R(0) = r0;
+            g.Return(60);
+            return true;
+        };
+        if ((rangeJX == -1 && rangeJY == -1) || lever == -1) {
+            return result(0);
+        }
+        const uint32_t other = s.Other();
+        const uint8_t pose = g.Read8(other + kPose);
+        if (pose != 14 && pose != 20 && pose != 26 && static_cast<int16_t>(g.Read16(other + kY)) <= 0) {
+            return result(0);
+        }
+        CallWith(g, kMeetsLimitAir, s.me, Signed(s.Word(kGap)), Signed(rangeJX));
+        if (!Nonzero(g)) {
+            return result(0);
+        }
+        g.R(4) = s.me;
+        g.Call(kHeightGap);
+        CallWith(g, kMeetsLimit, s.me, g.R(0), Signed(rangeJY));
+        if (!Nonzero(g)) {
+            return result(0);
+        }
+        if (s.Place(2) == 0) {
+            s.SetPlace(2, s.Place(2) + 1);
+            g.R(4) = s.me;
+            g.Call(kReflexTime);
+            s.SetWord(kTimer2, static_cast<int32_t>(g.R(0)));
+            s.SetWord(kTimer2, s.Word(kTimer2) + 1);
+            return result(0);
+        }
+        s.SetWord(kTimer2, s.Word(kTimer2) - 1);
+        if (s.Word(kTimer2) != 0) {
+            return result(0);
+        }
+        s.SetByte(kContinue, 1);
+        if (lever & 0x4000) {
+            s.SetPlace(1, s.Place(1) + 2);
+            const uint32_t commands = g.Read32(kCommands + (Signed(s.Field(kCharacter)) << 2));
+            g.Write32(s.At(kTechAddress, 4), g.Read32(commands + Signed(lever & 0x3FFF) * 4));
+            return result(0xFFFFFFFF);
+        }
+        s.SetWord(kLever, lever);
+        s.SetPlace(1, s.Place(1) + 1);
+        return result(1);
+    }
+
+    // 0600B974 (Check_Air_Guard): in the air, guard? Not when kLeverNow already holds a lever, nor against an attack
+    // already looked at (kGuardedAttack is kAttacksSeen), nor with no attack coming, nor out of its reach. Else the
+    // attack is looked at once, and the guard chosen as on the ground (the level of 10, the bonus, at most 10; the
+    // table of guards by character, 3 none): kLeverNow down and back, the guard's kind in kGuardType (with 0x8000).
+    // Leaves r0 kLeverNow (or the guard), and the registers as the game's code does.
+    bool AirGuard(Guest &g) {
+        Side s(g, g.R(4));
+        Frame frame(g, 36);
+        const uint32_t other = s.Other();
+        g.R(4) = kLeverNow;
+        g.R(7) = other;
+        g.R(3) = g.Read16(s.At(kLeverNow, 2));
+        const auto leverNow = [&]() {
+            g.R(0) = g.Read16(s.At(kLeverNow, 2));
+            g.SetT(false); // (the side's offset shifted)
+            g.Return(30);
+            return true;
+        };
+        if (g.R(3) != 0) {
+            g.SetT(false);
+            return leverNow();
+        }
+        g.R(6) = kGuardedAttack;
+        g.R(5) = kAttacksSeen;
+        g.R(3) = SignedWord(g, s.At(kGuardedAttack, 2));
+        g.R(2) = SignedWord(g, s.At(kAttacksSeen, 2));
+        if (g.R(3) == g.R(2)) {
+            g.SetT(true);
+            return leverNow();
+        }
+        g.R(1) = kOtherAttacking;
+        g.R(3) = Signed(static_cast<int8_t>(s.Byte(kOtherAttacking)));
+        if (g.R(3) == 0) {
+            g.SetT(true);
+            return leverNow();
+        }
+        const int16_t reach = static_cast<int16_t>(static_cast<int16_t>(g.Read16(kReachByClass + g.Read8(other + kAttackReach) * 2u)) + 32 +
+                                                   s.Word(kWidth));
+        g.R(7) = Signed(s.side * 2);
+        g.R(3) = Signed(s.Word(kGap));
+        g.R(4) = Signed(reach);
+        if (s.Word(kGap) > reach) {
+            g.R(0) = 0;
+            g.SetT(true);
+            g.Return(30);
+            return true;
+        }
+        // (the attack looked at: the guard's level and the dice)
+        s.SetWord(kGuardedAttack, s.Word(kAttacksSeen));
+        g.R(5) = s.At(kAttacksSeen, 2);
+        g.R(6) = s.At(kGuardedAttack, 2);
+        g.R(4) = 0;
+        g.Call(kLevelOf10);
+        g.Write8(kLevelNow, static_cast<uint8_t>(g.R(0)));
+        if (g.Read8(kDemo) == 0 && g.Read8(kWeakSide) == static_cast<uint32_t>(s.side)) {
+            g.Write8(kLevelNow, 2);
+        }
+        g.Call(kDice64);
+        g.Write8(kDiceNow, static_cast<uint8_t>(g.R(0)));
+        g.Write8(kLevelNow, static_cast<uint8_t>(g.Read8(kLevelNow) + g.Read8(kLevelBonus)));
+        if (static_cast<int8_t>(g.Read8(kLevelNow)) >= 7) {
+            g.Write8(kLevelNow, 10);
+        }
+        const uint32_t row = g.Read8(kBossRank) != 0 ? 18 : Signed(s.Field(kCharacter));
+        const uint32_t choices = kGuardChoices + Signed(static_cast<int16_t>(row * 0xB0)) +
+                                 Signed(static_cast<int16_t>(static_cast<int8_t>(g.Read8(kLevelNow)) * 16));
+        g.R(1) = kDiceNow;
+        g.R(3) = kGuardChoices;
+        g.R(4) = row;
+        g.R(5) = s.me;
+        if (static_cast<int8_t>(g.Read8(choices + Signed(static_cast<int8_t>(g.Read8(kDiceNow))))) == 3) {
+            s.SetWord(kLeverNow, 0);
+            g.R(0) = 0;
+            g.R(2) = 0;
+            g.SetT(false);
+            g.Return(60);
+            return true;
+        }
+        g.Call(kDice16);
+        s.SetWord(kGuardType, static_cast<int8_t>(g.Read8(choices + g.R(0))));
+        g.R(5) = 1;
+        s.SetWord(kLeverNow, static_cast<int32_t>(LeverFor(g, s.me, 1)));
+        s.SetWord(kLeverNow, s.Word(kLeverNow) | 2);
+        s.SetWord(kGuardType, s.Word(kGuardType) | 0x8000);
+        g.R(0) = g.Read16(s.At(kGuardType, 2));
+        g.R(1) = 0x8000;
+        g.R(2) = Signed(s.side * 2);
+        g.R(3) = s.At(kGuardType, 2);
+        g.R(4) = s.me;
+        g.SetT(false);
+        g.Return(80);
+        return true;
+    }
+
     // (free: r1-r7 and T for a routine with a result, r0-r7 and T for one with none, where C callers only call it)
     constexpr uint32_t kResult = 0x100FE, kNoResult = 0x100FF;
     const Lift kLifts[] = {
@@ -2032,6 +2198,8 @@ namespace {
         {"ComputerJumpAttack", 0x0600BE70, 0x2F4, 0x85DCA9B327DD7664ull, JumpAttack, true, kResult},
         {"ComputerSetLeverNow", 0x06011B76, 0x9A, 0x95BDC4B28E3257E5ull, SetLeverNow, true, 0x1007F},
         {"ComputerClearHighJump", 0x060B5CD6, 0x24, 0x373A27F2CD6C0C12ull, ClearHighJump, true, 0x14},
+        {"ComputerVsAirAttack", 0x0600C196, 0x166, 0x962089A960C3998Eull, VsAirAttack, true, kResult},
+        {"ComputerAirGuard", 0x0600B974, 0x194, 0x3DE0946FB87F7C6Aull, AirGuard, true},
         {"ComputerRandomPlan", 0x0600A708, 0x92, 0xD3F8F075B257F2A6ull, RandomPlan, true, kResult},
     };
 } // namespace
