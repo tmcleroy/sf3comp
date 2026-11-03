@@ -88,11 +88,11 @@ namespace {
 
 void RegisterGame() {
     Game &game = TheGame();
-    game.features.push_back({"widescreen", "Game", "Widescreen",
+    game.features.push_back({"widescreen", "Display", "Widescreen",
                              "16:9: 64 more columns of the stage on each side. In a fight the camera stays 64 columns further from "
                              "the stage's ends, so the corners come that much sooner than on the board.",
                              kFeatureFirstPage});
-    game.features.push_back({"widescreen_walls", "Game", "Invisible walls",
+    game.features.push_back({"widescreen_walls", "Display", "Invisible walls",
                              "With widescreen: fights are still shown in 16:9, but played exactly as on the board. The camera goes "
                              "as far as the board's and the corners are the board's; near a stage's end the view stays on the stage, "
                              "so the fight is then to one side of the picture. Nothing without widescreen (nor on another game's stage)."});
@@ -100,13 +100,6 @@ void RegisterGame() {
                              "The board's start-up (its memory checks, the region's warning and Capcom's logo) runs unseen, so the game "
                              "shows from its opening in about two seconds.",
                              kFeatureEnhanced});
-    game.features.push_back({"arcade_timing", "Game", "Arcade timing",
-                             "The processor takes the time the board's makes it take: its memory's waits as the game sets the bus "
-                             "up, its cache's misses and its pipeline's stalls, so the game does as much in a frame as the board's "
-                             "processor does and slows down where the board does. Checked against jotego's CPS-3 core simulated (a "
-                             "model of the board, not a board) through the start-up, the attract mode and a fight. Off: every access "
-                             "is instant, as the port has always run it. Training, the alternative modes and the viewers keep the "
-                             "port's own readable code for the routines it has rewritten."});
     game.features.push_back({"play_as_gill", "Game", "Play as Gill",
                              "The boss, Gill, for player 1, player 2 or both: whoever is chosen at character select is Gill (the super art "
                              "chosen is one of his).",
@@ -115,7 +108,7 @@ void RegisterGame() {
     game.features.push_back({"infinite_time", "Cheats", "Infinite time", "The round's clock stands still."});
     game.features.push_back({"no_damage", "Cheats", "No damage", "Player 1's health does not go down."});
     game.features.push_back({"no_damage_2", "Cheats", "No damage, player 2", "Player 2's health does not go down (the opponent's, in a one-player game)."});
-    game.features.push_back({"one_hit", "Cheats", "One hit knocks out", "Any hit that does damage takes all the health that is left (both players)."});
+    game.features.push_back({"one_hit", "Cheats", "One-hit knockouts", "Any hit that does damage takes all the health that is left (both players)."});
     game.features.push_back({"full_gauge", "Cheats", "Full gauge", "Player 1's super art gauge is always full."});
     game.features.push_back({"full_gauge_2", "Cheats", "Full gauge, player 2", "Player 2's super art gauge is always full (the opponent's, in a one-player game)."});
     game.features.push_back({"no_stun", "Cheats", "No stun", "Player 1 is never stunned: the stun they take is put back to none."});
@@ -166,6 +159,56 @@ void RegisterGame() {
     RegisterAttract(game);
     RegisterSoundProbe();
     RegisterBoard(game);
+    // The menu's pages and rows in the CPS-2 ports' order (Street Fighter Alpha 2's), this game's own after them
+    const auto order = [&](const char *page, std::initializer_list<const char *> ids) {
+        std::vector<size_t> at;
+        for (size_t n = 0; n < game.features.size(); n++) {
+            if (std::string(game.features[n].category) == page) {
+                at.push_back(n);
+            }
+        }
+        std::vector<Feature> rows;
+        for (const char *id : ids) {
+            for (const size_t n : at) {
+                if (std::string(game.features[n].name) == id) {
+                    rows.push_back(game.features[n]);
+                }
+            }
+        }
+        for (const size_t n : at) {
+            if (std::find_if(rows.begin(), rows.end(), [&](const Feature &f) { return std::string(f.name) == game.features[n].name; }) == rows.end()) {
+                rows.push_back(game.features[n]);
+            }
+        }
+        for (size_t k = 0; k < at.size(); k++) {
+            game.features[at[k]] = rows[k];
+        }
+    };
+    order("Game", {"play_as_gill", "free_play", "skip_intro"});
+    order("Cheats", {"no_damage", "no_damage_2", "one_hit", "full_gauge", "full_gauge_2", "infinite_time", "no_stun", "no_stun_2"});
+    order("Training mode", {"restart_at", "training_stage", "damage_readout", "stun_readout", "parry_readout", "input_display", "hit_boxes",
+                            "frame_data", "frame_log", "frame_meter", "health_refill", "gauge_refill"});
+    order("Dummy", {"dummy_stand", "dummy_crouch", "dummy_jump", "dummy_record", "dummy_replay", "dummy_replay_any", "dummy_slot",
+                    "dummy_guard", "dummy_guard_action", "dummy_parry", "dummy_reversal", "dummy_reversal_random", "dummy_tech",
+                    "dummy_getup", "dummy_stun_mash", "dummy_computer"});
+    {
+        static const char *const kPages[] = {"Training mode", "Attract mode", "Stage viewer", "Survival", "Endless battle", "Ring out",
+                                             "Tag team battle", "Model viewer", "Colour editor"};
+        std::stable_sort(game.pages.begin(), game.pages.end(), [](const Page &a, const Page &b) {
+            const auto rank = [](const Page &p) {
+                if (std::string(p.parent) != "Alternative modes") {
+                    return -1;
+                }
+                for (size_t n = 0; n < std::size(kPages); n++) {
+                    if (std::string(p.name) == kPages[n]) {
+                        return static_cast<int>(n);
+                    }
+                }
+                return 100;
+            };
+            return rank(a) < rank(b);
+        });
+    }
 }
 
 } // namespace cps3recomp

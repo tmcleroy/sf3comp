@@ -72,7 +72,7 @@ void BoardBeforeFrame(Machine &m) {
 void RegisterBoard(Game &game) {
     game.features.push_back({"board_difficulty", "Board", "Difficulty", "How hard the computer plays (the board's 1 to 8). Takes effect when the game is reset.",
                              0, {"As the board has it", "1 (easiest)", "2", "3", "4", "5", "6", "7", "8 (hardest)"}});
-    game.features.push_back({"board_damage", "Board", "Damage", "How much a hit takes (the board's 1 to 4). Takes effect when the game is reset.",
+    game.features.push_back({"board_damage", "Board", "Damage level", "How much a hit takes (the board's 1 to 4). Takes effect when the game is reset.",
                              0, {"As the board has it", "1 (least)", "2", "3", "4 (most)"}});
     game.features.push_back({"board_timer", "Board", "Timer speed", "How fast the round's clock runs (the board's 1 to 4). Takes effect when the game is reset.",
                              0, {"As the board has it", "1 (slowest)", "2", "3", "4 (fastest)"}});

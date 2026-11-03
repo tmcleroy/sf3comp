@@ -21,6 +21,8 @@
 
 namespace cps3recomp {
 
+int WorldShift(); // widescreen.cpp
+
 namespace {
     struct State {
         uint16_t moveAnim[2] = {};  // (the frame data log: each move's animation, from its first step)
@@ -163,13 +165,15 @@ namespace {
 
     void Boxes(std::vector<HudBox> &boxes) {
         const int cameraX = Signed16(sfiii3::kCameraX), cameraY = Signed16(sfiii3::kCameraY);
+        const Machine *m = TheMachine();
+        const int middle = (m ? m->PictureWidth() : Video::kWidth) / 2 - WorldShift();
         // (the players' records, then the projectiles')
         std::vector<uint32_t> records = {Player(0), Player(1)};
         for (const uint32_t base : Projectiles()) {
             records.push_back(base);
         }
         for (const uint32_t base : records) {
-            const int px = Signed16(base + sfiii3::kX) - cameraX + Video::kWidth / 2;
+            const int px = Signed16(base + sfiii3::kX) - cameraX + middle; // (the picture's middle: widescreen's columns, and its shift)
             const int py = Video::kHeight - (Signed16(base + sfiii3::kY) - cameraY) - 23;
             const bool flipped = Ram8(base + sfiii3::kFacing) != 0;
             for (const sfiii3::BoxList &list : sfiii3::kBoxes) {
@@ -373,7 +377,7 @@ namespace {
     }
 
     bool FullMeter(int p) {
-        return FeatureOn(p == 0 ? "full_meter" : "full_meter_2") || FeatureOn(p == 0 ? "full_gauge" : "full_gauge_2"); // (training's; the cheat)
+        return FeatureOn("gauge_refill") || FeatureOn(p == 0 ? "full_gauge" : "full_gauge_2"); // (training's; the cheat)
     }
 } // namespace
 
@@ -588,8 +592,7 @@ void RegisterTraining(Game &game) {
          "frame of the window, or how long after the window opened the hit came instead."},
         {"stun_readout", session::kPage, "Stun readout",
          "Under each health bar: how much stun the player has taken, and how much stuns them (it drains when they are left alone)."},
-        {"full_meter", session::kPage, "Full meter", "Player 1's super art meter is always full."},
-        {"full_meter_2", session::kPage, "Full meter, player 2", "Player 2's super art meter is always full."},
+        {"gauge_refill", session::kPage, "Gauge refills", "Both players' super art gauge kept full, filled again after a super art."},
     };
     // (the corners: the players' walls are 164 from the camera's limits, which the camera's middle keeps between; seen
     // in made-up play on Ken's stage, 108 and 916 with limits 272 and 752)
@@ -613,7 +616,7 @@ void RegisterTraining(Game &game) {
         start.id = Ram16(base + 0x202);
         return start;
     };
-    d.ownAids = {"hit_boxes", "dummy_parry", "dummy_stun_mash", "dummy_computer", "training_watch", "stage_viewer", "parry_readout", "stun_readout", "full_meter", "full_meter_2"};
+    d.ownAids = {"hit_boxes", "dummy_parry", "dummy_stun_mash", "dummy_computer", "training_watch", "stage_viewer", "parry_readout", "stun_readout", "gauge_refill"};
     // The dummy's guard: player 1's move starting or able to hit, near enough (280 across: the distance a move can hit
     // from is not known; nearer missed more, farther no fewer); standing against an attack from the air (made-up play,
     // three seeds: 25 hits taken to 43 with the toolkit's own, which crouches always)

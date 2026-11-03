@@ -129,6 +129,14 @@ void RegisterPortFeatures() {
                                   "on the board (input lag taken away). The game runs as it does without it; it takes two or three "
                                   "times the processor. Off by itself in the game's own modes beyond fights and training.",
                                   0, {"Off", "1 frame", "2 frames"}});
+    // (arcade_timing: machine/bus.h, the SH-2's timing as the board's; docs/TIMING.md)
+    TheGame().features.push_back({"arcade_timing", "Game", "Arcade timing",
+                             "The processor takes the time the board's makes it take: its memory's waits as the game sets the bus "
+                             "up, its cache's misses and its pipeline's stalls, so the game does as much in a frame as the board's "
+                             "processor does and slows down where the board does. Checked against jotego's CPS-3 core simulated (a "
+                             "model of the board, not a board) through the start-up, the attract mode and a fight. Off: every access "
+                             "is instant, as the port has always run it. Training, the alternative modes and the viewers keep the "
+                             "port's own readable code for the routines it has rewritten."});
     // (rapid_fire: Port::RapidFire)
     TheGame().features.push_back({"rapid_fire", "Game", "Rapid fire",
                                   "A button held down is pressed again and again (fifteen times a second), for the first button or "
