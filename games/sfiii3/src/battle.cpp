@@ -51,6 +51,7 @@ void StageBehindNext(int stage);
 bool StageBehindNextReady();
 void StageBehindSwitch(Machine &machine);
 void StageBehindMusic(bool on);
+void StageBehindOnlyMusic(bool on);
 void StageBehindNextBeside(Machine &machine, int stage);
 void StageBehindNextCamera(int x);
 bool StageBehindNextEnds(int &left, int &right);
@@ -1279,6 +1280,7 @@ void BattleBeforeFrame(Machine &m) {
     if (b.mode == kEndless) {
         m.hidePanel = true; // (no bars, no clock: the game's panel is its text layer)
     }
+    StageBehindOnlyMusic(b.viewer);
     if (b.viewer) {
         m.onlyStage = true; // (with the stage board's stage composed: that alone)
         if (FeatureValue("viewer_stage") != b.viewed) {

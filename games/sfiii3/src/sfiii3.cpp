@@ -11,6 +11,8 @@
 
 namespace cps3recomp {
 
+bool AttractOn(); // attract.cpp
+
 void RegisterTraining(Game &game);
 void RegisterLifts3rdStrike();
 void RegisterStages(Game &game);
@@ -42,7 +44,7 @@ namespace {
 
     void BeforeFrame(Machine &m) {
         BoardBeforeFrame(m);
-        if (FeatureOn("skip_intro") && m.frame < kOpening && !session::Booting()) {
+        if (FeatureOn("skip_intro") && m.frame < kOpening && !session::Booting() && !AttractOn()) {
             if (!g_skipping) {
                 g_skipping = true;
                 SetFastForward(true);
@@ -53,7 +55,10 @@ namespace {
                 SetFastForward(false);
             }
         }
-        if (FeatureOn("free_play") && Ram8(sfiii3::kCredits) < 2) {
+        // (attract mode: the board's show, which it runs only with no coin in)
+        if (AttractOn()) {
+            SetRam8(sfiii3::kCredits, 0);
+        } else if (FeatureOn("free_play") && Ram8(sfiii3::kCredits) < 2) {
             SetRam8(sfiii3::kCredits, 2); // (two: a second player can always join)
         }
         // (only while the byte holds a running clock: what it holds outside a fight is not known yet)

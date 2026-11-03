@@ -30,6 +30,12 @@ namespace {
     struct State {
         bool on = false;
         bool editing = false;        // the colour editor (the viewer with its panel)
+        bool fast = false;           // on its way to the round, at speed
+        bool arrived = false;        // ... and there
+        int named = -1;              // the animation whose name is shown, and since when
+        uint32_t namedAt = 0;
+        uint32_t cellSince = 0;      // when the animation's cell last changed (one held 3 seconds is its end)
+        int character = 0, background = 0; // (the menu's when it started: another chosen while viewing goes to it)
         int row = 0, line = 0, colour = 1; // the panel's row; player 1's line (0-7: colour RAM line * 64) and colour (0-63)
         uint16_t held = 0;           // player 1's controls at the last frame (for presses)
         uint32_t heldFor = 0, frames = 0;
@@ -52,6 +58,8 @@ namespace {
     // the animation playing, +0x204 the cell (in fours of bytes), +0x214 the frames left of it (0x06089848 advances it).
     constexpr int kLists = 10, kMostInList = 160;
     constexpr uint32_t kAnimation = 0x200, kCell = 0x204, kCellLeft = 0x214;
+    constexpr uint32_t kNamedFor = 120;    // frames an animation's name is shown for after it changes (the CPS-2 ports' viewer's)
+    constexpr uint32_t kLongestFrame = 180; // frames a frame is held before it counts as the animation's end
     int ListCount(uint32_t list) {
         int n = 0;
         for (; n < kMostInList; n++) {
@@ -102,6 +110,8 @@ namespace {
         session::StartSession(machine);
         v = {};
         v.on = true;
+        v.character = FeatureValue("model_character");
+        v.background = FeatureValue("model_background");
     }
     void StartEditor(Machine &machine) {
         Start(machine);
@@ -169,7 +179,12 @@ namespace {
         // (over: the game has gone on to another, it holds (a cell of 0xFF frames), or it has come round to its start (one
         // that repeats by itself))
         const uint16_t cell = Ram16(base + kCell);
-        const bool over = Ram32(base + kAnimation) != animation || Ram8(base + kCellLeft) >= 0xF0 || cell < v.lastCell;
+        if (cell != v.lastCell || startNow) {
+            v.cellSince = v.frames;
+        }
+        // (a frame held longer than kLongestFrame is the animation's end too: a knock-out's last, say, which lies there)
+        const bool over = Ram32(base + kAnimation) != animation || Ram8(base + kCellLeft) >= 0xF0 || cell < v.lastCell ||
+                          v.frames - v.cellSince > kLongestFrame;
         v.lastCell = cell;
         if (!startNow && over && !v.ended) {
             v.ended = true;
@@ -275,6 +290,10 @@ void ModelBeforeFrame(Machine &m) {
     ForceCustomColours(v.on && v.editing);
     if (!v.on) {
         SetSlowMotion(1);
+        if (v.fast) {
+            v.fast = false;
+            SetFastForward(false);
+        }
     }
     const bool on = Showing();
     m.hidePanel = m.hidePanel || on;
@@ -285,13 +304,40 @@ void ModelBeforeFrame(Machine &m) {
     if (!ModelViewerOn()) {
         return;
     }
+    if (v.arrived && (FeatureValue("model_character") != v.character || FeatureValue("model_background") != v.background)) {
+        const bool editing = v.editing;
+        Start(m); // (another character or stage chosen while viewing: the viewer goes there)
+        v.editing = editing;
+        return;
+    }
     // (the character and the stage, written through the choice; player 2 whatever, it is not seen)
     const bool locked = Ram8(sfiii3::kLocked[0]) == 0xFF || Ram8(sfiii3::kLocked[1]) == 0xFF;
     if (!locked) {
         SetRam8(sfiii3::kChosen[0], static_cast<uint8_t>(std::clamp(FeatureValue("model_character"), 0, kCount - 1)));
         SetRam8(sfiii3::kStage, static_cast<uint8_t>(std::min(background, kCount - 1)));
     }
-    m.players[1] = 0;
+    if (on) {
+        m.players[1] = 0; // (player 2's fighter is not seen: nobody plays it)
+    }
+    // (on its way to the round, as the CPS-2 ports' viewer goes: the character the menu's, chosen for both players, the
+    // screens before the round pressed through, unseen and at speed)
+    if (!on && !session::Booting()) {
+        const bool press = v.frames % 12 < 3;
+        for (int p = 0; p < 2; p++) {
+            const uint8_t state = Ram8(sfiii3::kSelectState[p]);
+            m.players[p] = state == 0 ? (press ? kStart : 0) : (press ? kPunch1 : 0);
+        }
+    }
+    if (on && Ram8(sfiii3::kMatchState) == 2) {
+        v.arrived = true; // (the round is on: the entrances and its banners were run at speed)
+    }
+    {
+        const bool fast = !v.arrived && !session::Booting();
+        if (fast != v.fast) {
+            v.fast = fast;
+            SetFastForward(fast);
+        }
+    }
     if (on && v.editing) {
         Editor(m);
     }
@@ -305,10 +351,15 @@ void ModelBeforeFrame(Machine &m) {
 
 // The editor's panel, at the right of the picture; the animation's name at the bottom
 void ModelHud(std::vector<HudLine> &lines, std::vector<HudBox> &boxes) {
-    if (Showing() && v.choice > 0) {
+    // (the animation's name at the top, for a while after it changes, as the CPS-2 ports' viewer has it)
+    if (v.choice != v.named) {
+        v.named = v.choice;
+        v.namedAt = v.frames;
+    }
+    if (Showing() && v.choice > 0 && v.frames - v.namedAt < kNamedFor) {
         char name[16];
         snprintf(name, sizeof(name), "%c%d", 'A' + (v.choice - 1) / kMostInList, (v.choice - 1) % kMostInList);
-        lines.push_back({0.5f, 0.94f, 0, name, 255, 255, 255});
+        lines.push_back({0.5f, 0.04f, 0, name});
     }
     if (!Showing() || !v.editing) {
         return;
@@ -384,13 +435,25 @@ void ModelAfterFrame(Machine &m) {
     }
 }
 
+namespace {
+    // The menu's "Reset options": every choice of the viewer's page back to what it is when nothing is chosen
+    void ResetChoices(Machine &) {
+        for (const char *choice : {"model_character", "model_background", "model_foreground", "model_size", "model_animation", "model_speed",
+                                   "model_repeat", "model_all"}) {
+            SetFeatureValue(choice, 0);
+        }
+    }
+} // namespace
+
 void RegisterModel(Game &game) {
     static const char *const kPage = "Model viewer";
     game.commands.push_back({"model_start", kPage, "Start",
                              "Shows the character chosen below alone, moved with player 1's controls (every move works), on a stage or "
                              "plain white or black, at the size chosen. Reset ends it.",
                              Start});
-    game.features.push_back({"model_character", kPage, "Character", "Who is shown (taken when the viewer starts).", kFeatureMenuChoices,
+    game.commands.push_back({"model_reset", kPage, "Reset options", "Every choice on this page back to what it is when nothing is chosen.",
+                             ResetChoices});
+    game.features.push_back({"model_character", kPage, "Character", "Who is shown. Changing it while viewing goes to the new one.", kFeatureMenuChoices,
                              {std::begin(kCharacters), std::end(kCharacters)}});
     static std::vector<std::string> names;
     if (names.empty()) {
@@ -405,7 +468,7 @@ void RegisterModel(Game &game) {
     backgrounds.push_back("White");
     backgrounds.push_back("Black");
     game.features.push_back({"model_background", kPage, "Background",
-                             "What is behind the character: one of the stages (taken when the viewer starts), or plain white or black.",
+                             "What is behind the character: one of the stages, or plain white or black. Changing it while viewing goes to the new one.",
                              kFeatureMenuChoices, backgrounds});
     game.features.push_back({"model_foreground", kPage, "Stage in front",
                              "What the stage has in front of the fighters: in front of the character too, as in a fight, or behind it so "
@@ -429,8 +492,10 @@ void RegisterModel(Game &game) {
     game.features.push_back({"model_animation", kPage, "Animation",
                              "What the character does: stands as in a fight, moved with player 1's controls, or goes through one of its "
                              "animations over and over. They are named by the character's ten lists of them and a number (B12); the "
-                             "ones a character has not got are passed over. Its name is shown under it.",
+                             "ones a character has not got are passed over. Its name is shown at the top when it changes.",
                              kFeatureMenuChoices, choices});
+    game.features.push_back({"model_speed", kPage, "Speed", "How fast the character moves: slow motion, to look at a move frame by frame.",
+                             0, {"Full", "1/2", "1/4", "1/8"}});
     game.features.push_back({"model_repeat", kPage, "Repeat after", "How long an animation's end is held before it starts again.", 0,
                              {"At once", "1 second", "2 seconds", "3 seconds", "4 seconds", "5 seconds"}});
     game.features.push_back({"model_all", kPage, "Play all",
@@ -440,8 +505,6 @@ void RegisterModel(Game &game) {
                              "What the character does in the editor: stands, or goes through one of its animations (as in the model "
                              "viewer).",
                              kFeatureMenuChoices, choices});
-    game.features.push_back({"model_speed", kPage, "Speed", "How fast the character moves: slow motion, to look at a move frame by frame.",
-                             0, {"Full", "1/2", "1/4", "1/8"}});
     game.commands.push_back({"colours_start", "Colour editor", "Start",
                              "The model viewer with a panel: player 1's controls choose a line of the character's colours, a colour of "
                              "it (it blinks on the character), and its red, green and blue. Changes are kept for the character (the "

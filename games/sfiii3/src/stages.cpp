@@ -123,6 +123,7 @@ namespace {
     constexpr uint32_t kBannersFor = 200; // (3rd Strike's own board: its "ROUND 1" and "FIGHT!" drawn as its stage is, so it is
                                           // shown only after them)
     int g_choiceWanted = 0;
+    bool g_onlyMusic = false; // (the stage viewer: nothing of 3rd Strike's own heard but music: StageBehindOnlyMusic)
     bool g_boardMusic = true; // (the modes' stage behind: its own music, or 3rd Strike's fight's: StageBehindMusic)
     int g_cameraWanted = kFollow;
     int g_theirLeft = 0, g_theirRight = 0;
@@ -558,7 +559,9 @@ void StagesBeforeFrame(Machine &machine) {
     machine.stageSound = music;
     int silenced = 0;
     for (int v = 0; v < 16; v++) {
-        machine.board.silenced[v] = (music || machine.soundtrack.Playing()) && MusicVoice(v);
+        const bool musicElsewhere = music || machine.soundtrack.Playing();
+        // (the stage viewer: only music heard, the unseen fight's voices and effects left out)
+        machine.board.silenced[v] = (musicElsewhere && MusicVoice(v)) || (g_onlyMusic && (musicElsewhere || !MusicVoice(v)));
         silenced += machine.board.silenced[v];
     }
     // (debugging aid, SFIII3_STAGE_SOUND=1: every 300 frames, the voices left out and the stage board's sound)
@@ -650,6 +653,11 @@ void StageBehind(int stage) {
     }
     g_cameraWanted = kFollow;
     g_boardMusic = true;
+    g_onlyMusic = false;
+}
+// ... nothing but music heard (the stage viewer)
+void StageBehindOnlyMusic(bool on) {
+    g_onlyMusic = on;
 }
 // ... its music heard (the default), or 3rd Strike's fight's (the stage viewer's other tunes)
 void StageBehindMusic(bool on) {
