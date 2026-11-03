@@ -145,7 +145,11 @@ namespace {
 void Machine::RunFrame() {
     static FILE *vblankLog = getenv("CPS3RECOMP_VBLANK_LOG") ? fopen(getenv("CPS3RECOMP_VBLANK_LOG"), "w") : nullptr;
     if (vblankLog) {
-        fprintf(vblankLog, "%llu %08x %08X\n", static_cast<unsigned long long>(m_frame), Crc32(mainRam, 0x80000), m_cpu.PC);
+        // (and CPS3RECOMP_VBLANK_WATCH=ADDRESS: the long there)
+        static const uint32 watch = getenv("CPS3RECOMP_VBLANK_WATCH") ? static_cast<uint32>(strtoul(getenv("CPS3RECOMP_VBLANK_WATCH"), nullptr, 16)) & 0x7FFFC : 0;
+        const uint8 *w = mainRam + watch;
+        fprintf(vblankLog, "%llu %08x %08X %08x %llu\n", static_cast<unsigned long long>(m_frame), Crc32(mainRam, 0x80000), m_cpu.PC,
+                (uint32(w[0]) << 24) | (uint32(w[1]) << 16) | (uint32(w[2]) << 8) | w[3], static_cast<unsigned long long>(m_cpu.m_bus.charged));
         fflush(vblankLog);
     }
     // (the bus's timing forced on for the timing harness, CPS3RECOMP_BUS_TIMING=1; otherwise the arcade_timing

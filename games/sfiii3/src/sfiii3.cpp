@@ -93,6 +93,12 @@ void RegisterGame() {
                              "The board's start-up (its memory checks, the region's warning and Capcom's logo) runs unseen, so the game "
                              "shows from its opening in about two seconds.",
                              kFeatureEnhanced});
+    game.features.push_back({"arcade_timing", "Game", "Arcade timing (experiment)",
+                             "The processor takes the time the board's memory makes it take: each access's waits as the game sets the "
+                             "bus up, and its cache's misses, so the game does as much in a frame as the board's processor does. "
+                             "Checked against jotego's CPS-3 core simulated (a model of the board, not a board), through the start-up "
+                             "and attract mode so far. Off: every access is instant, as the port has always run it. Training, the "
+                             "alternative modes and the viewers keep the port's own readable code for the routines it has rewritten."});
     game.features.push_back({"play_as_gill", "Game", "Play as Gill",
                              "The boss, Gill, for player 1, player 2 or both: whoever is chosen at character select is Gill (the super art "
                              "chosen is one of his).",
@@ -116,6 +122,8 @@ void RegisterGame() {
     RegisterModel(game);
     RegisterColours(game);
     game.noRunAhead = BattleOn; // (a mode with a spare machine: its frames are not run ahead)
+    // (with arcade timing: the readable rewrites where the port's own features work inside them)
+    game.rewritesNeeded = [] { return BattleOn() || session::InSession(); };
     // The menu's pages for the ways of playing beyond the board's own (as the CPS-2 ports have them)
     game.pages.push_back({"Alternative modes", "", "Ways to play beyond the arcade game: training, attract mode, viewers for the stages "
                                                    "and the characters, the colour editor, survival, endless and team battles, ring out.", true});

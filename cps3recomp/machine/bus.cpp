@@ -74,6 +74,17 @@ unsigned Bus::External(uint32_t address, unsigned size) const {
 }
 
 unsigned Bus::Read(uint32_t address, unsigned size, bool fetch) {
+    const unsigned cycles = ReadCycles(address, size, fetch);
+    charged += cycles;
+    return cycles;
+}
+unsigned Bus::Write(uint32_t address, unsigned size) {
+    const unsigned cycles = WriteCycles(address, size);
+    charged += cycles;
+    return cycles;
+}
+
+unsigned Bus::ReadCycles(uint32_t address, unsigned size, bool fetch) {
     const unsigned space = address >> 29;
     if (space == 6 || space == 7) {
         return 0; // (the cache RAM, the on-chip registers)
@@ -99,7 +110,7 @@ unsigned Bus::Read(uint32_t address, unsigned size, bool fetch) {
     return 4 * External(address, 4) - 1;
 }
 
-unsigned Bus::Write(uint32_t address, unsigned size) {
+unsigned Bus::WriteCycles(uint32_t address, unsigned size) {
     const unsigned space = address >> 29;
     if (space == 2) {
         // (the purge space: the line that address would be in, invalid)

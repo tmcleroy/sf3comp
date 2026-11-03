@@ -49,6 +49,8 @@ public:
     }
 
     bool operator==(const Bus &) const = default;
+    // All the cycles charged so far (for the timing harness's log, CPS3RECOMP_VBLANK_LOG; not saved)
+    uint64_t charged = 0;
 
     // For save states: everything above (the cache's tags and LRU included)
     void Serialize(Archive &ar);
@@ -58,6 +60,8 @@ private:
     unsigned CycleStates(unsigned area) const;
     unsigned Width(unsigned area) const; // (bytes)
     unsigned External(uint32_t address, unsigned size) const;
+    unsigned ReadCycles(uint32_t address, unsigned size, bool fetch);
+    unsigned WriteCycles(uint32_t address, unsigned size);
 
     uint16_t m_bcr1 = 0x03F0, m_bcr2 = 0x00FC, m_wcr = 0xAAFF; // (the SH7604's values at reset)
     uint8_t m_ccr = 0;
