@@ -14,8 +14,8 @@
 //     whether the other's attack is out (kOtherAttacking): the other's character's own list for that range, attack
 //     or not (eight tables of 21 lists, a list a character: VS_RYU_AS, VS_RYU_A ... VS_RYU_D for Ryu). Then the tests
 //     every character meets: an attack caught early (a given pose, a given kind of attack, no further into its
-//     animation than a limit), a throw-like move, the other after its attack, crouching or standing for a while (the
-//     timers kStandFor and kCrouchFor, chosen at random), jumping, or taunting.
+//     animation than a limit), move 33 (of kind 0) as a counter attack, the other after its attack, crouching or
+//     standing for a while (the timers kStandFor and kCrouchFor, chosen at random), jumping, or taunting.
 //   - on a later look (kPassiveMode 0): only the other dashing.
 //
 // A list is the character's moves worth an answer, each a test of the other's attack (Check_Special_Technique, Move
@@ -39,6 +39,8 @@
 //
 // The chains call the lists through the game's tables (so each list is the lift at its own address), the tests
 // directly; the routines not here (the dice, the stand and crouch times, the divide) through the game's calls.
+// Checked in layers (checklifts.sh): a list is compared only when the game's own dispatcher calls it, and only
+// against the characters the runs' made-up players chose, so the lists were met with more seeds than the check's.
 #include "computer.h"
 
 #include <cstdint>
@@ -620,7 +622,8 @@ namespace {
                EarlyInMove(s, 24, 32, 5, 32767) || EarlyInMove(s, 24, 32, 4, 32767) || Move(s, 19, 24, 62, kAsCounter) ||
                Move(s, 19, 56, 55, kAsCounter) || Move(s, 24, 24, 61, kAsCounter);
     }
-    // (no answer: farthest (VS_HUGO_DS); farthest, attacking (VS_HUGO_D))
+    // (no answer: farthest (VS_HUGO_DS); farthest, attacking (VS_HUGO_D, which returns with r0 left as it was: the
+    // dispatcher's table, not 0, so the chain stops there as if answered, kAnswered still clear))
 
     // Against Ibuki
     // 06013DDC (VS_IBUKI_AS)
@@ -966,11 +969,12 @@ namespace {
         return true;
     }
 
-    // A chain or a list (r4 the computer; the other its kOpponent): true in r0 when it answered
+    // A chain or a list (r4 the computer; the other its kOpponent): not 0 in r0 when it answered (what the last test
+    // or list left there)
     template <bool (*F)(Side &)>
     bool Listed(Guest &g) {
         Side s(g, g.R(4));
-        g.R(0) = F(s) ? 1 : 0;
+        F(s);
         g.Return(60);
         return true;
     }
@@ -1032,11 +1036,14 @@ namespace {
 
     // (free: r1-r4 and T; r0 and r5-r7 are left as the game's code leaves them, for 0x06012588's callers)
     constexpr uint32_t kFree = 0x1001E;
+    // (The entries commented out are rewrites the check has not met, so not registered: the chain against Gill and
+    // Gill's lists, met only when the computer plays against a Gill, which no run's made-up player nor attract mode's
+    // fights in 120000 frames came to. The 41 lists with no test, which return at once, are left the game's: nothing to write.)
     const Lift kLifts[] = {
         {"ComputerChooseAnswer", 0x06012588, 0x2C, 0x0CD11B638A690A29ull, ChooseAnswer, true, kFree},
         {"ComputerAnswerAgainstMost", 0x060125B4, 0x346, 0x3FE1C2387D578A74ull, Listed<AgainstMost>, true, kFree},
         {"ComputerAnswerAgainstHugo", 0x060128FA, 0x284, 0x988BB936ED299AE0ull, Listed<AgainstHugo>, true, kFree},
-        {"ComputerAnswerAgainstGill", 0x06012BA4, 0x2E0, 0x7D573D6ED690610Full, Listed<AgainstGill>, true, kFree},
+        // {"ComputerAnswerAgainstGill", 0x06012BA4, 0x2E0, 0x7D573D6ED690610Full, Listed<AgainstGill>, true, kFree},
         {"ComputerCloseList", 0x06013A86, 0x16, 0xF6644E14F2A8C105ull, RunList<kCloseLists>, true, kFree},
         {"ComputerCloseAttackingList", 0x0601412C, 0x16, 0xA9F6D97D952C5355ull, RunList<kCloseAttackingLists>, true, kFree},
         {"ComputerMiddleList", 0x06014994, 0x16, 0x2A17665803B96930ull, RunList<kMiddleLists>, true, kFree},
@@ -1058,12 +1065,12 @@ namespace {
         {"ComputerAnswerAfterAttack", 0x06013930, 0xCE, 0x386FAB4EAB21FF60ull, TestLift1<AfterAttack>, true, kFree},
         {"ComputerAnswerCrossChop", 0x06013A18, 0x6E, 0x4FDDFF81F2D7DE4Eull, TestLift1<CrossChop>, true, kFree},
         // the lists, against each character
-        {"ComputerVsGillClose", 0x06013A9C, 0x52, 0xC05138F6A44A5425ull, Listed<VsGillClose>, true, kFree},
-        {"ComputerVsGillCloseAttacking", 0x06014142, 0x98, 0xFEA30A70C6B1285Dull, Listed<VsGillCloseAttacking>, true, kFree},
-        {"ComputerVsGillMiddle", 0x060149AA, 0x56, 0x49E7C254868FA9EBull, Listed<VsGillMiddle>, true, kFree},
-        {"ComputerVsGillMiddleAttacking", 0x060151AC, 0x98, 0x1C8F466ADA04AE64ull, Listed<VsGillMiddleAttacking>, true, kFree},
-        {"ComputerVsGillFar", 0x06015B8A, 0x56, 0x213881D9E012A6C1ull, Listed<VsGillFar>, true, kFree},
-        {"ComputerVsGillFarAttacking", 0x060162DC, 0x98, 0x8776A6BE11383D84ull, Listed<VsGillFarAttacking>, true, kFree},
+        // {"ComputerVsGillClose", 0x06013A9C, 0x52, 0xC05138F6A44A5425ull, Listed<VsGillClose>, true, kFree},
+        // {"ComputerVsGillCloseAttacking", 0x06014142, 0x98, 0xFEA30A70C6B1285Dull, Listed<VsGillCloseAttacking>, true, kFree},
+        // {"ComputerVsGillMiddle", 0x060149AA, 0x56, 0x49E7C254868FA9EBull, Listed<VsGillMiddle>, true, kFree},
+        // {"ComputerVsGillMiddleAttacking", 0x060151AC, 0x98, 0x1C8F466ADA04AE64ull, Listed<VsGillMiddleAttacking>, true, kFree},
+        // {"ComputerVsGillFar", 0x06015B8A, 0x56, 0x213881D9E012A6C1ull, Listed<VsGillFar>, true, kFree},
+        // {"ComputerVsGillFarAttacking", 0x060162DC, 0x98, 0x8776A6BE11383D84ull, Listed<VsGillFarAttacking>, true, kFree},
         {"ComputerVsAlexClose", 0x06013AEE, 0x9C, 0xB5FF81D15DD24499ull, Listed<VsAlexClose>, true, kFree},
         {"ComputerVsAlexCloseAttacking", 0x060141DA, 0xD2, 0xFC2F34021EB58DEAull, Listed<VsAlexCloseAttacking>, true, kFree},
         {"ComputerVsAlexMiddle", 0x06014A00, 0x84, 0x38200ED2168500ACull, Listed<VsAlexMiddle>, true, kFree},
