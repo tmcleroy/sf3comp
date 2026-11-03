@@ -150,6 +150,15 @@ namespace {
     constexpr uint32_t kCommand6 = 0x0600F4C0;   // Command_Type_06 (r4, r5 the power, r6 the move, r7 Ex_Shot)
     constexpr uint32_t kReactionExit = 0x06010350; // Reaction_Exit_Sub (r4): the plan on to its next step
     constexpr uint32_t kLanded = 0x0600EFB8;     // Check_Landed (r4, r5 the reaction)
+    constexpr uint32_t kSetLeverNow = 0x06011B76; // Setup_Lever_LR (r4, r5 the side, r6 the reaction's bits 12-15)
+    constexpr uint32_t kClearHighJump = 0x060B5CD6; // hi_jump_flag_clear (r4 the side)
+    constexpr uint32_t kStartJump = 0x0600F1DC;  // Jump_Init (r4, r5 the way)
+    constexpr uint32_t kAirGuard = 0x0600B974;   // Check_Air_Guard (r4)
+    constexpr uint32_t kVsAirAttack = 0x0600C196; // Check_VS_Air_Attack (r4, r5 Range_JX, r6 Range_JY, r7 the lever)
+    constexpr uint32_t kAttackTime = 0x0600CABC; // Check_Term_ABS_Distance (r4)
+    constexpr uint32_t kMeetsLimit = 0x0600B4AC; // Check_Term_Sub (r4, r5 a value, r6 its limit)
+    constexpr uint32_t kHeightMeetsLimit = 0x0600CB34; // Check_Com_Add_Y (r4, r5 the height, r6 its limit)
+    constexpr uint32_t kJumpAttackLever = 0x0600C164; // Check_SP_Jump_Attack (r4, r5 the lever)
     constexpr uint32_t kReaction = 0x0600FE80;   // Reaction_Sub (r4, r5 the reaction, r6 the power): after the attack
 
     // One side of the computer: its fighter's record and its entries in the tables
@@ -1763,6 +1772,193 @@ namespace {
         return true;
     }
 
+    // 0600BE70 (Jump_Attack_Term, r5 Range_X, r6 Range_Y, r7 the reaction; on the stack the lever and buttons of the
+    // attack, the way of the jump, Range_JX, Range_JY and the lever of an attack against one in the air): a jump and
+    // its attack. Once the fighter's attack lets it, kComboSpeed is waited and the jump made (Jump_Init); in the air,
+    // guarding if it must (Check_Air_Guard), the attack comes against one jumping (Check_VS_Air_Attack) or when the gap
+    // and the height meet the ranges; then it waits to land (Check_Landed). From the attack on, the lever holds
+    // kLeverNow too.
+    bool JumpAttack(Guest &g) {
+        Side s(g, g.R(4));
+        Frame frame(g, 40);
+        const uint32_t rangeX = Signed(static_cast<int16_t>(g.R(5))), rangeY = Signed(static_cast<int16_t>(g.R(6)));
+        const uint32_t reaction = Signed(static_cast<int16_t>(g.R(7)));
+        const uint32_t stack = frame.entry;
+        const auto arg = [&](uint32_t n) { return Signed(static_cast<int16_t>(g.Read16(stack + n * 4 + 2))); };
+        const uint32_t buttons = arg(0), way = arg(1), rangeJX = arg(2), rangeJY = arg(3), airLever = arg(4);
+        const auto landed = [&](uint32_t r) {
+            CallWith(g, kLanded, s.me, r, g.R(6));
+            return Nonzero(g);
+        };
+        switch (s.Place(1)) {
+        case 0:
+            CallWith(g, kSetLeverNow, s.me, Signed(s.side), reaction & 0xF000);
+            if (s.Field(kDoing) == 4 && g.Read8(s.me + kMoveKind) != 0x40) {
+                break;
+            }
+            g.R(4) = Signed(s.side);
+            g.Call(kClearHighJump);
+            s.SetByte(kContinue, 0);
+            g.Write8(s.me + kHitBy, 0);
+            s.SetPlace(1, s.Place(1) + 1);
+            g.R(4) = s.me;
+            g.Call(kFirstMenu);
+            [[fallthrough]];
+        case 1:
+            if (AnswerBegun(s) || !ComboSpeedDone(s)) {
+                break;
+            }
+            s.SetPlace(1, s.Place(1) + 1);
+            g.R(4) = Signed(s.side);
+            g.Call(kClearDash);
+            CallWith(g, kStartJump, s.me, way, g.R(6));
+            g.R(4) = s.me;
+            g.Call(kShellAbove);
+            if (Nonzero(g)) {
+                BeFree(g, s.me);
+            }
+            break;
+        case 2:
+            if (s.Field(kY) > 0) {
+                s.SetPlace(1, s.Place(1) + 1);
+            } else {
+                s.SetWord(kLever, s.Word(kJumpLever));
+            }
+            break;
+        case 3:
+            g.R(4) = s.me;
+            g.Call(kAirGuard);
+            if (landed(reaction)) {
+                break;
+            }
+            g.R(7) = airLever;
+            CallWith(g, kVsAirAttack, s.me, rangeJX, rangeJY);
+            if (Nonzero(g)) {
+                break;
+            }
+            g.R(4) = s.me;
+            g.Call(kAttackTime); // (its answer not used)
+            CallWith(g, kMeetsLimit, s.me, Signed(s.Word(kGap)), rangeX);
+            if (!Nonzero(g)) {
+                break;
+            }
+            CallWith(g, kHeightMeetsLimit, s.me, Signed(s.Field(kY)), rangeY);
+            if (!Nonzero(g)) {
+                break;
+            }
+            CallWith(g, kMeetsLimit, s.me, Signed(s.Field(kY)), rangeY);
+            if (!Nonzero(g)) {
+                break;
+            }
+            CallWith(g, kJumpAttackLever, s.me, buttons & 0xFFFF, g.R(6));
+            s.SetWord(kLever, static_cast<int32_t>(g.R(0)));
+            s.SetPlace(1, s.Place(1) + 1);
+            s.SetByte(kHitStock, 0);
+            break;
+        case 4:
+            g.R(4) = s.me;
+            g.Call(kAirGuard);
+            if (g.Read8(s.me + kHitBy) != 0) {
+                s.SetByte(kHitStock, g.Read8(s.me + kHitBy));
+            }
+            landed(reaction & 127);
+            break;
+        case 5:
+            if (!landed(reaction & 127)) {
+                g.R(7) = 0xFFFFFFFF;
+                CallWith(g, kCommand0, s.me, 8, 0xFFFFFFFF);
+                if (g.R(0) == 0xFFFFFFFF) {
+                    s.SetPlace(1, 99);
+                }
+            }
+            break;
+        default:
+            s.SetByte(kHitStock, g.Read8(s.me + kHitBy));
+            landed(reaction & 0xFFF);
+            break;
+        }
+        if (s.Place(1) >= 3) {
+            s.SetWord(kLever, s.Word(kLever) | s.Word(kLeverNow));
+            g.R(0) = kLeverNow;
+        } else {
+            g.R(0) = Signed(s.Place(1));
+        }
+        g.Return(100);
+        return true;
+    }
+
+    // 06011B76 (Setup_Lever_LR, r5 a side, r6 bits 12-15 of a reaction): kLeverNow from the bits: none, nothing; 0x1000
+    // up, else 0x2000 down added; then 0x4000 forward, else 0x8000 back added. Leaves r5 the bits, r7 the side's
+    // kLeverNow.
+    bool SetLeverNow(Guest &g) {
+        const uint32_t me = g.R(4);
+        const int16_t side = static_cast<int16_t>(g.R(5));
+        const int16_t bits = static_cast<int16_t>(g.R(6));
+        const uint32_t lever = kLeverNow + Signed(side * 2);
+        g.R(5) = Signed(bits);
+        g.R(7) = lever;
+        if (bits == 0) {
+            g.Write16(lever, 0);
+        } else {
+            if (bits & 0x1000) {
+                g.Write16(lever, 1);
+            } else if (bits & 0x2000) {
+                g.Write16(lever, static_cast<uint16_t>(g.Read16(lever) | 2));
+            }
+            if (bits & 0x4000) {
+                g.Write16(lever, static_cast<uint16_t>(g.Read16(lever) | LeverFor(g, me, 0)));
+            } else if (bits & 0x8000) {
+                g.Write16(lever, static_cast<uint16_t>(g.Read16(lever) | LeverFor(g, me, 1)));
+            }
+        }
+        g.Return(30);
+        return true;
+    }
+
+    // The game's command reader (the lever's moves the fighter's commands are made of): 0x620 bytes a player at
+    // 0x020256C4, 28 a command, started from the character's list of them (0x02006284: a long a character, a list of
+    // the commands' data); 0x0202632E, 0x406 a player, a word a command, cleared with it
+    constexpr uint32_t kCommandReader = 0x020256C4, kCommandLists = 0x02006284, kCommandDone = 0x0202632E;
+    constexpr uint32_t kCharacterOf = 0x0206902C; // player 1's record's kCharacter (players kFighterSize apart)
+
+    // 060B5D94: command `which` of player r4's command reader started again from its data (r6 the character's list).
+    // Leaves r0 the player's offset in kCommandDone, r2 kCommandReader, r3 the player's kCommandDone, r5 the command's
+    // word there, r6 its place in the reader, r7 0.
+    void RestartCommand(Guest &g, uint32_t player, uint32_t which, uint32_t list) {
+        uint32_t data = g.Read32(list + Signed(static_cast<int16_t>(which)) * 4) + 24;
+        const uint32_t slot = kCommandReader + Signed(static_cast<int16_t>(static_cast<int16_t>(player) * 0x620)) +
+                              Signed(static_cast<int16_t>(static_cast<int16_t>(which) * 28));
+        g.Write16(slot, g.Read16(data));
+        g.Write16(slot + 2, g.Read16(data + 2));
+        g.Write16(slot + 4, g.Read16(data + 4));
+        g.Write16(slot + 12, g.Read16(data + 4));
+        g.Write16(slot + 6, g.Read16(data + 6));
+        data += 8;
+        g.Write32(slot + 8, data);
+        for (const uint32_t n : {18u, 20u, 22u, 26u, 24u}) {
+            g.Write16(slot + n, 0);
+        }
+        const uint32_t done = kCommandDone + Signed(static_cast<int16_t>(static_cast<int16_t>(player) * 0x406));
+        g.Write16(done + (Signed(static_cast<int16_t>(which)) << 1), 0);
+        g.R(0) = done - kCommandDone;
+        g.R(2) = kCommandReader;
+        g.R(3) = done;
+        g.R(5) = done + (Signed(static_cast<int16_t>(which)) << 1);
+        g.R(6) = slot;
+        g.R(7) = 0;
+        g.SetT(false); // (the shift of the command's number)
+    }
+
+    // 060B5CD6 (hi_jump_flag_clear, r4 the player): the high jump's command (2) read again from its start
+    bool ClearHighJump(Guest &g) {
+        const uint32_t player = Signed(static_cast<int16_t>(g.R(4)));
+        const uint32_t character = SignedWord(g, kCharacterOf + Signed(static_cast<int16_t>(static_cast<int16_t>(player) * kFighterSize)));
+        RestartCommand(g, player, 2, g.Read32(kCommandLists + (character << 2)));
+        g.R(4) = player;
+        g.Return(40);
+        return true;
+    }
+
     // (free: r1-r7 and T for a routine with a result, r0-r7 and T for one with none, where C callers only call it)
     constexpr uint32_t kResult = 0x100FE, kNoResult = 0x100FF;
     const Lift kLifts[] = {
@@ -1833,6 +2029,9 @@ namespace {
         {"ComputerReactionExit", 0x06010350, 0x74, 0xE8B3CB5942CCA38Dull, ReactionExitLift, true},
         {"ComputerNextEnd", 0x0600FD7E, 0x54, 0xB76A0648647012D7ull, NextEnd, true},
         {"ComputerLanded", 0x0600EFB8, 0xE6, 0x9D87B572165F5B50ull, Landed, true},
+        {"ComputerJumpAttack", 0x0600BE70, 0x2F4, 0x85DCA9B327DD7664ull, JumpAttack, true, kResult},
+        {"ComputerSetLeverNow", 0x06011B76, 0x9A, 0x95BDC4B28E3257E5ull, SetLeverNow, true, 0x1007F},
+        {"ComputerClearHighJump", 0x060B5CD6, 0x24, 0x373A27F2CD6C0C12ull, ClearHighJump, true, 0x14},
         {"ComputerRandomPlan", 0x0600A708, 0x92, 0xD3F8F075B257F2A6ull, RandomPlan, true, kResult},
     };
 } // namespace
