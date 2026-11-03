@@ -60,6 +60,7 @@ namespace {
     constexpr uint32_t kMoveKind = 0x215;     // byte: the kind of its animation (cg_type): 9 and 12 getting up, 64 the
                                               // attack's end
     constexpr uint32_t kGuardBits = 0x2E1;    // byte: how its attack is guarded (att.guard): 8 low, 16 high
+    constexpr uint32_t kShellKind = 0x05;     // in a projectile's record, a byte (charset_id): 2 not one to guard
     constexpr uint32_t kHitOk = 0x2FE;        // byte: its attack can hit now (att_hit_ok)
     constexpr uint32_t kCharacter = 0x3C0;    // word: the character (player_number); byte 0x3C1 its low byte
     constexpr uint32_t kSuperArt = 0x3F0;     // long: the super art's state (sa): word +0 the art (0-2), byte +10 not 0
@@ -75,6 +76,7 @@ namespace {
     constexpr uint32_t kTimer = 0x020155A6;       // word: frames to wait (Timer_00)
     constexpr uint32_t kTimerReload = 0x020155AA; // word: a second timer, a mash's speed (Timer_01): 8 the hit was a
                                                   // projectile's
+    constexpr uint32_t kGap = 0x020155B2;         // word: the gap between the two along the floor (PL_Distance)
     constexpr uint32_t kRange = 0x020155B6;       // word: which range the gap is in, 0 close - 3 far (Area_Number)
     constexpr uint32_t kLever = 0x020155BA;       // word: the lever and buttons chosen this frame (Lever_Buff)
     constexpr uint32_t kJumpLever = 0x020155BE;   // word: a lever kept to hold again (Lever_Pool)
@@ -83,9 +85,20 @@ namespace {
     constexpr uint32_t kShell = 0x02015610;       // long: the projectile the computer is against (Shell_Address)
     constexpr uint32_t kAnswering = 0x0201561C;   // byte (Passive_Flag)
     constexpr uint32_t kRecovering = 0x0201561E;  // byte (Flip_Flag)
+    constexpr uint32_t kTermTimer = 0x02015626;   // word: cleared as EM_Term begins
+    constexpr uint32_t kLimited = 0x0201562D;     // byte (Limited_Flag)
+    constexpr uint32_t kRunAgain = 0x020157CC;    // byte: on to the next step at once (Disposal_Again)
+    constexpr uint32_t kLeverNow = 0x0201582C;    // word: the lever to hold while nothing else is chosen (Lever_LR)
+    constexpr uint32_t kShellIgnore = 0x0201562F; // byte (Shell_Ignore_Timer): frames projectiles are let be
     constexpr uint32_t kOtherAttacking = 0x0201562A; // byte: the other's attack is out (Attack_Flag)
     constexpr uint32_t kCounter = 0x02015648;     // byte (Counter_Attack): bit 1 an answer not to be broken off
+    constexpr uint32_t kPierce = 0x02015646;      // byte (Pierce_Menu): the plan goes through, unanswered
+    constexpr uint32_t kStanding = 0x02015740;    // byte: frames the other has stood (Standing_Timer)
+    constexpr uint32_t kShellRanges = 0x02015744; // words, three a side: the ranges against a projectile
     constexpr uint32_t kAttacksSeen = 0x02015750; // word: the other's attacks counted (Attack_Counter)
+    constexpr uint32_t kLastAttackSeen = 0x02015754; // word: kAttacksSeen when last answered (Last_Attack_Counter)
+    constexpr uint32_t kJumpTimers = 0x020157C0;  // bytes, four a side, by range (Jump_Pass_Timer): frames the range's
+                                                  // answers are let be
     constexpr uint32_t kLastLevers = 0x0201576E;  // words, twenty a side: the levers of the last twenty frames (Resume_Lever)
     constexpr uint32_t kHitSeen = 0x020157CA;     // byte (Receive_Flag): the computer is to hold down as it is hit
     constexpr uint32_t kOtherAttackKind = 0x02015829; // byte: the kind of the other's last attack (Type_of_Attack)
@@ -94,6 +107,9 @@ namespace {
     constexpr uint32_t kParries = 0x02016B85;     // byte: parries in a row (Flip_Counter); 0xFF: no more now
 
     // --- the game's, for everyone ---
+    constexpr uint32_t kAnswered = 0x0200DCF8;    // byte: an answer was chosen this time (PASSIVE_X)
+    constexpr uint32_t kPlayTime = 0x02011372;    // word: how far the game has got (Control_Time): the levels are by it
+    constexpr uint32_t kControls1 = 0x0206AA8C, kControls2 = 0x0206AA90; // words: the players' levers and buttons
     constexpr uint32_t kPassiveMode = 0x0201562C; // byte: 4 the first look of an answer, 0 a later one (Passive_Mode)
     constexpr uint32_t kRank = 0x0201584C;        // byte: which set of level tables
     constexpr uint32_t kLevelBonus = 0x0201584D;  // byte: added to some levels (CC_Value)
@@ -103,6 +119,7 @@ namespace {
     constexpr uint32_t kBossRank = 0x02016B33;    // byte: not 0: the boss's tables (row 18), not the character's (EM_Rank)
     constexpr uint32_t kLevelNow = 0x0200DCF4;    // byte: the level just worked out (Lv)
     constexpr uint32_t kDiceNow = 0x0200DCF5;     // byte: the random number just taken (Rnd)
+    constexpr uint32_t kFullHealth = 0x02016B30;  // word: a fighter's full health
     constexpr uint32_t kWins = 0x02011382;        // words, a side: rounds won
     constexpr uint32_t kClock = 0x02011376;       // word: the round's clock
     constexpr uint32_t kChosen = 0x02011387;      // bytes, a side: the character played (My_char)
@@ -111,6 +128,26 @@ namespace {
     constexpr int kOroOrShin = 15, kMakoto = 17, kTwelve = 19; // characters (kCharacter)
 
     // --- tables in the program ---
+    // The level tables (Level_04/10/18_Data): rows of a word each level's play time ends at, a set for each kRank
+    constexpr uint32_t kLevels4 = 0x061753D4, kLevels10 = 0x06175464, kLevels18 = 0x0617549A;
+    constexpr uint32_t kCounterChances = 0x061771BC; // bytes, by level of 8 (0600FB06)
+    constexpr uint32_t kReactionTimes = 0x06171F54; // bytes: [character played: 640, 0x2D00 a challenger's][level of 20]
+                                                  // [32 at random]: frames before a reaction (Reflection_Time_Data)
+    // The plans of mode 2 by the range (Select_Active): bytes [character: 256][level of 8: 32][32 at random]
+    constexpr uint32_t kPlans[4] = {0x0613FF54, 0x06141454, 0x06142954, 0x06143E54};
+    // ... and for a super art: bytes [kind - 1: 128][level of 4: 32][32 at random]
+    constexpr uint32_t kSuperArtPlans[4] = {0x06145354, 0x06145554, 0x06145754, 0x06145954};
+    // The reactions by the range (Select_Passive): bytes [character: 2048, 1024 for the last][answer: 64][level: 16]
+    // [column: 16], 0xFF none
+    constexpr uint32_t kReactions[4] = {0x061495B8, 0x06153DB8, 0x0615E5B8, 0x06168DB8};
+    constexpr uint32_t kShellAnswers = 0x06176D2A; // bytes: [character or 18: 10][level of 10]: the chance of answering
+                                                  // a projectile
+    constexpr uint32_t kShellPlans = 0x061877B8;  // bytes: [character: 512][kind: 128][level of 8: 16][16 at random]:
+                                                  // the plan of mode 8
+    constexpr uint32_t kShellLimits = 0x06178D1C; // bytes, a character: frames within which a projectile is parried or
+                                                  // guarded, not answered
+    constexpr uint32_t kShellKinds = 0x06178BA7;  // bytes, by a projectile's byte 4: its kind for kShellPlans, 0xFF none
+    constexpr uint32_t kAnswerable = 0x0613E858;  // bytes, by the other's kDoing: not 0 when what it does may be answered
     constexpr uint32_t kActives = 0x0613E544;     // 21 longs: each character's routine for mode 2 (Computer00-20)
     constexpr uint32_t kVsShells = 0x0613E640;    // 21 longs: each character's routine for mode 8 (Shell00 ...)
     constexpr uint32_t kLastPlans = 0x0613E6F5;   // bytes, four a character: the last plan of each kind (Pattern_Insurance)
@@ -163,10 +200,31 @@ namespace {
     constexpr uint32_t kSpecialMove = 0x060084EC; // Command_Attack_SP (r4, r5 the character, r6 the move, r7 its power):
                                                   // not 0 once it is done
     constexpr uint32_t kClearDash = 0x060B5C9E;   // dash_flag_clear (r4 the side)
+    constexpr uint32_t kDice32 = 0x0611E106;      // random_32_ex_com: the next of a table of 32 (computer_moves.cpp)
+    constexpr uint32_t kSuperArtPlan = 0x060107A6; // Check_SA_Active (r4, r5 where to put the kind): the super art's
+                                                  // plan's kind, not 0 for one (computer_moves.cpp)
+    constexpr uint32_t kCheckGuard = 0x06010F4C;  // Check_Guard (r4): a guard has begun (computer_entry.cpp)
+    constexpr uint32_t kOtherFalling = 0x060138E0; // Check_Blow_Off (r4, r5 the other, r6 an answer)
+    constexpr uint32_t kShellCheck = 0x0601156A;  // (r4): a projectile coming: mode 8 (not 0)
+    constexpr uint32_t kTermTest = 0x06011C10;    // (r4, r5 the other, r6 the test): a test of the fight by its number
+                                                  // (the table at 0x0613E864): 0 met, 1 the other plan, 2 not yet, 3 and up
+                                                  // a reaction
+    constexpr uint32_t kMeetsLimit = 0x0600B4AC;  // Check_Term_Sub (r4, r5 a value, r6 its limit; computer_moves.cpp)
+    constexpr uint32_t kOtherHeightMeetsLimit = 0x0600B4F0; // Check_Term_Sub_Y (r4, r5 a height, r6 its limit)
+    constexpr uint32_t kAnotherPlan = 0x0600FE10; // Next_Another_Menu (r4, r5 the mode, r6 the plan; computer_moves.cpp)
+    constexpr uint32_t kSuperArtRange = 0x0600A422; // SA_Range_Check (r4, r5 which, r6 the test): not 0 out of range
+    constexpr uint32_t kDenjinCheck = 0x0600A3B0; // DENJIN_Check (r4, r5, r6 the plan's place, r7 the test)
+    constexpr uint32_t kYagyouCheck = 0x0600A3E2; // YAGYOU_Check (r4, r5 the plan's place, r6 the test)
+    constexpr uint32_t kFindShell = 0x060DBB8A;   // get_vs_shell_adrs (r4 a fighter, r5 the side, r6 which, r7 where
+                                                  // to put it): not 0 when there is one
+    constexpr uint32_t kShellFront = 0x0608EAD6;  // (r4 a projectile): where its front is along the floor
+    constexpr uint32_t kDivideLongs = 0x0612D428; // the compiler's division of longs: r1 by r0, in r0
+    constexpr uint32_t kInPose = 0x06013280;      // Check_Specific_Term (r4, r5 the other, r6 the answer, r7 and two
+                                                  // longs on the stack poses; computer_answers.cpp)
 
     // The modes (computer_entry.cpp)
     constexpr int16_t kFree = 1, kGuardMode = 7, kGuardProjectile = 9, kHit = 10, kInAir = 11, kParry = 12;
-    constexpr int16_t kThrowing = 15;
+    constexpr int16_t kThrowing = 15, kWaitForFall = 14, kVsShellMode = 8;
     // kDoing
     constexpr int16_t kDoingFree = 0, kDoingHit = 1, kDoingThrown = 3, kDoingAttack = 4;
     constexpr int16_t kStunned = 25; // kDoingHow, hit
@@ -216,12 +274,21 @@ namespace {
     // game's code has it (a callee that leaves an address on the stack in a register leaves the same one)
     struct Frame {
         Frame(Guest &guest, uint32_t bytes)
-            : g(guest), size(bytes) {
+            : g(guest), size(bytes), entry(guest.R(15)) {
             g.R(15) -= size;
         }
-        ~Frame() { g.R(15) += size; }
+        ~Frame() { Pop(); }
+        // The frame given back (before a tail jump: the routine jumped to sees the caller's stack pointer)
+        void Pop() {
+            if (live) {
+                g.R(15) += size;
+                live = false;
+            }
+        }
         Guest &g;
         const uint32_t size;
+        const uint32_t entry; // the stack pointer the routine was called with (its arguments beyond r7 there)
+        bool live = true;
     };
 
     uint32_t Signed(int32_t value) {
@@ -423,6 +490,7 @@ namespace {
         s.SetWord(kTimer, 10);
         Call(g, kClearDash, Signed(s.side));
         s.SetWord(kGuardType, guard);
+        frame.Pop();
         GuardLever(g, me, attacker);
     }
     bool StartGuardLift(Guest &g) {
@@ -607,6 +675,7 @@ namespace {
         s.SetWord(kTimer, 9);
         s.SetByte(kParries, 0);
         if (shellTime == 0) {
+            frame.Pop();
             ParryGo(g, s.me, 0);
             g.Return(40);
             return true;
@@ -1422,6 +1491,1013 @@ namespace {
     }
 
 
+    // --- levels ---
+
+    // The play time's level (Setup_Lv04, Setup_Lv10, Setup_Lv18): the first of `count` play times (a row of words)
+    // that kPlayTime has not passed, or `count`. `last` the last play time compared, `ended` true when all were passed.
+    int16_t PlayTimeLevel(Guest &g, uint32_t row, int16_t count, uint32_t &last, bool &ended) {
+        int16_t level = 0;
+        for (;;) {
+            const int16_t now = static_cast<int16_t>(g.Read16(kPlayTime));
+            last = Signed(static_cast<int16_t>(g.Read16(row + Signed(level * 2))));
+            if (!(now > static_cast<int32_t>(last))) {
+                ended = false;
+                return level;
+            }
+            level++;
+            if (level >= count) {
+                ended = true;
+                return level;
+            }
+        }
+    }
+
+    // 0600F9D2 (Setup_Lv04, r4 the row): the level of four, by kRank's set of rows (the offsets cut to signed bytes,
+    // as the game's code has them). Leaves the registers as the routine does.
+    bool LevelOf4Lift(Guest &g) {
+        const int32_t rank = static_cast<int8_t>(g.Read8(kRank));
+        const uint32_t row = kLevels4 + Signed(static_cast<int8_t>(rank * 6)) + Signed(static_cast<int8_t>(g.R(4) * 6));
+        uint32_t last = 0;
+        bool ended = false;
+        const int16_t level = PlayTimeLevel(g, row, 3, last, ended);
+        g.R(0) = Signed(level);
+        g.R(1) = kLevels4;
+        g.R(2) = ended ? Signed(level) : last;
+        g.R(3) = Signed(static_cast<int16_t>(g.Read16(kPlayTime)));
+        g.R(4) = Signed(level);
+        g.R(5) = 3;
+        g.R(6) = row;
+        g.R(7) = kPlayTime;
+        g.SetT(ended);
+        g.Return(30);
+        return true;
+    }
+
+    // 0600FA84 (Setup_Lv10, r4 the row): the level of ten. Leaves the registers as the routine does.
+    bool LevelOf10Lift(Guest &g) {
+        const int32_t rank = static_cast<int8_t>(g.Read8(kRank));
+        const uint32_t row = kLevels10 + Signed(static_cast<int8_t>(rank * 18)) + Signed(static_cast<int8_t>(g.R(4) * 18));
+        uint32_t last = 0;
+        bool ended = false;
+        const int16_t level = PlayTimeLevel(g, row, 9, last, ended);
+        g.R(0) = Signed(level);
+        g.R(1) = kLevels10;
+        g.R(2) = last;
+        g.R(3) = ended ? Signed(level) : Signed(static_cast<int16_t>(g.Read16(kPlayTime)));
+        g.R(4) = Signed(level);
+        g.R(5) = 9;
+        g.R(6) = row;
+        g.R(7) = kPlayTime;
+        g.SetT(ended);
+        g.Return(40);
+        return true;
+    }
+
+    // 0600FAC4 (Setup_Lv18, r4 the row): the level of eighteen (its sets 306 bytes apart). Leaves the registers as
+    // the routine does.
+    bool LevelOf18Lift(Guest &g) {
+        const uint32_t rowNumber = g.R(4);
+        const uint32_t row = kLevels18 + Signed(static_cast<int16_t>(g.Read8(kRank) * 306)) + Signed(static_cast<int16_t>(rowNumber * 34));
+        uint32_t last = 0;
+        bool ended = false;
+        const int16_t level = PlayTimeLevel(g, row, 17, last, ended);
+        g.R(0) = Signed(level);
+        g.R(1) = rowNumber;
+        g.R(2) = last;
+        g.R(3) = ended ? Signed(level) : Signed(static_cast<int16_t>(g.Read16(kPlayTime)));
+        g.R(4) = Signed(level);
+        g.R(5) = 17;
+        g.R(6) = row;
+        g.R(7) = kPlayTime;
+        g.SetT(ended);
+        g.Return(60);
+        return true;
+    }
+
+    // 0600FB06: the chance of a counter to an approach, by the level of eight (7 broken into, 2 weak), kept in
+    // kLevelNow
+    bool CounterChanceLift(Guest &g) {
+        Side s(g, g.R(4));
+        g.Write8(kLevelNow, static_cast<uint8_t>(Level(g, kLevelOf8)));
+        if (g.Read8(kBrokenInto) == 2) {
+            g.Write8(kLevelNow, 7);
+        }
+        if (s.Weak()) {
+            g.Write8(kLevelNow, 2);
+        }
+        g.R(0) = g.Read8(kCounterChances + Signed(static_cast<int8_t>(g.Read8(kLevelNow))));
+        g.Return(30);
+        return true;
+    }
+
+    // 0600F93C (Select_Reflection_Time): the frames before a reaction: one of 32 at random, by the level of 18 (from
+    // kThrowLevel, plus the bonus; 19 broken into, 2 weak) and the character played (a challenger's fight: the
+    // table's last part). Leaves the registers as the routine does.
+    bool ReactionTimeLift(Guest &g) {
+        Frame frame(g, 16);
+        Side s(g, g.R(4));
+        const int8_t dice = static_cast<int8_t>(Dice(g, kDice128));
+        g.R(4) = static_cast<uint32_t>(static_cast<int8_t>(g.Read8(kThrowLevel)));
+        g.Call(kLevelOf18);
+        uint32_t level = g.R(0) + static_cast<uint32_t>(static_cast<int8_t>(g.Read8(kLevelBonus)));
+        const uint8_t brokenInto = g.Read8(kBrokenInto);
+        if (brokenInto == 2) {
+            level = 19;
+        }
+        g.R(2) = kDemo;
+        g.R(3) = static_cast<uint32_t>(static_cast<int8_t>(g.Read8(kDemo)));
+        if (g.Read8(kDemo) == 0) {
+            g.R(3) = s.me;
+            if (g.Read8(kWeakSide) == static_cast<uint32_t>(s.side)) {
+                level = 2;
+            }
+        }
+        const uint32_t level32 = Signed(static_cast<int8_t>(level) * 32);
+        uint32_t at;
+        if (brokenInto == 1 || brokenInto == 2) {
+            g.R(1) = 0x2D00;
+            at = kReactionTimes + 0x2D00 + level32 + Signed(dice);
+            g.SetT(true);
+        } else {
+            const uint8_t played = g.Read8(kChosen + Signed(s.side));
+            g.R(1) = kChosen;
+            g.R(3) = played;
+            at = kReactionTimes + Signed(static_cast<int16_t>(played * 640)) + level32 + Signed(dice);
+            g.SetT(false);
+        }
+        g.R(0) = static_cast<uint32_t>(static_cast<int8_t>(g.Read8(at)));
+        g.R(4) = level;
+        g.R(5) = kReactionTimes;
+        g.R(6) = Signed(dice);
+        g.R(7) = level32;
+        g.Return(40);
+        return true;
+    }
+
+    // 0600FCAC (Ck_Area for a projectile): which of the side's ranges against a projectile the gap is in, 3 past
+    // them all
+    int16_t RangeVsShell(Side &s) {
+        for (int16_t range = 0; range < 3; range++) {
+            const uint32_t limit = kShellRanges + Signed(static_cast<int8_t>(s.side * 6)) + Signed(range * 2);
+            if (!(s.Word(kGap) > static_cast<int16_t>(s.g.Read16(limit)))) {
+                return range;
+            }
+        }
+        return 3;
+    }
+    bool RangeVsShellLift(Guest &g) {
+        Side s(g, g.R(4));
+        g.R(0) = Signed(RangeVsShell(s));
+        g.Return(30);
+        return true;
+    }
+
+    // 0600FCEE: the gap to the other along the floor, and the lever toward it (8 to the right, 4 to the left)
+    bool GapAndLeverLift(Guest &g) {
+        Side s(g, g.R(4));
+        const int16_t gap = static_cast<int16_t>(g.Read16(s.Other() + kX) - g.Read16(s.me + kX));
+        s.SetWord(kGap, gap);
+        if (gap > 0) {
+            s.SetWord(kLever, 8);
+        } else {
+            s.SetWord(kLever, 4);
+            s.SetWord(kGap, -s.Word(kGap));
+        }
+        g.Return(20);
+        return true;
+    }
+
+
+    // --- the plan (Select_Active) ---
+
+    // 060104B4 (Select_Active): the plan for mode 2, from the level of eight (7 broken into, 2 weak) and a dice of
+    // 32: by the range, a row of the character's own table. When its super art calls for it (Check_SA_Active, which
+    // kind), a super art's plan instead, by the level of four (3 broken into, 2 weak) and the range. Leaves the
+    // registers as the routine does.
+    bool ChoosePlanLift(Guest &g) {
+        Frame frame(g, 24);
+        Side s(g, g.R(4));
+        g.Write8(kLevelNow, static_cast<uint8_t>(Level(g, kLevelOf8)));
+        if (g.Read8(kBrokenInto) == 2) {
+            g.Write8(kLevelNow, 7);
+        }
+        if (s.Weak()) {
+            g.Write8(kLevelNow, 2);
+        }
+        g.Call(kDice32);
+        g.Write8(kDiceNow, static_cast<uint8_t>(g.R(0)));
+        const uint32_t kindAt = g.R(15); // (the answer's word, on the stack)
+        g.R(4) = s.me;
+        g.R(5) = kindAt;
+        g.Call(kSuperArtPlan);
+        const int16_t range = s.Word(kRange);
+        const int32_t slot = range >= 0 && range < 3 ? range : 3;
+        const int32_t level32 = static_cast<int8_t>(g.Read8(kLevelNow)) * 32;
+        const int32_t dice = static_cast<int8_t>(g.Read8(kDiceNow));
+        uint8_t plan;
+        if (g.R(0) != 0) {
+            g.Write8(kLevelNow, static_cast<uint8_t>(Level(g, kLevelOf4)));
+            if (g.Read8(kBrokenInto) == 2) {
+                g.Write8(kLevelNow, 3);
+            }
+            if (s.Weak()) {
+                g.Write8(kLevelNow, 2);
+            }
+            const int32_t kind = static_cast<int16_t>(g.Read16(kindAt));
+            const uint32_t base = Signed((kind - 1) * 128);
+            const uint32_t row = kSuperArtPlans[slot] + base + Signed(static_cast<int8_t>(g.Read8(kLevelNow)) * 32);
+            plan = g.Read8(row + Signed(dice));
+            g.R(1) = kRange;
+            g.R(2) = Signed(dice);
+            g.R(4) = base;
+        } else {
+            const uint32_t at = kPlans[slot] + Signed(s.Character() * 256) + Signed(level32) + Signed(dice);
+            plan = g.Read8(at);
+            g.R(1) = kPlans[slot];
+            g.R(2) = at;
+        }
+        s.SetWord(kPattern, plan);
+        g.R(0) = Signed(s.side * 2);
+        g.R(3) = plan;
+        g.SetT(false);
+        g.Return(60);
+        return true;
+    }
+
+
+    // --- the reaction (Select_Passive) ---
+
+    // 06010CD8 (r4 the answer's kind, its top four bits): the reaction's level, kept in kLevelNow: for kind 0 the level
+    // of four (3 broken into), else the level of eight, row 2 (7 broken into)
+    void ReactionLevel(Side &s, int16_t kind) {
+        Guest &g = s.g;
+        if (kind == 0) {
+            g.Write8(kLevelNow, static_cast<uint8_t>(Level(g, kLevelOf4)));
+            if (g.Read8(kBrokenInto) == 2) {
+                g.Write8(kLevelNow, 3);
+            }
+            return;
+        }
+        g.R(4) = 2;
+        g.Call(kLevelOf8);
+        g.Write8(kLevelNow, static_cast<uint8_t>(g.R(0)));
+        if (g.Read8(kBrokenInto) == 2) {
+            g.Write8(kLevelNow, 7);
+        }
+    }
+
+    // 06010D8C (r5 the side): the reaction's column: the dice (0-15), but 8 or more when its super art may be used or
+    // either fighter is at 48 health or less (the second half of the table: the reactions of a close fight)
+    int32_t ReactionColumn(Side &s) {
+        Guest &g = s.g;
+        const int32_t dice = static_cast<int8_t>(g.Read8(kDiceNow));
+        const auto fighter = [&](int32_t side) { return kFighters + Signed(static_cast<int16_t>(side * kFighterSize)); };
+        if (g.Read8(g.Read32(fighter(s.side) + kSuperArt) + 10) != 0) {
+            return 8 | dice;
+        }
+        if (static_cast<int16_t>(g.Read16(fighter(s.side) + kHealth)) > 48 &&
+            static_cast<int16_t>(g.Read16(fighter(s.side ^ 1) + kHealth)) > 48) {
+            return dice;
+        }
+        return 8 | dice;
+    }
+
+    // 06010D18: the column of the reaction's table, kept in kDiceNow: against a repeated attack (answer 32) one of the
+    // first eight at random, and the answer becomes 28; else ReactionColumn
+    void ChooseColumn(Side &s) {
+        Guest &g = s.g;
+        if (s.Word(kAnswer) == 32) {
+            g.Write8(kDiceNow, static_cast<uint8_t>(Dice(g, kDice64) & 7));
+            s.SetWord(kAnswer, 28);
+            return;
+        }
+        g.Write8(kDiceNow, static_cast<uint8_t>(Dice(g, kDice64)));
+        g.Write8(kDiceNow, static_cast<uint8_t>(ReactionColumn(s)));
+    }
+
+    // 060109AC (Select_Passive): the reaction to the answer chosen (kAnswer: its low twelve bits the row, the top four
+    // a kind for the level), a plan for the character's answer routine (mode 6): from one of four tables by the range
+    // (by the projectile's ranges against one: answers 11 and 30), the character's part, the answer's row, the level's
+    // part and a column (ChooseColumn). 0xFF there: none (-1), and that range's answers are let be for 120 frames
+    // (kJumpTimers). Else the plan, and mode 5: a wait (Select_Reflection_Time) before it, but none for answers 19 and
+    // 25 (mode 6 at once). Leaves the registers as the routine does.
+    bool React(Guest &g, uint32_t me) {
+        Frame frame(g, 32);
+        Side s(g, me);
+        if (s.Word(kAnswer) == 11 || s.Word(kAnswer) == 30) { // (each tested: both can not hold)
+            Frame push(g, 4);
+            s.SetWord(kRange, static_cast<int32_t>(Call(g, 0x0600FCAC, s.me)));
+        }
+        s.SetWord(kLastAttackSeen, s.Word(kAttacksSeen));
+        s.SetByte(kStanding, 0);
+        ReactionLevel(s, static_cast<int16_t>(s.Word(kAnswer) >> 12));
+        if (s.Weak()) {
+            g.Write8(kLevelNow, 1);
+        }
+        s.SetWord(kAnswer, s.Word(kAnswer) & 0xFFF);
+        ChooseColumn(s);
+        const int16_t range = s.Word(kRange);
+        const int32_t slot = range >= 0 && range < 3 ? range : 3;
+        const uint32_t perCharacter = slot < 3 ? 2048 : 1024;
+        const uint32_t row = kReactions[slot] + Signed(s.Character()) * perCharacter + Signed(s.Word(kAnswer) * 64) +
+                             Signed(static_cast<int8_t>(g.Read8(kLevelNow)) * 16);
+        const int8_t entry = static_cast<int8_t>(g.Read8(row + Signed(static_cast<int8_t>(g.Read8(kDiceNow)))));
+        const uint32_t timers = s.At(kJumpTimers, 4);
+        if (static_cast<uint8_t>(entry) == 0xFF) {
+            s.SetByte(kCounter, 0);
+            s.SetByte(kAnswering, 0);
+            g.Write8(timers + Signed(slot), 120);
+            g.R(0) = static_cast<uint32_t>(-1);
+            g.R(1) = kRange;
+            g.R(2) = Signed(entry);
+            g.R(3) = 0xFF;
+            g.R(4) = timers;
+            g.R(5) = kAnswering;
+            g.R(6) = kCounter;
+            g.R(7) = kPattern;
+            g.SetT(true);
+            return false;
+        }
+        s.SetWord(kPattern, static_cast<uint8_t>(entry));
+        g.Write8(timers + Signed(slot), 0);
+        s.SetByte(kAnswering, 1);
+        for (int n = 1; n < 4; n++) {
+            s.SetModeWord(n, 0);
+        }
+        {
+            Frame push(g, 4);
+            s.SetWord(kTimer, static_cast<int32_t>(Call(g, 0x0600F93C, s.me)));
+        }
+        const int16_t answer = s.Word(kAnswer);
+        g.R(5) = Signed(answer);
+        if (answer == 25 || answer == 19 || s.Word(kTimer) == 0) {
+            s.SetModeWord(0, 6);
+            for (int n = 0; n < 4; n++) {
+                s.SetPlace(n, 0);
+            }
+            g.R(3) = s.PlaceAt(2);
+            g.R(4) = s.PlaceAt(0);
+        } else {
+            s.SetModeWord(0, 5);
+            g.R(3) = 5;
+            g.R(4) = Signed(s.side * 2);
+        }
+        g.R(0) = 1;
+        g.SetT(false);
+        return true;
+    }
+    bool ReactLift(Guest &g) {
+        React(g, g.R(4));
+        g.Return(80);
+        return true;
+    }
+
+
+    // --- when to answer (Check_Passive) ---
+
+    // 060138E0 (Check_Blow_Off, r5 the other, r6 an answer): the other knocked down and still in the air: the answer
+    // r6 chosen
+    bool OtherFallingLift(Guest &g) {
+        Side s(g, g.R(4));
+        const uint32_t other = g.R(5);
+        g.R(0) = 0;
+        if (static_cast<int16_t>(g.Read16(other + kDoing)) != kDoingHit) {
+            g.Return(10);
+            return true;
+        }
+        g.R(2) = Signed(static_cast<int16_t>(g.Read16(other + kDoingHow)));
+        g.R(3) = static_cast<uint32_t>(static_cast<int8_t>(g.Read8(kKnockedDown + g.R(2))));
+        if (g.R(3) == 0) {
+            g.Return(14);
+            return true;
+        }
+        g.R(3) = Signed(static_cast<int16_t>(g.Read16(other + kY)));
+        if (g.R(3) == 0) {
+            g.Return(16);
+            return true;
+        }
+        s.SetWord(kAnswer, static_cast<int32_t>(g.R(6)));
+        g.R(3) = s.At(kAnswer, 2);
+        g.R(2) = kAnswered;
+        g.Write8(kAnswered, 1);
+        g.R(0) = 1;
+        g.Return(20);
+        return true;
+    }
+
+    // 060138AE (r5 the other, r6 an answer): the other stunned: the answer chosen, as a counter attack. Leaves the
+    // registers as the routine does.
+    bool OtherStunnedLift(Guest &g) {
+        Side s(g, g.R(4));
+        const uint32_t other = g.R(5);
+        s.SetByte(kCounter, 1);
+        s.SetWord(kAnswer, static_cast<int32_t>(g.R(6)));
+        g.R(3) = s.At(kAnswer, 2);
+        g.R(6) = other + 0x24;
+        g.R(7) = kCounter;
+        const int16_t doing = static_cast<int16_t>(g.Read16(other + kDoing));
+        g.R(0) = Signed(doing);
+        if (doing == kDoingHit) {
+            const int16_t how = static_cast<int16_t>(g.Read16(other + kDoingHow));
+            g.R(0) = Signed(how);
+            if (how == kStunned) {
+                g.R(0) = 1;
+                g.SetT(true);
+                g.Return(16);
+                return true;
+            }
+        }
+        s.SetByte(kCounter, 0);
+        g.R(3) = 0;
+        g.R(0) = 0;
+        g.SetT(false);
+        g.Return(16);
+        return true;
+    }
+
+    // 0601373A (r5 the other, r6 an answer): in a demo only, the other standing on the floor with its lever back
+    // (the other's controls, read): the answer, as a counter attack
+    bool OtherBacksOffLift(Guest &g) {
+        Side s(g, g.R(4));
+        const uint32_t other = g.R(5);
+        g.R(0) = 0;
+        if (g.Read8(kDemo) == 0 || g.Read16(other + kDoing) != 0 || g.Read16(other + kY) != 0) {
+            g.Return(12);
+            return true;
+        }
+        const uint16_t controls = g.Read16(s.side == 0 ? kControls2 : kControls1);
+        const uint16_t back = g.Read8(s.me + 0x0B) != 0 ? 4 : 8;
+        if (!(controls & back)) {
+            g.Return(16);
+            return true;
+        }
+        s.SetByte(kCounter, 1);
+        s.SetWord(kAnswer, static_cast<int32_t>(g.R(6)));
+        g.Write8(kAnswered, 1);
+        g.R(0) = 1;
+        g.Return(20);
+        return true;
+    }
+
+    // 060136C6 (r5 the other): the other on the floor, and the chance (by the level) against a dice: close or
+    // middle, answer 25 to its backing off (0601373A)
+    bool OtherOnFloorLift(Guest &g) {
+        Frame frame(g, 16);
+        Side s(g, g.R(4));
+        const uint32_t other = g.R(5);
+        bool yes = false;
+        if (g.Read16(other + kY) == 0) {
+            const int16_t chance = static_cast<int16_t>(Call(g, 0x0600FB06, s.me));
+            const int16_t dice = Dice(g, kDice128);
+            if (chance >= dice && (s.Word(kRange) == 0 || s.Word(kRange) == 1)) {
+                CallWith(g, 0x0601373A, s.me, other, 25);
+                yes = g.R(0) != 0;
+            }
+        }
+        g.R(0) = yes ? 1 : 0;
+        g.Return(30);
+        return true;
+    }
+
+    // 06013864: the other stunned (answer 2) or lying on the floor (pose 38, answer 0): its reaction (Select_Passive)
+    bool OtherDownLift(Guest &g) {
+        Frame frame(g, 16);
+        Side s(g, g.R(4));
+        const uint32_t other = s.Other();
+        g.Write32(g.R(15), other);
+        CallWith(g, 0x060138AE, s.me, other, 2);
+        if (g.R(0) == 0) {
+            Frame arguments(g, 8);
+            g.Write32(g.R(15), 38);
+            g.Write32(g.R(15) + 4, 38);
+            g.R(7) = 38;
+            CallWith(g, kInPose, s.me, other, 0);
+            if (g.R(0) == 0) {
+                g.SetT(true);
+                g.Return(30);
+                return true;
+            }
+        }
+        frame.Pop();
+        React(g, s.me);
+        g.Return(30);
+        return true;
+    }
+
+    // 06010DEA (Check_Passive): does the computer answer the other now? Not in a counter attack nor going through
+    // (kPierce). The other knocked into the air: wait for it to come down (mode 14; -1). Then, in order, until one
+    // starts a reaction (1): the other on the floor backing off (0601373A), a projectile coming (0601156A); in the
+    // middle of an answer or a parry, only a guard (Check_Guard); the other stunned or lying down (06013864); when
+    // the other's action is not one to answer (0x0613E858), only the projectile; then the answer to the other's
+    // attack as it begins (Ck_Passive_Term, kPassiveMode 4), a guard, and the answer to what it does later (mode 0).
+    // Leaves the registers as the routine does.
+    bool CheckAnswerLift(Guest &g) {
+        Frame frame(g, 16);
+        Side s(g, g.R(4));
+        const auto done = [&](int32_t result) {
+            g.R(0) = static_cast<uint32_t>(result);
+            g.Return(80);
+            return true;
+        };
+        const auto answering = [&]() { return s.Byte(kAnswering) != 0 || s.Byte(kRecovering) != 0; };
+        if (s.Byte(kCounter) != 0 || s.Byte(kPierce) != 0) {
+            return done(0);
+        }
+        const uint32_t other = s.Other();
+        CallWith(g, kOtherFalling, s.me, other, 0);
+        if (g.R(0) != 0) {
+            s.SetMode(kWaitForFall);
+            return done(-1);
+        }
+        g.R(4) = s.me;
+        g.R(5) = other;
+        g.Call(0x060136C6);
+        if (g.R(0) != 0 && static_cast<int32_t>(Call(g, kReact, s.me)) != -1) {
+            return done(1);
+        }
+        if (Call(g, kShellCheck, s.me) != 0) {
+            return done(1);
+        }
+        if (answering()) {
+            frame.Pop();
+            g.R(4) = s.me;
+            g.Call(kCheckGuard);
+            g.Return(80);
+            return true;
+        }
+        if (Call(g, 0x06013864, s.me) == 1) {
+            return done(1);
+        }
+        if (g.Read8(kAnswerable + Signed(static_cast<int16_t>(g.Read16(other + kDoing)))) == 0) {
+            frame.Pop();
+            Call(g, kShellCheck, s.me);
+            g.Return(80);
+            return true;
+        }
+        g.Write8(kPassiveMode, 4);
+        if (Call(g, kChooseAnswer, s.me) != 0 && static_cast<int32_t>(Call(g, kReact, s.me)) != -1) {
+            return done(1);
+        }
+        if (Call(g, kCheckGuard, s.me) != 0) {
+            return done(1);
+        }
+        if (answering()) {
+            return done(0);
+        }
+        g.Write8(kPassiveMode, 0);
+        if (Call(g, kChooseAnswer, s.me) != 0) {
+            frame.Pop();
+            Call(g, kReact, s.me);
+            g.Return(80);
+            return true;
+        }
+        return done(0);
+    }
+
+
+    // --- against a projectile ---
+
+    // 06011A60 (Check_Behind, r5 a projectile): has it passed the computer already (behind it, as it faces)?
+    bool ShellBehindLift(Guest &g) {
+        const uint32_t me = g.R(4), shell = g.R(5);
+        const int16_t x = static_cast<int16_t>(g.Read16(me + kX)), shellX = static_cast<int16_t>(g.Read16(shell + kX));
+        bool behind;
+        if (g.Read8(me + 0x0B) == 0) {
+            behind = !(x >= shellX);
+            g.R(2) = Signed(shellX);
+            g.R(3) = Signed(x);
+        } else {
+            behind = x > shellX;
+            g.R(2) = Signed(x);
+            g.R(3) = Signed(shellX);
+        }
+        g.SetT(!behind == (g.Read8(me + 0x0B) == 0));
+        g.R(0) = behind ? 1 : 0;
+        g.Return(10);
+        return true;
+    }
+
+    // 06011704 (r4 a projectile): one of the kinds the computer lets be (its byte 4: 13-15, 36-39, 77-80, 84, 85,
+    // 122-126)
+    bool ShellLetBeLift(Guest &g) {
+        const uint8_t kind = g.Read8(g.R(4) + 4);
+        const bool yes = (kind >= 36 && kind <= 39) || (kind >= 13 && kind <= 15) || kind == 84 || kind == 85 ||
+                         (kind >= 77 && kind <= 80) || (kind >= 122 && kind <= 126);
+        g.R(0) = yes ? 1 : 0;
+        g.Return(20);
+        return true;
+    }
+
+    // 0601176E (r5 a projectile): the frames before it reaches the computer: the gap to its front (0x0608EAD6) by its
+    // speed (the divide 0x0612D428), made positive
+    bool ArrivalLift(Guest &g) {
+        Frame frame(g, 12);
+        const uint32_t me = g.R(4), shell = g.R(5);
+        g.Write32(g.R(15) + 4, me);
+        g.Write32(g.R(15), shell);
+        g.R(4) = shell;
+        g.Call(kShellFront);
+        g.R(4) = (g.R(0) << 16) - g.Read32(me + kX);
+        g.R(1) = g.R(4);
+        g.R(2) = 124;
+        g.R(0) = g.Read32(shell + 124); // (its speed along the floor, 16.16)
+        g.Call(kDivideLongs);
+        g.R(5) = g.R(0);
+        g.R(4) = Signed(static_cast<int16_t>(g.R(5)));
+        const int16_t frames = static_cast<int16_t>(g.R(4));
+        g.R(0) = frames >= 0 ? g.R(4) : Signed(static_cast<int16_t>(-static_cast<int32_t>(g.R(5))));
+        g.SetT(frames >= 0);
+        g.Return(30);
+        return true;
+    }
+
+    void AgainstShell(Side &s, uint32_t shell, int16_t frames);
+    bool AgainstShellLift(Guest &g) {
+        Side s(g, g.R(4));
+        AgainstShell(s, g.R(5), static_cast<int16_t>(g.R(6)));
+        g.Return(40);
+        return true;
+    }
+
+    // 060117B0 (r5 a projectile): let it be this time? A dice against the character's chance of answering by the
+    // level of ten (9 broken into, 2 weak): let be, projectiles are not looked at for 60 frames (kShellIgnore)
+    bool ShellIgnoreLift(Guest &g) {
+        Frame frame(g, 12);
+        Side s(g, g.R(4));
+        g.Write8(kLevelNow, static_cast<uint8_t>(Level(g, kLevelOf10)));
+        if (g.Read8(kBrokenInto) == 2) {
+            g.Write8(kLevelNow, 9);
+        }
+        if (s.Weak()) {
+            g.Write8(kLevelNow, 2);
+        }
+        g.Write8(kDiceNow, static_cast<uint8_t>(Dice(g, kDice128)));
+        const uint32_t row = static_cast<uint8_t>(s.Row() * 10);
+        const int8_t chance = static_cast<int8_t>(g.Read8(kShellAnswers + row + Signed(static_cast<int8_t>(g.Read8(kLevelNow)))));
+        if (chance > static_cast<int8_t>(g.Read8(kDiceNow))) {
+            g.R(0) = 0;
+        } else {
+            s.SetByte(kShellIgnore, 60);
+            g.R(0) = 1;
+        }
+        g.Return(30);
+        return true;
+    }
+
+    // 060119C6 (r6 which kind of projectile, 0xFF none): the plan against it, from the character's table by the
+    // level of eight (7 broken into, 4 weak) at random; 0 none
+    bool ShellPlanLift(Guest &g) {
+        Frame frame(g, 16);
+        Side s(g, g.R(4));
+        const uint16_t which = static_cast<uint16_t>(g.R(6));
+        if (which == 0xFF) {
+            g.R(0) = 0;
+            g.R(3) = 0xFF;
+            g.SetT(true);
+            g.Return(10);
+            return true;
+        }
+        g.Write8(kLevelNow, static_cast<uint8_t>(Level(g, kLevelOf8)));
+        if (g.Read8(kBrokenInto) == 2) {
+            g.Write8(kLevelNow, 7);
+        }
+        if (s.Weak()) {
+            g.Write8(kLevelNow, 4);
+        }
+        g.Write8(kDiceNow, static_cast<uint8_t>(Dice(g, kDice64)));
+        const uint32_t row = kShellPlans + Signed(s.Character() * 512) + which * 128u +
+                             Signed(static_cast<int8_t>(g.Read8(kLevelNow)) * 16);
+        g.R(1) = kDiceNow;
+        g.R(0) = g.Read8(row + Signed(static_cast<int8_t>(g.Read8(kDiceNow))));
+        g.Return(30);
+        return true;
+    }
+
+    // 06011954 (r5 the projectile): guard it: mode 9 for 10 frames, a dash given up, the guard as it needs
+    void GuardShell(Side &s, uint32_t shell) {
+        s.SetMode(kGuardProjectile);
+        s.SetWord(kTimer, 10);
+        Call(s.g, kClearDash, Signed(s.side));
+        s.SetWord(kGuardType, 0);
+        GuardLever(s.g, s.me, shell);
+    }
+
+    // 06011866 (r5 the projectile, r6 the frames before it arrives): the plan against a projectile (kPattern, for the
+    // character's routine of mode 8). Arriving within the character's limit: a parry (plan 9) if it may, else a
+    // guard; further, a plan by its kind (060119C6). Then plan 0 is a guard (mode 9), 9 an answer, 10 a plan by the
+    // kind 0 (or a guard).
+    void AgainstShell(Side &s, uint32_t shell, int16_t frames) {
+        Guest &g = s.g;
+        if (!(frames > g.Read8(kShellLimits + Signed(s.Character())))) {
+            s.SetWord(kPattern, Call(g, 0x0601111A, s.me) != 0 ? 9 : 0);
+        } else {
+            CallWith(g, 0x060119C6, s.me, shell, g.Read8(kShellKinds + g.Read8(shell + 4)));
+            s.SetWord(kPattern, static_cast<int32_t>(g.R(0)));
+        }
+        switch (s.Word(kPattern)) {
+        case 0:
+            GuardShell(s, shell);
+            return;
+        case 9:
+            s.SetByte(kAnswering, 1);
+            return;
+        case 10:
+            CallWith(g, 0x060119C6, s.me, shell, 0);
+            s.SetWord(kPattern, static_cast<int32_t>(g.R(0)));
+            if (s.Word(kPattern) == 0) {
+                GuardShell(s, shell);
+            }
+            return;
+        }
+    }
+
+    // 0601156A: a projectile coming? (but while projectiles are let be, kShellIgnore, counting down, and in mode 8
+    // already). Of the other's eight (get_vs_shell_adrs), the first going, toward the computer, not passed it, not a
+    // kind let be, and not let be at random (060117B0): mode 8 against it (kShell), its plan by when it arrives.
+    // (Not 0 then. When none is found, the routine leaves what its last test left in r0, as the game's code does.)
+    bool ShellComingLift(Guest &g) {
+        Frame frame(g, 40);
+        Side s(g, g.R(4));
+        if (s.Byte(kShellIgnore) != 0) {
+            const int32_t left = static_cast<int8_t>(s.Byte(kShellIgnore)) - 1;
+            s.SetByte(kShellIgnore, left);
+            g.R(3) = Signed(left);
+            g.R(4) = kShellIgnore;
+            g.R(0) = 0;
+            g.SetT(false);
+            g.Return(20);
+            return true;
+        }
+        g.R(3) = 0;
+        g.R(4) = kShellIgnore;
+        if (s.ModeWord(0) == 8) {
+            g.R(0) = 0;
+            g.SetT(true);
+            g.Return(20);
+            return true;
+        }
+        const uint32_t other = s.Other();
+        const uint32_t found = g.R(15); // (where get_vs_shell_adrs puts the projectile)
+        for (int16_t n = 0; n < 8; n++) {
+            g.R(2) = Signed(n);
+            g.Write32(g.R(15) + 4, Signed(n));
+            g.R(3) = kFindShell;
+            g.R(7) = found;
+            g.R(6) = Signed(n);
+            g.R(5) = Signed(static_cast<int16_t>(g.Read16(other + kSide)));
+            g.R(4) = other;
+            g.Call(kFindShell);
+            if (g.R(0) == 0) {
+                g.R(7) = found;
+                g.R(6) = g.Read32(g.R(15) + 4);
+                g.R(5) = Signed(static_cast<int16_t>(g.Read16(other + kSide)));
+                g.R(3) = kFindShell;
+                g.R(4) = s.me;
+                g.Call(kFindShell);
+                if (g.R(0) == 0) {
+                    g.SetT(true);
+                    g.Return(60);
+                    return true;
+                }
+            }
+            const uint32_t shell = g.Read32(found);
+            g.R(1) = 38;
+            g.R(0) = Signed(static_cast<int16_t>(g.Read16(shell + kDoing)));
+            if (g.R(0) == 2) {
+                continue;
+            }
+            g.R(3) = shell;
+            g.R(2) = static_cast<uint32_t>(static_cast<int8_t>(g.Read8(s.me + 0x0B)));
+            g.R(0) = static_cast<uint32_t>(static_cast<int8_t>(g.Read8(shell + kFacesRight)));
+            if (g.R(0) == g.R(2)) {
+                continue;
+            }
+            g.R(0) = Signed(static_cast<int16_t>(g.Read16(shell + 0x24)));
+            if (g.R(0) != 1) {
+                continue;
+            }
+            CallWith(g, 0x06011A60, s.me, shell, g.R(6));
+            if (g.R(0) != 0) {
+                continue;
+            }
+            g.R(0) = g.Read8(shell + kShellKind);
+            if (g.R(0) == 2) {
+                continue;
+            }
+            g.R(4) = shell;
+            g.Call(0x06011704);
+            if (g.R(0) != 0) {
+                continue;
+            }
+            g.R(4) = s.me;
+            g.R(5) = shell;
+            g.Call(0x0601176E);
+            const int16_t frames = static_cast<int16_t>(g.R(0));
+            g.R(4) = s.me;
+            g.R(5) = shell;
+            g.Call(0x060117B0);
+            if (g.R(0) != 0) {
+                g.R(0) = 0;
+                g.SetT(false);
+                g.Return(60);
+                return true;
+            }
+            s.SetMode(kVsShellMode);
+            for (int k = 0; k < 4; k++) {
+                s.SetPlace(k, 0);
+            }
+            g.Write32(s.At(kShell, 4), shell);
+            g.R(2) = s.At(kShell, 4);
+            g.R(3) = s.PlaceAt(3);
+            CallWith(g, 0x06011866, s.me, shell, Signed(frames));
+            g.R(0) = 1;
+            g.Return(60);
+            return true;
+        }
+        g.R(2) = 8;
+        g.SetT(true);
+        g.Return(60);
+        return true;
+    }
+
+
+    // --- steps of the plans (Com_Sub: the character's plans call them; see computer_moves.cpp) ---
+
+    // 0600B19C (EM_Term, r5 Range_X, r6 Range_Y, r7 a test of the fight; on the stack the mode and the plan to go
+    // to): wait (holding kLeverNow, unless an answer begins) until the test (0x06011C10, by its number) says: 0 the
+    // gap and the height within the ranges (the other's height, or the computer's own for test 8): the plan's next
+    // step; 1 the other plan; 3 and up a reaction (Select_Passive; up from 4 as a counter attack); 2 go on waiting
+    bool UntilTermLift(Guest &g) {
+        Frame frame(g, 40);
+        Side s(g, g.R(4));
+        const int16_t rangeX = static_cast<int16_t>(g.R(5)), rangeY = static_cast<int16_t>(g.R(6));
+        const int16_t test = static_cast<int16_t>(g.R(7));
+        const int16_t nextMode = static_cast<int16_t>(g.Read16(frame.entry + 2));
+        const int16_t nextPlan = static_cast<int16_t>(g.Read16(frame.entry + 6));
+        const uint32_t other = s.Other();
+        s.SetWord(kLever, s.Word(kLeverNow));
+        switch (s.Place(1)) {
+        case 0:
+            s.SetPlace(1, s.Place(1) + 1);
+            s.SetWord(kTermTimer, 0);
+            break;
+        case 1:
+            break;
+        default:
+            g.R(0) = Signed(s.Place(1));
+            g.Return(40);
+            return true;
+        }
+        if (Call(g, kCheckAnswer, s.me) != 0) {
+            g.Return(40);
+            return true;
+        }
+        CallWith(g, kTermTest, s.me, other, Signed(test));
+        switch (static_cast<int32_t>(g.R(0))) {
+        case 0:
+            CallWith(g, kMeetsLimit, s.me, Signed(s.Word(kGap)), Signed(rangeX));
+            if (g.R(0) == 0) {
+                break;
+            }
+            if (test == 8) {
+                CallWith(g, kMeetsLimit, s.me, Signed(s.Field(kY)), Signed(rangeY));
+            } else {
+                CallWith(g, kOtherHeightMeetsLimit, s.me, Signed(static_cast<int16_t>(g.Read16(other + kY))), Signed(rangeY));
+            }
+            if (g.R(0) == 0) {
+                break;
+            }
+            s.SetByte(kRunAgain, 1);
+            s.SetPlace(0, s.Place(0) + 1);
+            for (int n = 1; n < 4; n++) {
+                s.SetPlace(n, 0);
+            }
+            s.SetByte(kRecovering, 0);
+            s.SetByte(kLimited, 0);
+            g.R(0) = Signed(s.side);
+            break;
+        case 1:
+            s.SetByte(kRunAgain, 1);
+            frame.Pop();
+            CallWith(g, kAnotherPlan, s.me, Signed(nextMode), Signed(nextPlan));
+            break;
+        case 2:
+            break;
+        default:
+            if (static_cast<int32_t>(g.R(0)) != 3) {
+                s.SetByte(kCounter, 1);
+            }
+            frame.Pop();
+            Call(g, kReact, s.me);
+            break;
+        }
+        g.Return(40);
+        return true;
+    }
+
+    // 0600A07E (SA_Term, r5-r7 a plan for each super art, on the stack a test of the range): the super art's plan,
+    // when it may be used (ready, and the fighter free to: byte 0x471 clear): some characters' only within a range
+    // (SA_Range_Check), Necro's only against the other low enough, Elena's third only at half health or less, Ryu's
+    // and Oro's with their own checks. Else, or the art having no plan (-1), the plan's next step.
+    bool SuperArtTermLift(Guest &g) {
+        Frame frame(g, 44);
+        Side s(g, g.R(4));
+        const uint32_t stack = g.R(15);
+        const uint32_t plans = stack + 12; // (three words: the plans, as the routine keeps them on the stack)
+        const uint16_t art2 = static_cast<uint16_t>(g.R(7));
+        g.Write16(stack, static_cast<uint16_t>(g.R(5)));
+        g.Write16(stack + 4, static_cast<uint16_t>(g.R(6)));
+        g.Write16(stack + 8, art2);
+        const uint16_t range = g.Read16(frame.entry + 2);
+        const auto done = [&]() {
+            g.Return(60);
+            return true;
+        };
+        if (s.Byte(kAnswering) == 0 && Call(g, kCheckAnswer, s.me) != 0) {
+            return done();
+        }
+        g.Write16(plans, g.Read16(stack));
+        g.Write16(plans + 2, g.Read16(stack + 4));
+        g.Write32(stack + 4, plans + 4);
+        g.Write16(plans + 4, g.Read16(stack + 8));
+        s.SetWord(kLever, s.Word(kLeverNow));
+        const uint32_t fighter = kFighters + Signed(static_cast<int16_t>(s.side * kFighterSize));
+        g.Write32(stack, fighter);
+        const auto planOfArt = [&]() {
+            return Signed(static_cast<int16_t>(g.Read16(plans + Signed(static_cast<int16_t>(g.Read16(g.Read32(fighter + kSuperArt))) * 2))));
+        };
+        const auto nextStep = [&]() {
+            s.SetPlace(0, s.Place(0) + 1);
+            g.R(0) = Signed(s.side * 16);
+            return done();
+        };
+        if (static_cast<int32_t>(planOfArt()) == -1 || g.Read8(fighter + 0x471) != 0) {
+            return nextStep();
+        }
+        const uint32_t art = g.Read32(fighter + kSuperArt);
+        g.Write32(stack, art);
+        if (g.Read8(art + 10) == 0 && g.Read8(art + 9) == 0) {
+            return nextStep();
+        }
+        s.SetByte(kRunAgain, 1);
+        const auto inRange = [&](uint32_t which) {
+            CallWith(g, kSuperArtRange, s.me, which, range);
+            return g.R(0) != 0;
+        };
+        switch (s.Character()) {
+        case 1: // (Alex)
+        case 11: // (Ken)
+            if (inRange(1)) {
+                return done();
+            }
+            break;
+        case 2: // (Ryu: the Denjin's charge)
+            if (inRange(1)) {
+                return done();
+            }
+            g.R(7) = range;
+            CallWith(g, kDenjinCheck, s.me, art2, plans + 4);
+            break;
+        case 5: // (Necro)
+            if (static_cast<int16_t>(g.Read16(s.Other() + kY)) >= 16) {
+                return nextStep();
+            }
+            if (inRange(1)) {
+                return done();
+            }
+            break;
+        case 6: // (Hugo)
+            if (inRange(0)) {
+                return done();
+            }
+            break;
+        case 8: { // (Elena)
+            const uint32_t me = kFighters + Signed(static_cast<int16_t>(s.side * kFighterSize));
+            if (static_cast<int16_t>(g.Read16(g.Read32(me + kSuperArt))) != 2) {
+                return nextStep();
+            }
+            const int16_t full = static_cast<int16_t>(g.Read16(kFullHealth));
+            if (static_cast<int16_t>(g.Read16(me + kHealth)) > static_cast<int16_t>(full / 2)) {
+                return nextStep();
+            }
+            break;
+        }
+        case 9: // (Oro: the Yagyou's)
+            g.R(5) = plans + 2;
+            CallWith(g, kYagyouCheck, s.me, plans + 2, range);
+            break;
+        case 14:
+        case 15: // (Akuma, Shin Akuma)
+            if (inRange(1) || inRange(2)) {
+                return done();
+            }
+            break;
+        }
+        CallWith(g, kAnotherPlan, s.me, 2, planOfArt());
+        return done();
+    }
+
+
     // --- the lifts ---
     template <void (*F)(Side &)>
     bool Lifted(Guest &g) {
@@ -1474,6 +2550,31 @@ namespace {
         // {"ComputerParryProjectile", 0x06007D28, 0xBC, 0x801AF44EB150DF8Full, Lifted<ParryProjectile>, true, kAll},
         // {"ComputerParryNext", 0x06007DE4, 0x60, 0x987CDB07F8223C5Aull, Lifted<ParryNext>, true, kAll},
         {"ComputerCaught", 0x06008126, 0x146, 0xE5EBE4C853636CD9ull, Lifted<Caught>, true, kAll},
+
+        {"ComputerLevelOf4", 0x0600F9D2, 0x42, 0x61C2C51A89EA616Eull, LevelOf4Lift, true},
+        {"ComputerLevelOf10", 0x0600FA84, 0x40, 0xAC219188C2A9C752ull, LevelOf10Lift, true},
+        {"ComputerLevelOf18", 0x0600FAC4, 0x42, 0x8FD75DDDE22B5800ull, LevelOf18Lift, true},
+        {"ComputerCounterChance", 0x0600FB06, 0x46, 0xBAA417B1C15C4B09ull, CounterChanceLift, true, kResult},
+        {"ComputerReactionTime", 0x0600F93C, 0x96, 0x8653BF43E4C8A2EDull, ReactionTimeLift, true},
+        {"ComputerRangeVsShell", 0x0600FCAC, 0x42, 0x07E465C3519FA4DAull, RangeVsShellLift, true, 0x10FFE},
+        {"ComputerGapAndLever", 0x0600FCEE, 0x48, 0x2AC84029732D383Dull, GapAndLeverLift, true, 0x120FF},
+        {"ComputerChoosePlan", 0x060104B4, 0x1FA, 0x11388483DADBEA73ull, ChoosePlanLift, true},
+        {"ComputerReact", 0x060109AC, 0x32C, 0xE7037431C19A74ECull, ReactLift, true},
+        {"ComputerOtherFalling", 0x060138E0, 0x50, 0x4F4C6BEDAE24247Bull, OtherFallingLift, true, 0x1007E},
+        {"ComputerOtherStunned", 0x060138AE, 0x32, 0x777F017813770AD9ull, OtherStunnedLift, true, 0x12018},
+        {"ComputerOtherBacksOff", 0x0601373A, 0x6E, 0x3C8EDECA0B74D793ull, OtherBacksOffLift, true, 0x160FE},
+        {"ComputerOtherOnFloor", 0x060136C6, 0x74, 0x2260A6CC4BE92996ull, OtherOnFloorLift, true, 0x100FE},
+        {"ComputerOtherDown", 0x06013864, 0x4A, 0xE96DAF2CBA8900ACull, OtherDownLift, true, 0x1201E},
+        {"ComputerCheckAnswer", 0x06010DEA, 0x162, 0xEA9D485FDBE655AAull, CheckAnswerLift, true, 0x10018},
+        // {"ComputerShellBehind", 0x06011A60, 0x66, 0xFBD27BBBD3150114ull, ShellBehindLift, true, 0x100FE},
+        // {"ComputerShellLetBe", 0x06011704, 0x6A, 0x881ACF8A97B054A7ull, ShellLetBeLift, true, 0x100FE},
+        // {"ComputerShellArrival", 0x0601176E, 0x42, 0x7EDCA223658014B3ull, ArrivalLift, true, 0x102FE},
+        // {"ComputerShellIgnore", 0x060117B0, 0xB6, 0xA7D00798B6CB2548ull, ShellIgnoreLift, true, 0x100FE},
+        // {"ComputerShellPlan", 0x060119C6, 0x8C, 0xD85523218C674FCAull, ShellPlanLift, true, 0x120FC},
+        // {"ComputerAgainstShell", 0x06011866, 0x160, 0x49D001E3EB72C080ull, AgainstShellLift, true, kAll},
+        {"ComputerShellComing", 0x0601156A, 0x19A, 0x0329C3C9CAE62D9Dull, ShellComingLift, true},
+        {"ComputerUntilTerm", 0x0600B19C, 0x172, 0x5AA401B6B97FDF58ull, UntilTermLift, true, kResult},
+        {"ComputerSuperArtTerm", 0x0600A07E, 0x332, 0x9F4041443CE32E1Dull, SuperArtTermLift, true, kResult},
     };
 } // namespace
 
