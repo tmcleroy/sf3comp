@@ -73,6 +73,10 @@ public:
     uint8 BusRead8(uint32 address);
     uint16 BusRead16(uint32 address);
     uint32 BusRead32(uint32 address);
+    // (the timing harness's bench, CPS3RECOMP_BENCH: the time now)
+    uint64 TimeNow() const {
+        return Now();
+    }
     void BusWrite8(uint32 address, uint8 value);
     void BusWrite16(uint32 address, uint16 value);
     void BusWrite32(uint32 address, uint32 value);

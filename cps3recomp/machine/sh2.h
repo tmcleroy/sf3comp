@@ -156,10 +156,8 @@ public:
     Bus m_bus;
     bool m_busTiming = false;
     uint32 m_busExtra = 0;
-    // The pipeline's stall before the instruction `opcode` at `pc` (sh2_pipeline.h), from what the one before did
-    uint8 m_pipeMemory = 0;
-    int8_t m_pipeLoads = -1;
-    uint32 PipeStall(uint16 opcode, uint32 pc);
+    uint64 m_lastEnd = 0; // (where the last time slice ended: the bus's times move to the next's)
+    static uint32 BranchCycles(uint16 opcode, bool taken);
     uint32 TakeBusExtra() {
         const uint32 extra = m_busExtra;
         m_busExtra = 0;

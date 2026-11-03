@@ -158,11 +158,16 @@ LABEL:                          \
     (void)here;                          \
     (void)now;
 
-// Before each instruction (its code, its branch): its fetch, which the bus's timing charges (machine/bus.h)
-#define SN_FETCH(PCOFF, OPCODE)                               \
+// A conditional branch's time beside its nominal 2, with the bus's timing (SH2::BranchCycles)
+#define SN_BRANCH_TIME(D)                                     \
     if (c.m_busTiming) [[unlikely]] {                         \
-        base += c.m_bus.Read(pc + (PCOFF), 2, true);          \
-        base += c.PipeStall((OPCODE), pc + (PCOFF));          \
+        base += static_cast<uint64>(static_cast<int64_t>(D)); \
+    }
+
+// Before each instruction (its code, its branch): its fetch, which the bus's timing charges (machine/bus.h)
+#define SN_FETCH(PCOFF, OPCODE, CYC)                                            \
+    if (c.m_busTiming) [[unlikely]] {                                           \
+        base += c.m_bus.Begin((OPCODE), pc + (PCOFF), base + (CYC));            \
     }
 
 // Leave the block: at an instruction of the block, or to another address
@@ -188,7 +193,7 @@ LABEL:                          \
 // instruction's (one made through the CPU's memory functions has them added up there: TakeBusExtra)
 #define SN_BUS_READ(A, SIZE)                         \
     if (c.m_busTiming) [[unlikely]] {                \
-        base += c.m_bus.Read((A), (SIZE), false);    \
+        base += c.m_bus.Read((A), (SIZE));    \
     }
 #define SN_BUS_WRITE(A, SIZE)                        \
     if (c.m_busTiming) [[unlikely]] {                \

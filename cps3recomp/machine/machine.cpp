@@ -148,7 +148,26 @@ void Machine::RunFrame() {
         // (and CPS3RECOMP_VBLANK_WATCH=ADDRESS: the long there)
         static const uint32 watch = getenv("CPS3RECOMP_VBLANK_WATCH") ? static_cast<uint32>(strtoul(getenv("CPS3RECOMP_VBLANK_WATCH"), nullptr, 16)) & 0x7FFFC : 0;
         const uint8 *w = mainRam + watch;
-        fprintf(vblankLog, "%llu %08x %08X %08x %llu %llu\n", static_cast<unsigned long long>(m_frame), Crc32(mainRam, 0x80000), m_cpu.PC,
+        // (CPS3RECOMP_VBLANK_SKIP=START-END,...: those offsets of main RAM left out of the CRC, as zeros)
+        static std::vector<std::pair<uint32, uint32>> skips = [] {
+            std::vector<std::pair<uint32, uint32>> v;
+            for (const char *e = getenv("CPS3RECOMP_VBLANK_SKIP"); e && *e;) {
+                char *end;
+                const uint32 lo = static_cast<uint32>(strtoul(e, &end, 16));
+                const uint32 hi = *end == '-' ? static_cast<uint32>(strtoul(end + 1, &end, 16)) : lo + 1;
+                v.push_back({lo, hi});
+                e = *end == ',' ? end + 1 : nullptr;
+            }
+            return v;
+        }();
+        static std::vector<uint8> copy;
+        copy.assign(mainRam, mainRam + 0x80000);
+        for (const auto &[lo, hi] : skips) {
+            for (uint32 i = lo; i < hi && i < 0x80000; i++) {
+                copy[i] = 0;
+            }
+        }
+        fprintf(vblankLog, "%llu %08x %08X %08x %llu %llu\n", static_cast<unsigned long long>(m_frame), Crc32(copy.data(), 0x80000), m_cpu.PC,
                 (uint32(w[0]) << 24) | (uint32(w[1]) << 16) | (uint32(w[2]) << 8) | w[3], static_cast<unsigned long long>(m_cpu.m_bus.charged),
                 static_cast<unsigned long long>(m_cpu.m_bus.busCycles));
         fflush(vblankLog);
@@ -158,6 +177,21 @@ void Machine::RunFrame() {
     static const bool busTiming = getenv("CPS3RECOMP_BUS_TIMING") != nullptr;
     if (busTiming) {
         m_cpu.m_busTiming = true;
+    }
+    // (debugging aid, CPS3RECOMP_BENCH=FILE: the timing harness's bench program put in main RAM at 0x02070000 and run
+    // from 0x02070010 with the interrupts masked, at the first frame; its status writes (0x0207FFF0) are logged with
+    // the time by the CPU: sh2.cpp)
+    if (m_frame == 0) {
+        if (const char *bench = getenv("CPS3RECOMP_BENCH")) {
+            if (FILE *f = fopen(bench, "rb")) {
+                const size_t got = fread(mainRam + 0x70000, 1, 0xF000, f);
+                fclose(f);
+                fprintf(stderr, "bench: %zu bytes\n", got);
+                m_cpu.PC = 0x02070010;
+                m_cpu.R[15] = 0x0207F000;
+                m_cpu.SR.u32 |= 0xF0;
+            }
+        }
     }
     m_frameStart = m_now;
     m_irqLines |= 1u << 12;

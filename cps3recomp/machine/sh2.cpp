@@ -125,7 +125,7 @@ static inline bool PlainRead(uint32 a) {
 }
 uint8 SH2::Read8(uint32 a) {
     if (m_busTiming) [[unlikely]] {
-        m_busExtra += m_bus.Read(a, 1, false);
+        m_busExtra += m_bus.Read(a, 1);
     }
     if ((a & kMainRamMask) == kMainRam) [[likely]] {
         return m_machine.mainRam[a & 0x7FFFFu];
@@ -141,7 +141,7 @@ uint8 SH2::Read8(uint32 a) {
 }
 uint16 SH2::Read16(uint32 a) {
     if (m_busTiming) [[unlikely]] {
-        m_busExtra += m_bus.Read(a, 2, false);
+        m_busExtra += m_bus.Read(a, 2);
     }
     a &= ~1u;
     if ((a & kMainRamMask) == kMainRam) [[likely]] {
@@ -158,7 +158,7 @@ uint16 SH2::Read16(uint32 a) {
 }
 uint32 SH2::Read32(uint32 a) {
     if (m_busTiming) [[unlikely]] {
-        m_busExtra += m_bus.Read(a, 4, false);
+        m_busExtra += m_bus.Read(a, 4);
     }
     a &= ~3u;
     if ((a & kMainRamMask) == kMainRam) [[likely]] {
@@ -303,6 +303,10 @@ void SH2::Write16(uint32 a, uint16 v) {
     }
 }
 void SH2::Write32(uint32 a, uint32 v) {
+    static const bool bench = getenv("CPS3RECOMP_BENCH") != nullptr;
+    if (bench && (a & 0xDFFFFFFFu) == 0x0207FFF0u) [[unlikely]] {
+        fprintf(stderr, "STATUS code=%08x cycle=%llu\n", v, static_cast<unsigned long long>(m_machine.TimeNow() + m_busExtra));
+    }
     if (m_busTiming) [[unlikely]] {
         m_busExtra += m_bus.Write(a, 4);
     }
@@ -725,8 +729,9 @@ void SH2::EnterException(uint8 vector, uint32 returnAddress) {
 }
 
 void SH2::TakeInterrupt() {
-    m_pipeMemory = 0; // (the pipeline emptied)
-    m_pipeLoads = -1;
+    if (m_busTiming) [[unlikely]] {
+        m_bus.Exception(m_cyclesExecuted); // (the pipeline emptied)
+    }
     const uint8 level = INTC.pending.level, vector = INTC.pending.vector, source = INTC.pending.source;
     // (debugging aid, CPS3RECOMP_TRACE_IRQ=1: every interrupt taken)
     static const bool traceIrq = getenv("CPS3RECOMP_TRACE_IRQ") != nullptr;
@@ -747,6 +752,7 @@ void SH2::TakeInterrupt() {
 // Running
 
 uint64 SH2::Advance(uint64 cycles, uint64 spillover) {
+    m_bus.Rebase(static_cast<int64_t>(spillover) - static_cast<int64_t>(m_lastEnd)); // (the bus's times: this slice's)
     m_cyclesExecuted = spillover;
     m_timerSynced = spillover;
     while (m_cyclesExecuted < cycles) {
@@ -774,6 +780,7 @@ uint64 SH2::Advance(uint64 cycles, uint64 spillover) {
         m_cyclesExecuted += RecompInterpretNext();
     }
     SyncTimer();
+    m_lastEnd = m_cyclesExecuted;
     return m_cyclesExecuted;
 }
 
@@ -782,9 +789,6 @@ uint64 SH2::RecompInterpretNext() {
         TakeInterrupt();
         return 9 + TakeBusExtra();
     }
-    if (m_busTiming) [[unlikely]] {
-        m_cyclesExecuted += m_bus.Read(PC, 2, true); // (the fetch: before the instruction, as the hardware sees time)
-    }
     uint16 opcode;
     if (recompFetchCode && PC - recompFetchBase < recompFetchSize) [[unlikely]] {
         opcode = Get16(&recompFetchCode[PC - recompFetchBase]);
@@ -792,22 +796,26 @@ uint64 SH2::RecompInterpretNext() {
         opcode = Fetch(PC);
     }
     if (m_busTiming) [[unlikely]] {
-        m_cyclesExecuted += PipeStall(opcode, PC);
+        m_cyclesExecuted += m_bus.Begin(opcode, PC, m_cyclesExecuted); // (its fetch and the pipeline: bus.h)
     }
     m_intrFlags.allow = true;
+    const uint32 at = PC;
     Execute(opcode);
-    return g_opCycles[opcode] + TakeBusExtra();
+    uint32 cycles = g_opCycles[opcode] + TakeBusExtra();
+    if (m_busTiming) [[unlikely]] {
+        cycles += BranchCycles(opcode, PC != at + 2 || m_delaySlot);
+    }
+    return cycles;
 }
 
-uint32 SH2::PipeStall(uint16 opcode, uint32 pc) {
-    const PipeInfo &p = PipeOf(opcode);
-    const bool fetchClash = m_pipeMemory && !(pc & 2) && !p.bra12;
-    const bool loadUse = m_pipeLoads >= 0 && (p.reads >> m_pipeLoads) & 1;
-    m_pipeMemory = p.memory;
-    m_pipeLoads = p.loads;
-    const uint32 stall = fetchClash || loadUse ? 1 : 0;
-    m_bus.charged += stall;
-    return stall;
+// A conditional branch's time beside the nominal 2 (with the bus's timing): bt and bf 3 taken and 1 not, bt/s and bf/s
+// 2 taken and 1 not, as the SH-2's
+uint32 SH2::BranchCycles(uint16 opcode, bool taken) {
+    switch (g_opKinds[opcode]) {
+    case Op::BT: case Op::BF: return taken ? 1 : static_cast<uint32>(-1);
+    case Op::BTS: case Op::BFS: return taken ? 0 : static_cast<uint32>(-1);
+    default: return 0;
+    }
 }
 
 void SH2::Execute(uint16 opcode) {

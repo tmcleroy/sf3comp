@@ -13,8 +13,9 @@ GPL-3.0-or-later, its CPU from the Saturn core) applies them. No code of it is i
 
 - **The bus** (`machine/bus.h`). An external access is bus cycles of 2 states and its area's waits, as the game sets
   up the bus state controller at start-up (3rd Strike: one wait for main RAM, the video and the SIMMs; area 0, the
-  BIOS, a long wait); a 16-bit area takes two bus cycles for a long. Each bus cycle is charged its states but one
-  (that one overlaps the pipeline's own cycle).
+  BIOS, a long wait); a 16-bit area takes two bus cycles for a long. The processor's time is worked out as the
+  model's is: when the bus and the cache are next free, a read waiting for all of its bus cycles, a write holding
+  the pipeline only until its bus cycle begins, fetches asked for ahead of their instructions.
 - **The cache** (the same file). 64 entries of 4 ways of 16 bytes, its pseudo-LRU, a read miss filling the line a
   long at a time; writes go through to the bus. Its tags are part of the save state.
 - **The pipeline** (`machine/sh2_pipeline.h`). One cycle when the instruction before accessed memory and this one's
@@ -43,9 +44,14 @@ From power-on, through the board's start-up and the attract mode:
 | --- | --- | --- |
 | Arcade timing off | frame 386 (14 frames sooner) | 848 |
 | The bus and the cache | frame 400 | 535 |
-| ... and the pipeline | frame 400 | **503** (the core: 504) |
+| ... and the pipeline (per access) | frame 400 | 503 (the core: 504) |
+| ... when the bus and cache are free (now) | frame 401 | **505** (the core: 504) |
 
-At its frame 400 the port's main RAM is the core's but for the stacks and a few values the start-up measures.
+At its frame 400 the port's main RAM is the core's but for the stacks and a few values the start-up measures. The
+per-access model's total came out right with its single accesses wrong; the present one also matches the core on a
+bench of 30 small loops (each kind of access, and writes, reads and fetches against each other) to a tenth of a
+cycle a pass, all but the BIOS's memory-test loop (a write and a read of the same address), which the port runs
+about a sixth faster. The port's boot loses a frame against the core's in its loading screens.
 
 ## What it does not do
 
@@ -53,5 +59,4 @@ At its frame 400 the port's main RAM is the core's but for the stacks and a few 
   memory times are the SH-2's programmed waits; the board's own chips' answer times beyond them are not known.
 - **The board's DMAs** (the character, palette and sprite lists) take no bus time from the processor here.
 - **The on-chip peripherals** answer at once.
-- So far the comparison covers the start-up and the attract mode; a fight is being compared next. During the
-  BIOS's memory test the port still charges more than the core.
+- So far the comparison covers the start-up and the attract mode; a fight is being compared next.
