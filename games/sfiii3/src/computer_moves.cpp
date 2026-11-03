@@ -37,6 +37,7 @@ namespace {
     constexpr uint32_t kOpponent = 0x0C;        // long: the other fighter's record (target_adrs)
     constexpr uint32_t kDoing = 0x26;           // word: what the fighter is doing (routine_no[1]): 4 free to act
     constexpr uint32_t kX = 0x64, kY = 0x68;    // words: where it is, along the floor and up from it
+    constexpr uint32_t kWasUp = 0x72;           // word: its height the frame before (old_pos[1])
     constexpr uint32_t kRising = 0x80;          // word: its speed upward (mvxy.a[1]): below 0 coming down
     constexpr uint32_t kHealth = 0x9E;          // word: its health (vital_new), 160 full
     constexpr uint32_t kPose = 0x20E;           // byte: its pose (pat_status)
@@ -82,6 +83,7 @@ namespace {
     constexpr uint32_t kTechIndex = 0x020155CC; // word: where in it (Tech_Index): from 12, the words before the steps'
     constexpr uint32_t kContinue = 0x02015730;  // byte (Continue_Menu)
     constexpr uint32_t kBeforeJump = 0x0201564D; // byte (Before_Jump): set as a jump's attack lands
+    constexpr uint32_t kCounter = 0x02015648;   // byte (Counter_Attack)
     constexpr uint32_t kRapid = 0x02015733;     // bytes, four a side (Rapid_No): [0] how the button is mashed (0 not), [1]
                                                 // its phase, [2] what ends it (1 coming down, 2 the attack over, 4 a
                                                 // time), [3] that end's own count
@@ -1654,6 +1656,113 @@ namespace {
         return true;
     }
 
+    // 06010350 (Reaction_Exit_Sub): the attack done: the plan on to its next step, the routine's words, the recovery,
+    // counter-attack, limit and jump flags cleared (and, but in mode 6, the answer's). Leaves r0 the mode (6) or the
+    // side, r1 kMode, r3 the last flag's place, r5 0, r6 the side's plan place, T set in mode 6.
+    void ReactionExit(Side &s) {
+        Guest &g = s.g;
+        s.SetPlace(0, s.Place(0) + 1);
+        for (int n = 1; n < 4; n++) {
+            s.SetPlace(n, 0);
+        }
+        for (const uint32_t flag : {kRecovering, kCounter, kLimited, kBeforeJump}) {
+            s.SetByte(flag, 0);
+        }
+        g.R(1) = kMode;
+        g.R(3) = s.At(kBeforeJump, 1);
+        g.R(5) = 0;
+        g.R(6) = s.PlaceAt(0);
+        g.R(0) = 6;
+        g.SetT(s.Mode() == 6);
+        if (s.Mode() != 6) {
+            s.SetByte(kAnswering, 0);
+            g.R(0) = Signed(s.side);
+            g.R(3) = s.At(kAnswering, 1);
+        }
+    }
+    bool ReactionExitLift(Guest &g) {
+        Side s(g, g.R(4));
+        ReactionExit(s);
+        g.Return(40);
+        return true;
+    }
+
+    // 0600FD7E (Next_End): the plan ended, unless a guard begins (Check_Guard): its step set to -1, the end. Leaves r0
+    // 1 when the guard began; else r0 0, r3 the third word's place, r4 the side's plan place, r5 0, T set.
+    bool NextEnd(Guest &g) {
+        Side s(g, g.R(4));
+        {
+            Frame frame(g, 8);
+            g.Call(kCheckGuard);
+        }
+        if (Nonzero(g)) {
+            g.R(0) = 1;
+        } else {
+            s.SetPlace(0, -1);
+            for (int n = 1; n < 4; n++) {
+                s.SetPlace(n, 0);
+            }
+            g.R(0) = 0;
+            g.R(3) = s.PlaceAt(2);
+            g.R(4) = s.PlaceAt(0);
+            g.R(5) = 0;
+        }
+        g.Return(30);
+        return true;
+    }
+
+    // 0600EFB8 (Check_Landed, r5 the reaction): has the jump landed? (on the floor now, from the air or out of an
+    // attack) Then the lever let go and the plan ended (kContinue) or its reaction run, a guard looked for, and
+    // kBeforeJump set. 1 when it has.
+    bool Landed(Guest &g) {
+        Side s(g, g.R(4));
+        Frame frame(g, 20);
+        const uint32_t reaction = Signed(static_cast<int16_t>(g.R(5)));
+        const bool wasUp = s.Field(kWasUp) != 0, down = s.Field(kY) == 0;
+        bool fromAir;
+        if (wasUp && down) {
+            fromAir = true;
+        } else if (!wasUp && down && s.Field(kDoing) != 4) {
+            fromAir = false;
+        } else {
+            g.R(0) = 0;
+            g.R(2) = Signed(s.Field(kY));
+            g.R(3) = Signed(s.Field(kWasUp));
+            g.R(4) = kLever;
+            g.R(6) = kContinue;
+            g.R(7) = 0;
+            g.SetT(!wasUp && down);
+            g.Return(30);
+            return true;
+        }
+        s.SetWord(kLever, 0);
+        g.R(2) = 0; // (the height, on the floor)
+        g.R(3) = Signed(static_cast<int8_t>(s.Byte(kContinue)));
+        g.R(4) = s.me;
+        g.R(6) = kContinue;
+        g.R(7) = 0;
+        if (s.Byte(kContinue) != 0) {
+            g.Call(kNextEnd);
+            s.SetByte(kBeforeJump, 1);
+        } else {
+            CallWith(g, kReaction, s.me, reaction, 0);
+            if (fromAir) {
+                g.R(3) = Signed(s.Word(kLeverNow));
+                g.R(2) = Signed(s.Word(kLever)) | g.R(3);
+                s.SetWord(kLever, static_cast<int32_t>(g.R(2)));
+                g.R(3) = kCheckGuard;
+            }
+            g.R(4) = s.me;
+            g.Call(kCheckGuard);
+            if (fromAir || !Nonzero(g)) {
+                s.SetByte(kBeforeJump, 1);
+            }
+        }
+        g.R(0) = 1;
+        g.Return(60);
+        return true;
+    }
+
     // (free: r1-r7 and T for a routine with a result, r0-r7 and T for one with none, where C callers only call it)
     constexpr uint32_t kResult = 0x100FE, kNoResult = 0x100FF;
     const Lift kLifts[] = {
@@ -1721,6 +1830,9 @@ namespace {
         {"ComputerCheckRapid", 0x0600DDB8, 0x84, 0x40D4B1BDC544B8B8ull, CheckRapid, true, kNoResult},
         {"ComputerRapidOver", 0x0600E014, 0xF4, 0xEE0D4166CED3020Dull, RapidOverLift, true, kResult},
         {"ComputerMash", 0x0600DEA4, 0x170, 0x54D345AC75946B4Cull, Mash, true, kNoResult},
+        {"ComputerReactionExit", 0x06010350, 0x74, 0xE8B3CB5942CCA38Dull, ReactionExitLift, true},
+        {"ComputerNextEnd", 0x0600FD7E, 0x54, 0xB76A0648647012D7ull, NextEnd, true},
+        {"ComputerLanded", 0x0600EFB8, 0xE6, 0x9D87B572165F5B50ull, Landed, true},
         {"ComputerRandomPlan", 0x0600A708, 0x92, 0xD3F8F075B257F2A6ull, RandomPlan, true, kResult},
     };
 } // namespace
