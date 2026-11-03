@@ -31,6 +31,8 @@
 //
 // Names in the comments are those of the game's own source, as the PlayStation 2 version's decompilation has them
 // (crowded-street/3s-decomp, Com_Pl.c, Com_Sub.c), where they are known: this is the arcade's build of the same code.
+// (Names only: that project is AGPL-3.0, and none of its code is here; what the routines do was read from the arcade's
+// own program and checked call by call against it.)
 #include "computer.h"
 
 #include <iterator>
