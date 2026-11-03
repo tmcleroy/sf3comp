@@ -34,6 +34,8 @@ public:
     bool (*drawGroup)(void *context, uint16_t group, uint32_t object) = nullptr;
     void *drawGroupContext = nullptr;
     bool text = true;
+    // The objects drawn so many rows lower (the ring out's way down: the fighters of a stage held below the picture)
+    int shiftY = 0;
     // Over the pixels given (another machine's picture, the same size): only what the objects drew replaces them
     bool overlay = false;
     // Where nothing is drawn, this colour (0x01BBGGRR: the top byte says it is set; 0: the board's)

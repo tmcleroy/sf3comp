@@ -277,6 +277,7 @@ void Renderer::Draw(const Machine &m, std::vector<uint32_t> &pixels, int &width,
                 if (cy & 0x200) {
                     cy -= 0x400;
                 }
+                cy += shiftY;
                 DrawTile(m, clip, code + count, colour, granularity, flipX, flipY, cx, cy, blend, scaleX, scaleY);
                 count++;
             }

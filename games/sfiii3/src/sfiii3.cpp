@@ -132,15 +132,14 @@ void RegisterGame() {
     game.pages.push_back({"Dummy", "Training mode", "What player 2 does in a training session."});
     game.pages.push_back({"Attract mode", "Alternative modes", "The game's own show on a loop, as with nobody playing: the opening, "
                                                                "the title, demonstration fights."});
-    game.pages.push_back({"Survival", "Alternative modes", "A one-player game on the health you have left. How many rounds can you win?"});
-    game.pages.push_back({"Ring out", "Alternative modes", "No health: knock your opponent back over an end of the stage, and the next comes on."});
+    game.pages.push_back({"Survival", "Alternative modes", "One opponent after another on the health you have left. How many can you beat?"});
+    game.pages.push_back({"Ring out", "Alternative modes", "No health: knock your opponent over the end of the stage, and jump down to the next."});
     game.pages.push_back({"Endless battle", "Alternative modes", "Two fighters the game plays, for as long as you like. Touch the controls "
                                                                  "to take one over."});
     game.pages.push_back({"Stage viewer", "Alternative modes", "A stage with nobody on it, to look at and listen to."});
     game.pages.push_back({"Model viewer", "Alternative modes", "A character alone, to look at: on a stage or plain, at any size."});
     game.pages.push_back({"Colour editor", "Alternative modes", "Your own colours for the characters: change any of them, and fight with them."});
-    game.pages.push_back({"Team battle", "Alternative modes", "Two teams: lose a round and the next of your team comes on. The last team "
-                                                              "standing wins."});
+    game.pages.push_back({"Tag team battle", "Alternative modes", "Two teams: knock a fighter down and the next of that team comes on. The last team standing wins."});
     RegisterAttract(game);
     RegisterSoundProbe();
     RegisterBoard(game);

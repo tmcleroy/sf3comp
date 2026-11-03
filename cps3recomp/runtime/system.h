@@ -119,6 +119,21 @@ public:
         return m_stage.get();
     }
     void StepStage();
+    // A second stage board of the same set beside the first (the modes' stages scrolling by: the next one coming in from
+    // the right), stepped with it (beforeSecondStage first). With `stageSlide` columns the picture is the first's
+    // moved left by as many and the second's left edge in the columns freed; its sound is `secondStageGain` of 256 of
+    // the two. Swapped, the second is the first (and the first the second, to be made the next one again).
+    void SetSecondStageBoard(bool on);
+    machine::Machine *SecondStageBoard() {
+        return m_stage2.get();
+    }
+    void KeepSecondStage(std::vector<uint8_t> &data);
+    void RestoreSecondStage(const std::vector<uint8_t> &data);
+    void SwapStageBoards();
+    int stageSlide = 0;
+    int secondStageGain = 0;
+    void (*beforeSecondStage)(Machine &machine, machine::Machine &stage) = nullptr;
+    int (*secondStageFramesNow)() = nullptr; // (how many of its frames the second runs this shown frame; none: one)
     // Which objects make the picture: of the stage board, those that are its stage; of this board, those that are not
     // its own stage
     bool (*stageObject)(const machine::Machine &stage, uint32_t object) = nullptr;
@@ -127,6 +142,16 @@ public:
     // The stage board's sound mixed into this board's (its music, in the definitive version's stages): set by the
     // game's sources when it is wanted
     bool stageSound = false;
+    // The ring out's way down (battle.cpp): with `dropRaise` (0 or more) the picture is `dropOld` (the old stage alone, as
+    // wide) gone up and out but for its bottom `dropRaise` rows, at the top, and this board's stage under them from its
+    // top, its other objects drawn as many rows lower (the camera held that far above this stage, the old one above it)
+    int dropRaise = -1;
+    std::vector<uint32_t> dropOld;
+    // ... and the objects `dropLifted` says yes to (the winner's, falling) drawn `dropLift` rows higher than the others
+    bool (*dropLifted)(const machine::Machine &board, uint32_t object) = nullptr;
+    int dropLift = 0;
+    // This board's stage alone, as the picture would have it now (its own stage objects, no text layer)
+    void DrawStageOnly(std::vector<uint32_t> &pixels);
     // Only the stage in the picture (a stage viewer): this board's own stage objects (ownStageObject), no text layer;
     // with a stage board composed, its stage alone
     bool onlyStage = false;
@@ -152,6 +177,11 @@ private:
     Renderer m_stageRenderer;
     std::unique_ptr<Pcm> m_stagePcm;
     std::vector<int16_t> m_stageAudio;
+    std::unique_ptr<machine::Machine> m_stage2;
+    Renderer m_stage2Renderer;
+    std::unique_ptr<Pcm> m_stage2Pcm;
+    std::vector<int16_t> m_stage2Audio;
+    std::vector<uint32_t> m_stage2Picture;
     int m_width = Video::kWidth, m_height = Video::kHeight;
 };
 

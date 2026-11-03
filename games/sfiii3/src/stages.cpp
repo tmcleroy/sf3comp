@@ -442,11 +442,55 @@ namespace {
         int choice = 0;
         State state;
         std::vector<uint8_t> data;
+        // (made on the second stage board, beside the first, to come in as the first scrolls out: its own camera wanted,
+        // and the ends its camera is kept between)
+        bool second = false;
+        int cameraWanted = 0;
+        int left = 0, right = 0;
     } g_make;
     std::vector<uint8_t> g_lent;
 
+    // Before each of the second board's frames: its own state the live one for BeforeStage, and kept once in its fight
+    void BeforeSecondStage(Machine &machine, machine::Machine &stage) {
+        if (!g_make.on || !g_make.second) {
+            return;
+        }
+        std::swap(g, g_make.state);
+        std::swap(g_cameraWanted, g_make.cameraWanted);
+        const int left = g_theirLeft, right = g_theirRight;
+        const bool keepNow = g_keepNow;
+        g_keepNow = false;
+        BeforeStage(machine, stage);
+        if (g_keepNow && StageNow() >= 0) {
+            // (in its fight: kept, as the first board's stages are, to be there at once the next time)
+            Kept *slot = nullptr;
+            for (Kept &one : g_kept) {
+                if (one.game == kChoices[g.loaded].game && one.stage == StageNow()) {
+                    slot = &one;
+                }
+            }
+            if (!slot && g_kept.size() < 16) {
+                slot = &g_kept.emplace_back();
+            }
+            if (slot) {
+                slot->game = kChoices[g.loaded].game;
+                slot->stage = StageNow();
+                slot->state = g;
+                slot->used = ++g_uses;
+                machine.KeepSecondStage(slot->data);
+            }
+        }
+        g_keepNow = keepNow;
+        g_make.left = g_theirLeft;
+        g_make.right = g_theirRight;
+        g_theirLeft = left;
+        g_theirRight = right;
+        g_make.ready = g.fought && g.offsetKnown && g.inFight > kMadeFor;
+        std::swap(g_cameraWanted, g_make.cameraWanted);
+        std::swap(g, g_make.state);
+    }
     void MakeOn(Machine &machine) {
-        if (!g_make.on || g_make.ready || !machine.StageBoard() || !g.loaded || kChoices[g_make.choice].game != kChoices[g.loaded].game) {
+        if (!g_make.on || g_make.second || g_make.ready || !machine.StageBoard() || !g.loaded || kChoices[g_make.choice].game != kChoices[g.loaded].game) {
             return;
         }
         machine.KeepStage(g_lent);
@@ -601,6 +645,9 @@ void StagesBeforeFrame(Machine &machine) {
 void StageBehind(int stage) {
     g_choiceWanted = stage >= 0 ? kOwnFirst + std::min(stage, 20) : 0;
     g_make = {};
+    if (Machine *machine = TheMachine()) {
+        machine->SetSecondStageBoard(false); // (a stage scrolling in no longer)
+    }
     g_cameraWanted = kFollow;
     g_boardMusic = true;
 }
@@ -634,6 +681,65 @@ void StageBehindNext(int stage) {
 bool StageBehindNextReady() {
     return g_make.on && g_make.ready;
 }
+// ... or made on the second stage board, beside the first, to scroll in as the first goes out (its camera at its left end
+// while it comes in: StageBehindNextCamera); its ends once known
+void StageBehindNextBeside(Machine &machine, int stage) {
+    g_make = {};
+    g_make.on = true;
+    g_make.second = true;
+    g_make.choice = kOwnFirst + std::min(stage, 20);
+    g_make.state.loaded = g_make.choice;
+    g_make.cameraWanted = -99999; // (its left end, until it is told: StageBehindNextCamera)
+    machine.SetSecondStageBoard(true);
+    if (!machine.SecondStageBoard()) {
+        g_make = {};
+        return;
+    }
+    // (a stage that has been there before: as it was then, at once)
+    for (Kept &one : g_kept) {
+        if (one.game == kChoices[g_make.choice].game && one.stage == std::min(stage, 20) && !one.data.empty()) {
+            machine.RestoreSecondStage(one.data);
+            g_make.state = one.state;
+            g_make.state.loaded = g_make.choice;
+            one.used = ++g_uses;
+            return;
+        }
+    }
+    machine.SecondStageBoard()->Reset();
+}
+void StageBehindNextCamera(int x) {
+    g_make.cameraWanted = x;
+}
+bool StageBehindNextEnds(int &left, int &right) {
+    left = g_make.left;
+    right = g_make.right;
+    return g_make.on && g_make.second && g_make.ready && right > left;
+}
+// The second board's picture coming in: `columns` of it at the right, its sound `gain` of 256
+void StageBehindSlide(Machine &machine, int columns, int gain) {
+    machine.stageSlide = columns;
+    machine.secondStageGain = gain;
+}
+// The second board is the stage now
+void StageBehindSlideSwitch(Machine &machine) {
+    if (!g_make.on || !g_make.second) {
+        return;
+    }
+    machine.SwapStageBoards();
+    g = g_make.state;
+    g_choiceWanted = g_make.choice;
+    g_cameraWanted = g_make.cameraWanted;
+    g_theirLeft = g_make.left;
+    g_theirRight = g_make.right;
+    g_make = {};
+}
+// The second board no longer wanted (the mode over)
+void StageBehindNoSecond(Machine &machine) {
+    if (g_make.second) {
+        g_make = {};
+    }
+    machine.SetSecondStageBoard(false);
+}
 void StageBehindSwitch(Machine &machine) {
     if (!StageBehindNextReady()) {
         return;
@@ -661,6 +767,9 @@ void RegisterStages(Game &game) {
         machine->stageObject = StageObject;
         machine->ownStageObject = OwnStageObject;
         machine->beforeStage = BeforeStage;
+        machine->beforeSecondStage = BeforeSecondStage;
+        // (the second board, on its way to its fight: four frames a frame)
+        machine->secondStageFramesNow = [] { return g_make.on && g_make.second && !g_make.state.fought ? 4 : 1; };
         // (composed while 3rd Strike's round is on and the board is in its fight: for the opponent's, on a stage it has)
         machine->composeNow = [] { return !g_pre.on && OnStage() && g.fought && (kChoices[g.loaded].game != &kThirdStrike || g.inFight > kBannersFor) && (kChoices[g.loaded].stage != kOpponents || g.stage >= 0); };
         // (on its way to its fight: eight frames a frame; in it one, its own pace (its animations and music))

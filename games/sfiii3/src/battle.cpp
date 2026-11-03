@@ -51,8 +51,16 @@ void StageBehindNext(int stage);
 bool StageBehindNextReady();
 void StageBehindSwitch(Machine &machine);
 void StageBehindMusic(bool on);
+void StageBehindNextBeside(Machine &machine, int stage);
+void StageBehindNextCamera(int x);
+bool StageBehindNextEnds(int &left, int &right);
+void StageBehindSlide(Machine &machine, int columns, int gain);
+void StageBehindSlideSwitch(Machine &machine);
+void StageBehindNoSecond(Machine &machine);
 
 namespace {
+    constexpr const char *kTeamPage = "Tag team battle";
+    constexpr float kLabelY = 0.20f, kTeamLinesY = 0.235f; // (under the bars and names: who is on, and the others of the side)
     const char *const kCharacters[] = {"Gill", "Alex", "Ryu", "Yun", "Dudley", "Necro", "Hugo", "Ibuki", "Elena", "Oro", "Yang",
                                        "Ken", "Sean", "Urien", "Akuma", "Akuma (red)", "Chun-Li", "Makoto", "Q", "Twelve", "Remy"};
     constexpr int kCharacterCount = static_cast<int>(std::size(kCharacters));
@@ -64,13 +72,24 @@ namespace {
     constexpr int kFadeFor = 75;                        //   frames of fading out (and as many in)
     constexpr int kScrollSpeeds[] = {64, 128, 256};     // (endless, scrolling) 256ths of a pixel a frame
     constexpr int32_t kViewerStick = 384;               // (the stage viewer) ... with the stick held
-    enum { kStageShuffle, kStageScroll };               // (endless_stage's first two choices; then the stages)
-    constexpr int kDropFor = 60;                        // (ring out) frames of the way down to the next stage
-    constexpr uint32_t kRingShownFor = 70;              // (ring out) frames the one thrown out is seen flying off
-    constexpr int kOutPast = 40;                        // (ring out) how far past its wall a fighter is out
-    constexpr uint16_t kDropFrom = 200;                 // (ring out) the winner's height as the next match begins
-    constexpr uint32_t kJumpAt = 30;                    // (ring out) frames after the one out goes that the winner jumps
-    constexpr uint32_t kKnockedFor = 50;  // (ring out) frames after a hit that a fighter's wall lets it go
+    enum { kStageScroll, kStageShuffle };               // (endless_stage's first two choices; then the stages)
+    constexpr uint32_t kKnockedFor = 50;  // (ring out) frames after a hit that a fighter counts as knocked about
+    // The ring out (cps2recomp's fight/battle.cpp and Alpha 2's player.cpp: the same numbers)
+    constexpr int kFallFor = 56;          // frames the one out is seen flung out and falling
+    constexpr int32_t kFlungAcross = 192, kFlungUp = 1536, kPull = 104; // (256ths of a pixel a frame: away, up; taken off up)
+    constexpr int kGoneBelow = 400;       // how far under the floor one falling stops
+    constexpr int kDropJump = 8;          // the frame of the way down at which the winner jumps off the old stage
+    constexpr int kDropInside = 48;       // the winner is kept at least this far inside the picture's edges
+    constexpr int kDropFollow = 4;        // the camera goes a quarter of the way to where it follows the winner a frame
+    constexpr int kDropMost = 400;        // frames after which the way down is over, landed or not
+    constexpr int kHalfWidth = 24;        // about half a fighter's width
+    constexpr int32_t kDropPull = 128;    // (the winner seen falling: 256ths of a pixel a frame taken on each frame, as its jump's)
+    // The winner's objects (player 1's: their palettes 0x08-0x0F, as the model viewer tells them)
+    bool WinnerObject(const machine::Machine &board, uint32_t object) {
+        const uint32_t *list = board.SpriteList();
+        const uint32_t palette = list[object * 4] & 0x1FF;
+        return (list[object * 4 + 2] & 3) != 0 && palette >= 0x08 && palette <= 0x0F;
+    }
 
     enum Mode : uint8_t { kNone, kSurvival, kEndless, kTeam, kRingOut };
 
@@ -97,6 +116,7 @@ namespace {
         int fade = 0;               // the fade between two stages: 0 none, 1-kFadeFor out, then in
         int32_t scroll = 0;         // (scrolling) the camera's middle, in 256ths of a pixel
         bool scrolled = false;      // ... across to its right end
+        int32_t slide = 0;          // ... and the next stage come in from the right since (256ths of a pixel; continuous)
         // team
         uint8_t member[2][kMost] = {};
         uint8_t size = 2;
@@ -112,6 +132,19 @@ namespace {
         bool out[2] = {};
         int drop = 0;           // (ring out) frames into the way down (0: none)
         int8_t jumper = -1;     // (ring out) the winner, who jumps off the old stage and comes down onto the next
+        // (ring out, as the CPS-2 ports have it: 0 fighting; 1 the one out flung over the end, falling; 2 the way down, the
+        // winner jumping off and handed to the next match at the top of its jump, the camera following it down)
+        // (survival, ring out: the player's colours and super art as chosen at character select, every later match's too;
+        // 0xFF: not yet known)
+        uint8_t colour = 0xFF, art = 0xFF;
+        uint8_t ring = 0;
+        int8_t outWho = -1, outSide = 0;
+        int32_t fx = 0, fy = 0, vx = 0, vy = 0; // (the one out: where, and its speeds, in 256ths of a pixel)
+        uint16_t since = 0;
+        int8_t dropStage = -1;               // (the next match's stage)
+        bool handed = false;                 // (the winner is in the next match)
+        int16_t apexX = 0, ringY = 0, handedY = 0, cameraY = 0;
+        int32_t raise = 0;                   // (how far above the next stage the camera is held, 256ths of a pixel)
         int16_t jumpX = 0;      // ... where in the picture it was as it went (columns from the picture's middle)
         // (team battle, the tag style) each fighter's health while it rests (0: down), the stage fought on, when each side
         // may tag again, the characters each side's tag spare was made for, and the computer's last look
@@ -140,7 +173,6 @@ namespace {
         int16_t lastY[2] = {};      // (coming) its height at the last frame
     } b;
     Spare g_tag[2]; // (the tag style) each side's next fighter's fight, made ready
-    std::vector<uint32_t> g_oldPicture; // (ring out) the old stage's last picture, going up and out as the next comes up
     std::vector<uint8_t> g_atChoice; // the machine at character select, both players in: where each match begins
     Spare g_next;
 
@@ -205,10 +237,10 @@ namespace {
             return music > 0 ? music - 1 : b.infinite ? 0 : b.stage;
         }
         const int choice = FeatureValue("endless_stage");
-        return choice <= kStageScroll ? -1 : choice - 2;
+        return choice <= kStageShuffle ? -1 : choice - 2;
     }
     bool Behind() {
-        return b.mode == kEndless && (b.viewer || FeatureValue("endless_stage") <= kStageScroll);
+        return b.mode == kEndless && (b.viewer || FeatureValue("endless_stage") <= kStageShuffle);
     }
     bool Scrolling() { // (the stages going by, one after another)
         return b.viewer ? b.infinite : FeatureValue("endless_stage") == kStageScroll;
@@ -238,6 +270,15 @@ namespace {
             } else if (!Locked() && state >= 2 && (p == 1 || choosePlayerOne)) {
                 SetRam8(sfiii3::kChosen[p], b.want[p]);
                 m.players[p] = state < 5 && press ? kPunch1 : 0;
+                if (p == 0 && b.colour != 0xFF && (b.mode == kSurvival || b.mode == kRingOut)) {
+                    // (the player's character as it chose it: its super art (the cursor moved down to it), its colours)
+                    if (state == 4 && Ram8(sfiii3::kSelectArt[0]) != b.art) {
+                        m.players[0] = press ? kDown : 0;
+                    }
+                    if (state >= 4) {
+                        SetRam8(sfiii3::kSelectColour[0], b.colour);
+                    }
+                }
             }
         }
         if (!Locked()) {
@@ -312,7 +353,7 @@ namespace {
                 b.kept[side][n] = n < b.size ? sfiii3::kFullLife : 0;
             }
         }
-        b.tagStyle = FeatureValue("team_style") == 1;
+        b.tagStyle = FeatureValue("team_style") == 0; // (the tag style first: what a team battle is unless chosen)
     }
 
     // (the tag style) a side's next fighter still standing, after the one on (-1: none)
@@ -379,6 +420,9 @@ namespace {
                 return;
             }
             b.want[loser] = b.member[loser][b.next[loser]];
+            // (the winner stays on with what it has left and a little back, as survival gives: a tenth)
+            b.health[winner] = static_cast<uint8_t>(std::min<int>(sfiii3::kFullLife, (b.health[winner] ? b.health[winner] : sfiii3::kFullLife) +
+                                                                                       sfiii3::kFullLife / 10));
             break;
         case kRingOut:
             if (loser == 0) {
@@ -427,6 +471,49 @@ namespace {
             b.wins[p] = Ram8(sfiii3::kRoundsWon[p]);
         }
         b.stageNow = Ram8(sfiii3::kStage);
+        if (b.mode == kRingOut) {
+            // (the next match made ready while this one is fought: the player's character against someone new, on another
+            // stage)
+            b.ring = 0;
+            b.outWho = -1;
+            b.handed = false;
+            b.want[1] = RandomCharacter();
+            b.dropStage = static_cast<int8_t>(AnotherStage(b.stageNow));
+            g_next.Clear();
+            g_next.state = g_atChoice;
+        }
+    }
+
+    // --- the ring out's ends: a fighter knocked about (reeling from a hit, guarding one, thrown) at an end of the stage
+    // where the camera is at that end is not kept in, and once past the picture's edge it is out ---
+    int16_t Word(uint32_t at) {
+        return static_cast<int16_t>(Ram16(at));
+    }
+    bool KnockedAbout(int p) {
+        const uint32_t base = sfiii3::kPlayer[p];
+        const bool reeling = b.hitAt[p] && b.frames - b.hitAt[p] < kKnockedFor && Ram8(base + sfiii3::kAttacking) == 0 &&
+                             ((Ram16(base + sfiii3::kBusy) & 0xFF) != 0 || Word(base + sfiii3::kY) > 0);
+        return reeling || Ram8(base + sfiii3::kBlocking) != 0 || Ram8(base + sfiii3::kThrown) != 0;
+    }
+    // The end of the stage a player is at, where the camera is at it too (-1 the left, 1 the right; 0 neither)
+    int OpenEnd(int p) {
+        const int camera = Word(sfiii3::kCameraX), x = Word(sfiii3::kPlayer[p] + sfiii3::kX);
+        if (x < camera && camera <= Word(sfiii3::kCameraLeft[0]) + 1) {
+            return -1;
+        }
+        if (x > camera && camera >= Word(sfiii3::kCameraRight[0]) - 1) {
+            return 1;
+        }
+        return 0;
+    }
+    // ... and the picture's edge on that side, in the stage (its middle is the camera's; widescreen's columns too)
+    int PictureEdge(int side) {
+        const Machine *m = TheMachine();
+        const int half = 192 + (m ? m->WideMargin() : 0);
+        return Word(sfiii3::kCameraX) + side * half;
+    }
+    bool RingOutOpen(int p) {
+        return b.mode == kRingOut && b.started && Fought() && (b.outWho == p || (b.ring == 0 && KnockedAbout(p) && OpenEnd(p) != 0));
     }
 } // namespace
 
@@ -446,11 +533,11 @@ namespace {
             }
             return false;
         }
-        if (b.mode != kRingOut || !b.started || !Fought() || b.decided) {
+        if (b.mode != kRingOut || !b.started || !Fought() || InSpare()) {
             return false; // (and never for a spare's machine, on its way to its round)
         }
         for (int p = 0; p < 2; p++) {
-            if (g.R(4) == sfiii3::kPlayer[p] && b.hitAt[p] && b.frames - b.hitAt[p] < kKnockedFor) {
+            if (g.R(4) == sfiii3::kPlayer[p] && RingOutOpen(p)) {
                 g.R(0) = 0;
                 g.Return(40);
                 return true;
@@ -532,12 +619,43 @@ namespace {
         if (shown && b.fade == 0) {
             b.onStageFor++;
         }
-        // (the next stage begun: shuffled, after the minutes on this one, less the time to make it; scrolling, at once)
+        // (the next stage begun: shuffled, after the minutes on this one, less the time to make it; scrolling, at once:
+        // continuous, on the second stage board beside this one, to come in from the right as this one goes out)
         const uint32_t minutes = static_cast<uint32_t>(kShuffleMinutes[std::clamp(FeatureValue("endless_shuffle"), 0, 4)]);
+        const bool continuous = scrolling && (b.viewer || FeatureValue("endless_between") == 0);
         const bool due = scrolling ? b.scrolled : b.onStageFor >= minutes * 3600;
         if (shown && b.nextStage == b.stage && (scrolling || b.onStageFor + 600 >= minutes * 3600)) {
             b.nextStage = scrolling ? static_cast<uint8_t>((b.stage + 1) % kCharacterCount) : AnotherStage(b.stage);
-            StageBehindNext(b.nextStage);
+            if (continuous) {
+                StageBehindNextBeside(m, b.nextStage);
+            } else {
+                StageBehindNext(b.nextStage);
+            }
+        }
+        if (continuous && b.fade == 0) {
+            // (across this stage, then this one out to the left and the next in from the right, its camera at its left
+            // end; once it is all there, it is the stage)
+            int nextLeft = 0, nextRight = 0;
+            if (due && b.nextStage != b.stage && StageBehindNextEnds(nextLeft, nextRight)) {
+                const int width = std::max(m.PictureWidth(), 1);
+                const int speed = b.viewer ? kScrollSpeeds[std::clamp(FeatureValue("viewer_scroll"), 1, 3) - 1] :
+                                             kScrollSpeeds[std::clamp(FeatureValue("endless_scroll"), 0, 2)];
+                StageBehindNextCamera(nextLeft);
+                b.slide = std::min(b.slide + speed, width * 256);
+                const int columns = b.slide / 256;
+                StageBehindSlide(m, columns, columns * 256 / width);
+                if (columns >= width) {
+                    StageBehindSlideSwitch(m);
+                    b.stage = b.nextStage;
+                    b.onStageFor = 0;
+                    b.slide = 0;
+                    b.scroll = nextLeft * 256;
+                    b.camera = nextLeft * 256;
+                    b.scrolled = false;
+                    StageBehindCamera(nextLeft);
+                }
+            }
+            return;
         }
         // (the fade: this stage out to black, the next one put in its place, and in from black)
         if (b.fade == 0 && due && b.nextStage != b.stage && StageBehindNextReady()) {
@@ -562,31 +680,8 @@ namespace {
     }
 } // namespace
 
-// After the frame (its picture made): the ring out's way down, the old stage going up and out of the picture as the
-// next comes up from below, the fighters with it
-void BattleAfterFrame(Machine &m) {
-    if (b.mode != kRingOut || b.drop == 0) {
-        return;
-    }
-    const size_t width = static_cast<size_t>(m.PictureWidth());
-    if (g_oldPicture.size() != width * Video::kHeight) {
-        b.drop = 0;
-        return;
-    }
-    // (eased: quick at first, slowing as it lands)
-    const double t = static_cast<double>(b.drop) / kDropFor;
-    const int up = static_cast<int>(Video::kHeight * (1.0 - (1.0 - t) * (1.0 - t)));
-    uint32_t *picture = m.Picture();
-    std::vector<uint32_t> next(picture, picture + width * Video::kHeight);
-    for (int y = 0; y < Video::kHeight; y++) {
-        const int from = y + up; // (rows of the old picture still in sight, then the new one's from its top)
-        const uint32_t *row = from < Video::kHeight ? &g_oldPicture[static_cast<size_t>(from) * width] : &next[static_cast<size_t>(from - Video::kHeight) * width];
-        memcpy(picture + static_cast<size_t>(y) * width, row, width * sizeof(uint32_t));
-    }
-    if (++b.drop > kDropFor) {
-        b.drop = 0;
-        g_oldPicture.clear();
-    }
+// After the frame (its picture made): nothing now (the ring out's way down is drawn by the machine: Machine::dropRaise)
+void BattleAfterFrame(Machine &) {
 }
 
 // The tag style: each side's next fighter's fight is made ready on a spare machine (that fighter against the one on
@@ -607,7 +702,6 @@ namespace {
     constexpr uint32_t kTagHold = 4;  // frames the picture before a tag is kept (the new machine's first are wrong)
     constexpr uint32_t kTagCool = 90;                     // frames after a tag before the side may tag again
     constexpr int kTagSpareFrames = 3;                    // the tag spares' frames a frame each, on their way
-    constexpr uint16_t kRestEvery = 6;                    // a resting fighter gets back a point of health this often
 
     // Something thrown is on the screen (the game's object list 3, from the index at 0x02068A96 + 6, records 0x800
     // bytes apart from 0x02028990, the next's index at +0x1C; one with a hurt box list at +0x2A0 is in use)
@@ -970,16 +1064,8 @@ namespace {
         for (int p = 0; p < 4; p++) {
             b.startWas[p] = (raw[p] & (kStart | kTag)) != 0;
         }
-        if (++b.rest >= kRestEvery) {
-            b.rest = 0;
-            for (int side = 0; side < 2; side++) {
-                for (int n = 0; n < b.size; n++) {
-                    if (n != b.next[side] && b.kept[side][n] > 0 && b.kept[side][n] < sfiii3::kFullLife) {
-                        b.kept[side][n]++;
-                    }
-                }
-            }
-        }
+        // (a resting fighter gets back only the health that comes back by itself, as the CPS-2 ports have it: 3rd Strike's
+        // health has none such, so it keeps what it had)
     }
 } // namespace
 
@@ -994,6 +1080,176 @@ void EndBattle() {
 bool BattleOn() {
     return b.mode != kNone;
 }
+
+// The ring out's frame (before the port's machine's): the next match made ready; a fighter past the picture's edge at
+// an open end out, flung over it and falling; then the way down: the winner jumps off the old stage, and at the top of
+// its jump is put in the next match as high above its stage as it was above the old one and more, the camera held that
+// far up and following it down as it falls, the old stage going up and out as the next comes up from below
+// (Machine::dropRaise). True while the ring out has the machine (the rest of the battle's frame not run).
+namespace {
+    bool RingOutFrame(Machine &m) {
+        // (the next match: two frames a frame while this one is fought, four while one falls)
+        for (int n = 0; n < (b.ring == 1 ? 4 : 2) && !g_next.ready && !g_next.state.empty(); n++) {
+            RunSpare(m, g_next, [](Machine &spare) {
+                SetRam8(sfiii3::kStage, static_cast<uint8_t>(b.dropStage));
+                g_next.ready = ToRound(spare, static_cast<uint32_t>(g_next.frames), true);
+            });
+        }
+        const int height = Video::kHeight;
+        switch (b.ring) {
+        case 0: {
+            if (!Fought()) {
+                return false;
+            }
+            for (int p = 0; p < 2; p++) {
+                const int end = KnockedAbout(p) ? OpenEnd(p) : 0;
+                const int x = Word(sfiii3::kPlayer[p] + sfiii3::kX);
+                if (end && (end < 0 ? x - kHalfWidth < PictureEdge(-1) : x + kHalfWidth > PictureEdge(1))) {
+                    b.ring = 1;
+                    b.outWho = static_cast<int8_t>(p);
+                    b.outSide = static_cast<int8_t>(end);
+                    b.since = 0;
+                    b.fx = x * 256;
+                    b.fy = Word(sfiii3::kPlayer[p] + sfiii3::kY) * 256;
+                    b.vx = end * kFlungAcross;
+                    b.vy = kFlungUp;
+                    if (p == 1) {
+                        b.won++;
+                        if (b.won > FeatureValue("ringout_best") && !RunningAhead()) {
+                            SetFeatureValue("ringout_best", std::min<int>(b.won, 99));
+                        }
+                    }
+                    if (getenv("SFIII3_BATTLE_LOG")) {
+                        fprintf(stderr, "battle: frame %u (machine %llu), side %d rung out over the %s end at %d\n", b.frames, static_cast<unsigned long long>(m.frame), p + 1, end < 0 ? "left" : "right", x);
+                    }
+                    break;
+                }
+            }
+            return false;
+        }
+        case 1: {
+            // (flung up and away, then falling through the floor: held in hit freeze, moved here)
+            const uint32_t base = sfiii3::kPlayer[b.outWho];
+            if (b.fy > -kGoneBelow * 256) {
+                b.fx += b.vx;
+                b.fy += b.vy;
+                b.vy -= kPull;
+            }
+            SetRam16(base + sfiii3::kX, static_cast<uint16_t>(b.fx / 256));
+            SetRam16(base + sfiii3::kY, static_cast<uint16_t>(b.fy / 256));
+            SetRam8(base + sfiii3::kFreeze, 3);
+            if (getenv("SFIII3_BATTLE_LOG") && b.since % 4 == 0) { // (debugging aid)
+                fprintf(stderr, "out: since %u set %d %d, was %d %d, freeze %u camera %d\n", b.since, b.fx / 256, b.fy / 256, b.ringY, b.apexX,
+                        Ram8(base + sfiii3::kFreeze), Word(sfiii3::kCameraX));
+            }
+            b.ringY = Word(base + sfiii3::kY);
+            b.apexX = Word(base + sfiii3::kX);
+            if (++b.since >= kFallFor) {
+                if (b.outWho == 0) {
+                    b.over = true; // (the player out: the run is over)
+                    b.winner = 1;
+                    b.overAt = b.frames;
+                    return true;
+                }
+                b.ring = 2;
+                b.since = 0;
+                b.handed = false;
+            }
+            return false;
+        }
+        default: break;
+        }
+        // The way down
+        b.since++;
+        if (getenv("SFIII3_BATTLE_LOG") && b.since % 2 == 0 && b.since > 20 && b.since < 60) { // (debugging aid)
+            fprintf(stderr, "ring: frame %u since %u handed %d ready %d y %d raise %d locked %d fought %d stage %u cam:", b.frames, b.since, b.handed,
+                    g_next.ready, Word(sfiii3::kPlayer[0] + sfiii3::kY), b.raise / 256, Locked(), Fought(), Ram8(sfiii3::kStage));
+            for (uint32_t at = 0x02026C90; at < 0x02026D10; at += 2) {
+                fprintf(stderr, " %d", Word(at));
+            }
+            fprintf(stderr, "\n");
+        }
+        const uint32_t winner = sfiii3::kPlayer[0];
+        if (!b.handed) {
+            // (on the old stage: the one out still falling; the winner jumps at kDropJump, once the next match is ready)
+            const uint32_t out = sfiii3::kPlayer[b.outWho];
+            b.fx += b.vx;
+            b.fy = std::max(b.fy + b.vy, -kGoneBelow * 256);
+            b.vy -= kPull;
+            SetRam16(out + sfiii3::kX, static_cast<uint16_t>(b.fx / 256));
+            SetRam16(out + sfiii3::kY, static_cast<uint16_t>(b.fy / 256));
+            SetRam8(out + sfiii3::kFreeze, 3);
+            if (!g_next.ready) {
+                b.since = std::min<uint16_t>(b.since, kDropJump - 1); // (waits for it)
+                m.players[0] = 0;
+                return false;
+            }
+            const int y = Word(winner + sfiii3::kY);
+            m.players[0] = b.since >= kDropJump && b.since < kDropJump + 3 ? kUp : 0;
+            SetRam8(winner + 3, 1);
+            if (b.since >= kDropJump) {
+                // (the next match's winner jumps with it, frame for frame: handed over at the top, it is in the same jump
+                // there, which the game goes on with and lands)
+                const bool up = b.since < kDropJump + 3;
+                RunSpare(m, g_next, [up](Machine &spare) {
+                    spare.players[0] = up ? kUp : 0;
+                    spare.players[1] = 0;
+                    SetRam8(sfiii3::kPlayer[0] + 3, 1);
+                    SetRam8(sfiii3::kPlayer[1] + 3, 1);
+                });
+            }
+            if (b.since > kDropJump + 4 && y > 0 && y <= b.ringY) {
+                // (the top of its jump: handed to the next match, where it is in the picture, a picture's height up)
+                const int across = std::clamp(Word(winner + sfiii3::kX) - PictureEdge(-1), kDropInside, m.PictureWidth() - kDropInside);
+                m.DrawStageOnly(m.dropOld);
+                Promote(m, g_next);
+                b.handed = true;
+                b.apexX = static_cast<int16_t>(across);
+                b.handedY = static_cast<int16_t>(Word(winner + sfiii3::kY)); // (its own jump's top there)
+                b.fy = (b.handedY + height) * 256; // (how high it is seen: as high above the next stage as it was above the old)
+                b.vy = 0;
+                SetRam16(winner + sfiii3::kX, static_cast<uint16_t>(PictureEdge(-1) + across));
+                b.raise = height * 256;
+                m.dropRaise = height;
+                m.dropLift = height;
+                m.dropLifted = WinnerObject;
+                return true;
+            }
+            b.ringY = static_cast<int16_t>(y);
+            return false;
+        }
+        // (in the next match: nobody plays (the winner falls by the game's own jump), the camera held where its fighters
+        // stand and followed down as the winner falls)
+        m.players[0] = m.players[1] = 0;
+        SetRam8(sfiii3::kPlayer[1] + 3, 1);
+        // (the winner held at the top of its jump there, seen falling from higher up, as the game's jump falls: at the
+        // top of its own jump it is let go, and the game's jump lands it)
+        if (b.fy > b.handedY * 256) {
+            b.vy += kDropPull;
+            b.fy = std::max(b.fy - b.vy, b.handedY * 256);
+            SetRam8(winner + sfiii3::kFreeze, 2);
+            SetRam16(winner + sfiii3::kY, static_cast<uint16_t>(b.handedY));
+        }
+        const int y = Word(winner + sfiii3::kY);
+        const int seen = b.fy > b.handedY * 256 ? b.fy / 256 : y; // (let go: where the game has it)
+        m.dropLift = std::max(seen - y, 0);
+        const int fallen = b.handedY + height - seen;
+        const int32_t follow = std::clamp(height - fallen, 0, height) * 256;
+        b.raise += (follow - b.raise) / kDropFollow;
+        if (std::abs(follow - b.raise) < 256) {
+            b.raise = follow;
+        }
+        m.dropRaise = b.raise / 256;
+        if ((y <= 0 && b.raise == 0 && m.dropLift == 0) || b.since >= kDropMost) {
+            m.dropRaise = -1;
+            m.dropLift = 0;
+            m.dropLifted = nullptr;
+            m.dropOld.clear();
+            MatchBegins(); // (the fight on the next stage, and the match after it begun)
+        }
+        return true;
+    }
+} // namespace
 
 void BattleBeforeFrame(Machine &m) {
     m.hidePanel = false;
@@ -1067,12 +1323,15 @@ void BattleBeforeFrame(Machine &m) {
         // (in survival player 1 chooses its own character, and keeps it)
         const uint16_t mine = m.players[0];
         const bool chooses = b.mode == kSurvival || b.mode == kRingOut;
+
         const bool fought = ToRound(m, b.frames, !chooses);
         if (chooses) {
             m.players[0] = mine;
         }
         if (fought) {
             b.started = true;
+            b.colour = Ram8(sfiii3::kSelectColour[0]);
+            b.art = Ram8(sfiii3::kSelectArt[0]);
             if (chooses) {
                 b.want[0] = static_cast<uint8_t>(Ram16(sfiii3::kPlayer[0] + 0x3C0) % kCharacterCount);
             }
@@ -1093,9 +1352,9 @@ void BattleBeforeFrame(Machine &m) {
             m.players[p] = 0;
         }
     }
-    // Ring out: no health lost; a fighter knocked back over a stage's end (its wall let go: WallLift) is out
+    // Ring out: no health lost; a fighter knocked about at an open end goes over it (WallLift), and once past the
+    // picture's edge is out: flung over the end, falling (RingOutFrame)
     if (b.mode == kRingOut && Locked()) {
-        const int left = static_cast<int16_t>(Ram16(sfiii3::kCameraLeft[0])) - 164, right = static_cast<int16_t>(Ram16(sfiii3::kCameraRight[0])) + 164;
         for (int p = 0; p < 2; p++) {
             const uint32_t base = sfiii3::kPlayer[p];
             const uint16_t hits = Ram16(base + sfiii3::kHitCount);
@@ -1103,14 +1362,10 @@ void BattleBeforeFrame(Machine &m) {
                 b.hits[p] = hits;
                 b.hitAt[p] = b.frames;
             }
-            const int x = static_cast<int16_t>(Ram16(base + sfiii3::kX));
-            if (!b.out[0] && !b.out[1] && Fought() && (x < left - kOutPast || x > right + kOutPast)) {
-                b.out[p] = true;
-                if (getenv("SFIII3_BATTLE_LOG")) {
-                    fprintf(stderr, "battle: frame %u, side %d thrown out at %d (walls %d %d)\n", b.frames, p + 1, x, left, right);
-                }
-            }
-            SetRam8(base + sfiii3::kLife, b.out[p] ? 0 : sfiii3::kFullLife);
+            SetRam8(base + sfiii3::kLife, sfiii3::kFullLife);
+        }
+        if (RingOutFrame(m)) {
+            return;
         }
     }
     if (b.mode == kTeam && b.tagStyle && !b.decided) {
@@ -1134,90 +1389,80 @@ void BattleBeforeFrame(Machine &m) {
     }
     // The next match made ready on the spare, a few frames a frame, and put in this one's place when its knock-out
     // has played
-    if (b.decided && !b.over && b.mode == kRingOut && b.jumper >= 0) {
-        const uint32_t since = b.frames - b.decidedAt;
-        // (the winner jumps up, off the old stage, towards where it will land)
-        m.players[b.jumper] = since >= kJumpAt && since < kJumpAt + 4 ? kUp : 0;
-        if (b.jumper == 1) {
-            SetRam8(sfiii3::kPlayer[1] + 3, 1); // (its controls are these, not the computer's, for the jump)
-        }
-    }
     if (b.decided && !b.over) {
         for (int n = 0; n < kSpareFramesAFrame && !g_next.ready; n++) {
             RunSpare(m, g_next, [](Machine &spare) {
                 g_next.ready = ToRound(spare, static_cast<uint32_t>(g_next.frames), true);
             });
         }
-        const uint32_t shown = b.mode == kRingOut ? kRingShownFor : kShownFor;
+        const uint32_t shown = kShownFor;
         if (g_next.ready && b.frames - b.decidedAt >= shown) {
-            if (b.mode == kRingOut) {
-                // (the way down: the old stage's picture kept, to go up and out over the next one's)
-                g_oldPicture.assign(m.Picture(), m.Picture() + static_cast<size_t>(m.PictureWidth()) * Video::kHeight);
-                b.drop = 1;
-                if (b.jumper >= 0) {
-                    b.jumpX = static_cast<int16_t>(static_cast<int16_t>(Ram16(sfiii3::kPlayer[b.jumper] + sfiii3::kX)) -
-                                                   static_cast<int16_t>(Ram16(sfiii3::kCameraX)));
-                }
-            }
             if (getenv("SFIII3_BATTLE_LOG")) {
                 fprintf(stderr, "battle: frame %u, the next match on (its machine run %d frames), %d %d\n", b.frames, g_next.frames, b.want[0], b.want[1]);
             }
             Promote(m, g_next);
             b.decided = false;
             MatchBegins();
-            if (b.mode == kRingOut && b.jumper >= 0) {
-                // (the winner comes down from above, where it was across the picture as it jumped off)
-                const uint32_t base = sfiii3::kPlayer[b.jumper];
-                const int camera = static_cast<int16_t>(Ram16(sfiii3::kCameraX));
-                SetRam16(base + sfiii3::kX, static_cast<uint16_t>(std::clamp(camera + b.jumpX, camera - 150, camera + 150)));
-                SetRam16(base + sfiii3::kY, kDropFrom);
-                b.jumper = -1;
-            }
         }
     }
 }
 
-void BattleHud(std::vector<HudLine> &lines) {
+// What the modes show over the picture, as the CPS-2 ports' (cps2recomp's fight/battle.cpp) show it: the score at the
+// top all the while (survival, the ring out), the count at the end; under each team's bars who of it is still to come
+// (the tag style: the others, with their health), and the labels of who is on (the tag-team modes)
+void BattleHud(Machine &m, std::vector<HudLine> &lines) {
     char text[64];
+    // (the ends of the bars' part of the picture: a wide one's bars stay in the board's middle)
+    const float width = static_cast<float>(std::max(m.PictureWidth(), 1));
+    const float barsLeft = (static_cast<float>(m.WideMargin()) + 0.02f * 384.0f) / width, barsRight = 1.0f - barsLeft;
     switch (b.mode) {
     case kSurvival:
-        snprintf(text, sizeof(text), "SURVIVAL  %u BEATEN  BEST %d", b.won, std::max<int>(b.won, FeatureValue("survival_best")));
-        lines.push_back({0.5f, 0.235f, 0, text, 255, 210, 80});
-        if (b.over) {
-            lines.push_back({0.5f, 0.40f, 0, "THE RUN IS OVER", 255, 230, 60});
+    case kRingOut: {
+        const bool ring = b.mode == kRingOut;
+        if (!b.over) {
+            snprintf(text, sizeof(text), ring ? "Ring outs: %u" : "Beaten: %u", b.won);
+            lines.push_back({0.5f, 0.21f, 0, text});
+            break;
         }
+        lines.push_back({0.5f, 0.36f, 0, ring ? "RING OUT" : "SURVIVAL OVER"});
+        snprintf(text, sizeof(text), ring ? "Ring outs: %u" : "Opponents beaten: %u", b.won);
+        lines.push_back({0.5f, 0.46f, 0, text});
+        snprintf(text, sizeof(text), "Best: %d", std::max<int>(b.won, FeatureValue(ring ? "ringout_best" : "survival_best")));
+        lines.push_back({0.5f, 0.54f, 0, text});
         break;
+    }
     case kTeam:
+        if (b.over) {
+            const bool people = FeatureValue("team_opponent") == 1 || PeopleStyle();
+            lines.push_back({0.5f, 0.26f, 0, b.winner < 0 ? "DRAW" : b.winner == 0 ? (people ? "TEAM 1 WINS" : "YOUR TEAM WINS") :
+                                                                               (people ? "TEAM 2 WINS" : "CPU TEAM WINS")});
+            break;
+        }
         for (int side = 0; side < 2; side++) {
-            std::string line = side == 0 ? "TEAM 1: " : "TEAM 2: ";
+            std::string line;
             for (int n = 0; n < b.size; n++) {
-                std::string name = kCharacters[b.member[side][n] % kCharacterCount];
-                for (char &c : name) {
-                    c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
-                }
+                const char *name = kCharacters[b.member[side][n] % kCharacterCount];
                 if (b.tagStyle) {
-                    const bool down = b.kept[side][n] == 0 && n != b.next[side];
+                    if (n == b.next[side]) {
+                        continue;
+                    }
                     char health[16];
-                    snprintf(health, sizeof(health), " %d%%", b.kept[side][n] * 100 / sfiii3::kFullLife);
-                    line += (n ? "  " : "") + (n == b.next[side] ? "[" + name + "]" : down ? "(" + name + ")" : name + health);
-                } else {
-                    line += (n ? "  " : "") + (n < b.next[side] ? "(" + name + ")" : n == b.next[side] ? "[" + name + "]" : name);
+                    if (b.kept[side][n] > 0) {
+                        snprintf(health, sizeof(health), " %d%%", std::max(1, b.kept[side][n] * 100 / sfiii3::kFullLife));
+                    } else {
+                        snprintf(health, sizeof(health), " down");
+                    }
+                    line += std::string(line.empty() ? "" : "  ") + name + health;
+                } else if (n > b.next[side]) {
+                    line += std::string(line.empty() ? "Next: " : ", ") + name;
                 }
+            }
+            if (!line.empty()) {
+                lines.push_back({side == 0 ? barsLeft : barsRight, kTeamLinesY, side == 0 ? -1 : 1, line});
             }
             if (PadOf(side, b.next[side]) >= 0) {
-                line += "  P" + std::to_string(PadOf(side, b.next[side]) + 1) + " ON";
+                lines.push_back({side == 0 ? barsLeft : barsRight, kLabelY, side == 0 ? -1 : 1, "P" + std::to_string(PadOf(side, b.next[side]) + 1)});
             }
-            lines.push_back({side == 0 ? 0.03f : 0.97f, side == 0 ? 0.235f : 0.275f, side == 0 ? -1 : 1, line, 160, 220, 255});
-        }
-        if (b.over) {
-            lines.push_back({0.5f, 0.40f, 0, b.winner == 0 ? "TEAM 1 WINS THE BATTLE" : "TEAM 2 WINS THE BATTLE", 255, 230, 60});
-        }
-        break;
-    case kRingOut:
-        snprintf(text, sizeof(text), "RING OUT  %u THROWN OUT  BEST %d", b.won, std::max<int>(b.won, FeatureValue("ringout_best")));
-        lines.push_back({0.5f, 0.235f, 0, text, 255, 160, 80});
-        if (b.out[0] || b.out[1]) {
-            lines.push_back({0.5f, 0.40f, 0, "RING OUT!", 255, 230, 60});
         }
         break;
     default: break; // (endless: nothing over it)
@@ -1264,10 +1509,11 @@ void RegisterBattle(Game &game) {
                              kFeatureOwn, counts});
 
     game.commands.push_back({"ringout_start", "Ring out", "Start",
-                             "Choose a character; then one opponent after another, with no health: knock your opponent back over an "
-                             "end of the stage to throw them out. Over the first time you are thrown out.",
+                             "Choose a character. Nobody loses health: the ends of a stage are open, and a fighter knocked over "
+                             "one falls. Knock your opponent out and you jump down to the next stage; over when you fall. The ring outs so "
+                             "far are shown at the top.",
                              StartRingOut});
-    game.features.push_back({"ringout_best", "Ring out", "Best", "The most opponents thrown out in one go. (Left puts it back.)",
+    game.features.push_back({"ringout_best", "Ring out", "Best", "The most ring outs in one go. (Left puts it back.)",
                              kFeatureOwn, counts});
     RegisterLifts(kWallLift, std::size(kWallLift));
 
@@ -1285,17 +1531,21 @@ void RegisterBattle(Game &game) {
             stageNames.push_back(std::string(name) + "'s");
         }
     }
-    std::vector<const char *> stages = {"Shuffle", "Scroll"};
+    std::vector<const char *> stages = {"Scroll", "Shuffle"};
     for (const std::string &name : stageNames) {
         stages.push_back(name.c_str());
     }
     game.features.push_back({"endless_stage", "Endless battle", "Stage",
-                             "Where they fight. Shuffle: a stage that fades into another every so often. Scroll: the stages go by, one "
-                             "after another, and the fighters are carried along. Or one stage.",
+                             "Where they fight. Scroll: the stages go by, one after another, and the fighters are carried along. "
+                             "Shuffle: a stage that fades into another every so often. Or one stage.",
                              kFeatureMenuChoices, stages});
     game.features.push_back({"endless_shuffle", "Endless battle", "Shuffle every", "Shuffle: how long they fight on a stage before it fades "
                              "into another.", 0, {"1 minute", "2 minutes", "3 minutes", "5 minutes", "10 minutes"}});
     game.features.push_back({"endless_scroll", "Endless battle", "Scroll speed", "Scroll: how fast the stages go by.", 0, {"Slow", "Medium", "Fast"}});
+    game.features.push_back({"endless_between", "Endless battle", "Between stages",
+                             "Scroll: how one stage gives way to the next. Continuous: the next comes in from the right as the one "
+                             "crossed goes out to the left, with no break. Fade: the one crossed fades out, and the next fades in.",
+                             0, {"Continuous", "Fade"}});
 
     game.commands.push_back({"viewer_start", "Stage viewer", "Start", "A stage with nobody on it and no panel, to look at and listen to.",
                              StartViewer});
@@ -1319,46 +1569,48 @@ void RegisterBattle(Game &game) {
                                  "plays each stage's.) Another takes effect when the viewer is started.",
                                  kFeatureMenuChoices, tunes});
     }
-    game.commands.push_back({"team_start", "Team battle", "Start",
-                             "Two teams: knock a fighter down and the next of that team comes on with full health; the winner stays "
-                             "on with the health it has left. The last team standing wins.",
+    game.commands.push_back({"team_start", kTeamPage, "Start",
+                             "Each side's fighters come on one at a time, in the order below. The one knocked down is out, and "
+                             "the next of that side comes on with full health; the winner stays on with the health it has left, "
+                             "and a little back. Over when a side has nobody left.",
                              StartTeam});
-    game.features.push_back({"team_style", "Team battle", "Style",
-                             "Knock-out: one fighter of each team at a time, the next coming on when one is knocked out. Tag: the "
-                             "left trigger (or Start) tags your next fighter in whenever yours can act: yours flies off the screen "
-                             "and the next jumps in from that side with a jump attack. Each fighter keeps its own health, and a "
-                             "resting one gets some back. One whose bar empties is knocked down and lies there a while, and the next "
-                             "jumps in. The computer tags when its fighter is low, at a good moment, more often the harder it plays. "
-                             "The battle is over when a team has nobody left; a time over goes to the team with more health in all.",
-                             0, {"Knock-out", "Tag"}});
-    game.features.push_back({"tag_team", "Team battle", "Tag team",
-                             "With the tag style, each fighter of a team played by a person of its own. Co-op: players 1 and 2 are "
-                             "one team against the computer's. 2 vs 2: players 1 and 3 against players 2 and 4. Whoever's fighter is "
-                             "on plays it, and the partner tags in with their left trigger (or Start). The panel says who is on.",
-                             0, {"Off", "Co-op vs. computer", "2 vs 2"}});
-    game.features.push_back({"team_size", "Team battle", "Fighters", "How many fighters each team has.", 0, {"2", "3"}});
-    game.features.push_back({"team_difficulty", "Team battle", "CPU difficulty",
+    game.features.push_back({"team_style", kTeamPage, "Style",
+                             "Tag: each fighter has its own health; the left trigger (or Start) tags the next one in whenever "
+                             "yours can act, and when a fighter's health runs out the next comes in. Resting fighters keep the "
+                             "health they had. The match is over when a team has nobody left. Knock-out: one fighter of each team "
+                             "at a time, the next coming on when one is knocked out.",
+                             0, {"Tag", "Knock-out"}});
+    game.features.push_back({"team_size", kTeamPage, "Fighters", "How many fighters each team has.", 0, {"2", "3"}});
+    game.features.push_back({"team_opponent", kTeamPage, "Team 2",
+                             "Who plays the second team: the CPU (the game), or player 2. (With \"Tag team\" below, that says who plays.)",
+                             0, {"CPU", "Player 2"}});
+    game.features.push_back({"team_difficulty", kTeamPage, "CPU difficulty",
                              "How well the CPU's team fights, 1 (easiest) to 8 (hardest), or as the board is set (the Board page).", 0,
                              {"As the board is set", "1 (easiest)", "2", "3", "4", "5", "6", "7", "8 (hardest)"}});
     {
         static std::vector<const char *> teamStages = {"Random"};
         teamStages.insert(teamStages.end(), stages.begin() + 2, stages.end());
-        game.features.push_back({"team_stage", "Team battle", "Stage", "Where the teams fight, from the first fight to the last.",
+        game.features.push_back({"team_stage", kTeamPage, "Stage", "Where the teams fight, from the first fight to the last.",
                                  kFeatureMenuChoices, teamStages});
     }
-    game.features.push_back({"team_opponent", "Team battle", "Team 2", "Who plays the second team: the computer, or player 2.", 0,
-                             {"Computer", "Player 2"}});
-    static const char *const kTitles[2][kMost] = {{"Team 1, first", "Team 1, second", "Team 1, third"},
-                                                  {"Team 2, first", "Team 2, second", "Team 2, third"}};
+    static const char *const kOrder[kMost] = {"first", "second", "third"};
+    static std::string titles[2][kMost], helps[2][kMost];
     static const char *const kNames[2][kMost] = {{"team_1_1", "team_1_2", "team_1_3"}, {"team_2_1", "team_2_2", "team_2_3"}};
     for (int side = 0; side < 2; side++) {
         for (int n = 0; n < kMost; n++) {
-            game.features.push_back({kNames[side][n], "Team battle", kTitles[side][n],
-                                     n == 2 ? "The team's third fighter (with three a team): someone at random, or this one." :
-                                              "The team's fighter: someone at random, or this one.",
+            titles[side][n] = "Team " + std::to_string(side + 1) + ", " + kOrder[n];
+            helps[side][n] = std::string("Team ") + std::to_string(side + 1) + "'s " + kOrder[n] + " fighter on" +
+                             (n == 2 ? " (with three fighters a team)" : "") + ": someone at random, or this one.";
+            game.features.push_back({kNames[side][n], kTeamPage, titles[side][n].c_str(), helps[side][n].c_str(),
                                      kFeatureMenuChoices, fighters});
         }
     }
+    game.features.push_back({"tag_team", kTeamPage, "Tag team",
+                             "In the team battle, each fighter of a team played by a person of its own. Co-op: players 1 and 2 are one team "
+                             "against the computer's. 2 vs 2: players 1 and 3 against players 2 and 4. A team's panel is whoever's fighter is on "
+                             "(in a team of three, the third is the first person's again), and in the tag style the partner tags in with "
+                             "their left trigger. The labels under the bars say who is on.",
+                             0, {"Off", "Co-op vs. computer", "2 vs 2"}});
 }
 
 } // namespace cps3recomp

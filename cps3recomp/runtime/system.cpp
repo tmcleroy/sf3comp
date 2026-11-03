@@ -83,7 +83,41 @@ void Machine::RunFrame() {
     m_renderer.text = !hidePanel;
     m_renderer.backdrop = backdrop;
     m_renderer.shift = worldShiftNow && m_renderer.margin ? std::clamp(worldShiftNow(), -m_renderer.margin, m_renderer.margin) : 0;
-    if (drawing && m_stage && stageObject && ownStageObject && (!composeNow || composeNow())) {
+    if (drawing && dropRaise >= 0 && ownStageObject && dropOld.size() == static_cast<size_t>(PictureWidth()) * Video::kHeight) {
+        // (the ring out's way down: the old stage's bottom rows at the top, this stage under them, the fighters over both)
+        std::vector<uint32_t> stage;
+        DrawStageOnly(stage);
+        const int raise = std::clamp(dropRaise, 0, m_height);
+        if (stage.size() == static_cast<size_t>(m_width) * m_height && dropOld.size() == stage.size()) {
+            m_picture.resize(stage.size());
+            for (int y = 0; y < m_height; y++) {
+                const uint32_t *from = y < raise ? &dropOld[static_cast<size_t>(m_height - raise + y) * m_width] : &stage[static_cast<size_t>(y - raise) * m_width];
+                memcpy(&m_picture[static_cast<size_t>(y) * m_width], from, static_cast<size_t>(m_width) * sizeof(uint32_t));
+            }
+            m_renderer.overlay = true;
+            m_renderer.shiftY = raise;
+            m_renderer.drawGroupContext = this;
+            m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
+                const Machine &me = *static_cast<Machine *>(self);
+                return !me.ownStageObject(me.board, object) && !(me.dropLifted && me.dropLifted(me.board, object));
+            };
+            m_renderer.Draw(board, m_picture, m_width, m_height);
+            if (dropLifted) {
+                const bool text = m_renderer.text;
+                m_renderer.text = false;
+                m_renderer.shiftY = raise - dropLift;
+                m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
+                    const Machine &me = *static_cast<Machine *>(self);
+                    return !me.ownStageObject(me.board, object) && me.dropLifted(me.board, object);
+                };
+                m_renderer.Draw(board, m_picture, m_width, m_height);
+                m_renderer.text = text;
+            }
+            m_renderer.overlay = false;
+            m_renderer.shiftY = 0;
+            m_renderer.drawGroup = nullptr;
+        }
+    } else if (drawing && m_stage && stageObject && ownStageObject && (!composeNow || composeNow())) {
         m_stageRenderer.margin = m_renderer.margin;
         m_stageRenderer.text = false;
         m_stageRenderer.drawGroupContext = this;
@@ -92,6 +126,26 @@ void Machine::RunFrame() {
             return me.stageObject(*me.m_stage, object);
         };
         m_stageRenderer.Draw(*m_stage, m_picture, m_width, m_height);
+        if (m_stage2 && stageSlide > 0) {
+            // (the next stage coming in: the first's picture moved left, the second's left edge in the columns freed)
+            m_stage2Renderer.margin = m_renderer.margin;
+            m_stage2Renderer.text = false;
+            m_stage2Renderer.drawGroupContext = this;
+            m_stage2Renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
+                const Machine &me = *static_cast<Machine *>(self);
+                return me.stageObject(*me.m_stage2, object);
+            };
+            int w2 = 0, h2 = 0;
+            m_stage2Renderer.Draw(*m_stage2, m_stage2Picture, w2, h2);
+            if (w2 == m_width && h2 == m_height) {
+                const int slide = std::min(stageSlide, m_width);
+                for (int y = 0; y < m_height; y++) {
+                    uint32_t *row = &m_picture[static_cast<size_t>(y) * m_width];
+                    memmove(row, row + slide, static_cast<size_t>(m_width - slide) * sizeof(uint32_t));
+                    memcpy(row + m_width - slide, &m_stage2Picture[static_cast<size_t>(y) * m_width], static_cast<size_t>(slide) * sizeof(uint32_t));
+                }
+            }
+        }
         if (stageDarken > 0) {
             const uint32_t keep = static_cast<uint32_t>(256 - std::min(stageDarken, 256));
             for (uint32_t &p : m_picture) {
@@ -175,6 +229,7 @@ void Machine::RunFrame() {
 }
 
 void Machine::SetStageBoard(std::unique_ptr<RomSet> set) {
+    SetSecondStageBoard(false); // (of the set that goes)
     m_stagePcm.reset();
     if (m_stage) {
         Detach(*m_stage);
@@ -191,6 +246,84 @@ void Machine::SetStageBoard(std::unique_ptr<RomSet> set) {
         AttachSecond(*m_stage);
         m_stagePcm = std::make_unique<Pcm>(*m_stage);
     }
+}
+
+void Machine::DrawStageOnly(std::vector<uint32_t> &pixels) {
+    if (!ownStageObject) {
+        pixels.clear();
+        return;
+    }
+    Renderer &r = m_renderer;
+    const bool text = r.text;
+    r.text = false;
+    r.overlay = false;
+    r.drawGroupContext = this;
+    r.drawGroup = [](void *self, uint16_t, uint32_t object) {
+        const Machine &me = *static_cast<Machine *>(self);
+        return me.ownStageObject(me.board, object);
+    };
+    int w = m_width, h = m_height;
+    r.Draw(board, pixels, w, h);
+    r.drawGroup = nullptr;
+    r.text = text;
+}
+
+void Machine::SetSecondStageBoard(bool on) {
+    if (!on || !m_stageSet) {
+        if (m_stage2) {
+            Detach(*m_stage2);
+        }
+        m_stage2Pcm.reset();
+        m_stage2.reset();
+        stageSlide = 0;
+        secondStageGain = 0;
+        return;
+    }
+    if (m_stage2) {
+        return;
+    }
+    const bool plain = machine::g_flashPlain;
+    m_stage2 = std::make_unique<machine::Machine>(*m_stageSet);
+    m_stage2->Reset();
+    machine::g_flashPlain = plain;
+    AttachSecond(*m_stage2);
+    m_stage2Pcm = std::make_unique<Pcm>(*m_stage2);
+}
+
+void Machine::KeepSecondStage(std::vector<uint8_t> &data) {
+    data.clear();
+    if (!m_stage2) {
+        return;
+    }
+    Archive ar(data, true);
+    m_stage2->Serialize(ar);
+    m_stage2Pcm->Serialize(ar);
+}
+
+void Machine::RestoreSecondStage(const std::vector<uint8_t> &data) {
+    if (!m_stage2 || data.empty()) {
+        return;
+    }
+    std::vector<uint8_t> copy = data;
+    Archive ar(copy, false);
+    const bool plain = machine::g_flashPlain;
+    Activate(*m_stage2);
+    m_stage2->Serialize(ar);
+    m_stage2Pcm->Serialize(ar);
+    StateLoaded();
+    Activate(board);
+    machine::g_flashPlain = plain;
+}
+
+void Machine::SwapStageBoards() {
+    if (!m_stage || !m_stage2) {
+        return;
+    }
+    std::swap(m_stage, m_stage2);
+    std::swap(m_stagePcm, m_stage2Pcm);
+    std::swap(m_stageAudio, m_stage2Audio);
+    stageSlide = 0;
+    secondStageGain = 0;
 }
 
 void Machine::RunStageQuiet(int frames) {
@@ -256,6 +389,28 @@ void Machine::StepStage() {
         // Its sound: made every frame (so that it keeps time); the last frame's added to this board's when wanted
         m_stageAudio.clear();
         m_stagePcm->EndFrame(&m_stageAudio);
+    }
+    if (m_stage2) {
+        m_stage2Audio.clear();
+        const int frames2 = secondStageFramesNow ? std::max(1, secondStageFramesNow()) : 1;
+        for (int n = 0; n < frames2; n++) {
+            if (beforeSecondStage) {
+                beforeSecondStage(*this, *m_stage2);
+            }
+            const bool plain = machine::g_flashPlain;
+            Activate(*m_stage2);
+            m_stage2->RunFrame();
+            Activate(board);
+            machine::g_flashPlain = plain;
+            m_stage2Audio.clear();
+            m_stage2Pcm->EndFrame(&m_stage2Audio);
+        }
+        // (the two stages' sound, the second's share of it as it comes in)
+        const int gain = std::clamp(secondStageGain, 0, 256);
+        const size_t n = std::min(m_stageAudio.size(), m_stage2Audio.size());
+        for (size_t i = 0; i < n; i++) {
+            m_stageAudio[i] = static_cast<int16_t>((m_stageAudio[i] * (256 - gain) + m_stage2Audio[i] * gain) / 256);
+        }
     }
     if (stageSound) {
         const size_t n = std::min(m_stageAudio.size(), audio.size());

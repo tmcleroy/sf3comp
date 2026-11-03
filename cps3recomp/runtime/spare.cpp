@@ -31,6 +31,13 @@ void KeepMachine(Machine &machine, std::vector<uint8_t> &state) {
     machine.Serialize(ar);
 }
 
+namespace {
+    bool g_inSpare = false;
+}
+bool InSpare() {
+    return g_inSpare;
+}
+
 void RunSpare(Machine &machine, Spare &spare, const std::function<void(Machine &)> &before) {
     g_spareRan = true;
     // What a save state does not hold is kept by hand: the picture, the controls, the sound made so far, drawing
@@ -51,7 +58,9 @@ void RunSpare(Machine &machine, Spare &spare, const std::function<void(Machine &
     memset(machine.players, 0, sizeof(machine.players));
     machine.drawing = false;
     before(machine);
+    g_inSpare = true;
     machine.RunFrame();
+    g_inSpare = false;
     spare.frames++;
     machine.audio.resize(sound);
     KeepMachine(machine, spare.state);

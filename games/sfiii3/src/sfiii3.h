@@ -25,6 +25,9 @@ constexpr uint32_t kMatchState = 0x020154A7;
 // Character select, each player: 0 no player, 1 coming in, 2 choosing a character, 3 the super art's coming, 4
 // choosing it, 5 chosen (and so through the match)
 constexpr uint32_t kSelectState[2] = {0x0201553D, 0x02015545};
+// ... the super art the cursor is on (0-2) and the colours chosen (0-6) (Grouflon's 3rd_training_lua)
+constexpr uint32_t kSelectArt[2] = {0x020154D3, 0x020154D5};
+constexpr uint32_t kSelectColour[2] = {0x02015683, 0x02015684};
 // The camera: the middle of the picture in the stage (signed words)
 constexpr uint32_t kCameraX = 0x02026CB0, kCameraY = 0x02026CB4;
 // ... and the ends it keeps the camera between in the stage (words, each twice; 272 and 748 on Ken's stage)
