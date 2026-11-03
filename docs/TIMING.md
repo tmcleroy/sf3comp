@@ -53,5 +53,5 @@ At its frame 400 the port's main RAM is the core's but for the stacks and a few 
   memory times are the SH-2's programmed waits; the board's own chips' answer times beyond them are not known.
 - **The board's DMAs** (the character, palette and sprite lists) take no bus time from the processor here.
 - **The on-chip peripherals** answer at once.
-- The first weeks of comparison cover the start-up and the attract mode; a fight is being compared next. During the
+- So far the comparison covers the start-up and the attract mode; a fight is being compared next. During the
   BIOS's memory test the port still charges more than the core.
