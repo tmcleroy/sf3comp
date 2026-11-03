@@ -93,12 +93,13 @@ void RegisterGame() {
                              "The board's start-up (its memory checks, the region's warning and Capcom's logo) runs unseen, so the game "
                              "shows from its opening in about two seconds.",
                              kFeatureEnhanced});
-    game.features.push_back({"arcade_timing", "Game", "Arcade timing (experiment)",
-                             "The processor takes the time the board's memory makes it take: each access's waits as the game sets the "
-                             "bus up, and its cache's misses, so the game does as much in a frame as the board's processor does. "
-                             "Checked against jotego's CPS-3 core simulated (a model of the board, not a board), through the start-up "
-                             "and attract mode so far. Off: every access is instant, as the port has always run it. Training, the "
-                             "alternative modes and the viewers keep the port's own readable code for the routines it has rewritten."});
+    game.features.push_back({"arcade_timing", "Game", "Arcade timing",
+                             "The processor takes the time the board's makes it take: its memory's waits as the game sets the bus "
+                             "up, its cache's misses and its pipeline's stalls, so the game does as much in a frame as the board's "
+                             "processor does and slows down where the board does. Checked against jotego's CPS-3 core simulated (a "
+                             "model of the board, not a board) through the start-up, the attract mode and a fight. Off: every access "
+                             "is instant, as the port has always run it. Training, the alternative modes and the viewers keep the "
+                             "port's own readable code for the routines it has rewritten."});
     game.features.push_back({"play_as_gill", "Game", "Play as Gill",
                              "The boss, Gill, for player 1, player 2 or both: whoever is chosen at character select is Gill (the super art "
                              "chosen is one of his).",

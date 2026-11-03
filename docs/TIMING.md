@@ -1,7 +1,7 @@
 # The board's timing
 
 The CPS-3's SH-2 does not run every instruction in one cycle: its memory takes time, its cache misses, and its
-pipeline stalls. The port's **arcade timing** (the Game page's "Arcade timing (experiment)", off unless chosen)
+pipeline stalls. The port's **arcade timing** (the Game page's "Arcade timing", off unless chosen)
 charges the processor that time, so the game does as much work in a frame as the board's processor does. With it
 off every access is instant, as the port has always run it, and the game gets through about twice the board's work
 in a frame.
@@ -36,7 +36,8 @@ The reference is the CPS-3 core simulated with Verilator (jtframe's `jtsim`), wi
 this repository: every write the SH-2 makes to main RAM logged, so that main RAM can be rebuilt at each vertical
 blank; counts of its cycles held by the bus, split by the pipeline, and held by the FPGA's own memory; and, while
 the FPGA's memory holds the CPU up (which a board's memory would not), the board's video time held too. The port
-logs main RAM at each vertical blank the same way (`CPS3RECOMP_VBLANK_LOG`).
+logs main RAM at each vertical blank the same way (`CPS3RECOMP_VBLANK_LOG`; `CPS3RECOMP_VBLANK_DUMP` writes it out
+at a frame, `CPS3RECOMP_POKE` sets a word at a frame's start to keep the two in step).
 
 From power-on, through the board's start-up and the attract mode:
 
@@ -53,10 +54,25 @@ bench of 30 small loops (each kind of access, and writes, reads and fetches agai
 cycle a pass, all but the BIOS's memory-test loop (a write and a read of the same address), which the port runs
 about a sixth faster. The port's boot loses a frame against the core's in its loading screens.
 
+A fight (the core run with a cabinet script, `fight.py` in the harness: a coin, Start, the first character, then
+player 1 walking in and attacking on a fixed pattern against the computer; the port replaying the same as a movie).
+The two stay in step only while the game's dice agree: on the frame the coin goes in the game rolls them until the
+frame ends (37 times on the core, 39 on the port), and from then on the computer plays differently. With the dice set
+to the core's after that frame, the fight ran in step for some 520 frames, until another roll that the timing
+decides, and its spare-time count was within about one of the core's each frame:
+
+| | spare-time count, a fight frame on average (the core: 315.3) |
+| --- | --- |
+| Arcade timing off | 716 (two different fights) |
+| Arcade timing on | **316.2** |
+
+The port's boot reaches the core's character select two frames later than the core.
+
 ## What it does not do
 
 - **The reference is a model of the board, not a board.** Where the core differs from a CPS-3, so may the port. Its
   memory times are the SH-2's programmed waits; the board's own chips' answer times beyond them are not known.
 - **The board's DMAs** (the character, palette and sprite lists) take no bus time from the processor here.
 - **The on-chip peripherals** answer at once.
-- So far the comparison covers the start-up and the attract mode; a fight is being compared next.
+- The board's own timing-decided values (the dice rolled until a frame ends, the start-up's measurements) come out as
+  the core's only while the two agree to the cycle; they do not stay so.

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Arcade timing (the Game page, off unless chosen): the processor takes the board's time, its memory's waits, its
+  cache's misses and its pipeline's stalls, so the game slows down where the board does. Checked against jotego's
+  CPS-3 core simulated: the start-up, the attract mode and a fight, frame by frame.
+
 ## 0.1.0-beta.1
 
 The first version: 3rd Strike (sfiii3nr1, Japan 990512) as translated code on the port's own CPS-3 machine.

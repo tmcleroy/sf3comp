@@ -171,6 +171,16 @@ void Machine::RunFrame() {
                 (uint32(w[0]) << 24) | (uint32(w[1]) << 16) | (uint32(w[2]) << 8) | w[3], static_cast<unsigned long long>(m_cpu.m_bus.charged),
                 static_cast<unsigned long long>(m_cpu.m_bus.busCycles));
         fflush(vblankLog);
+        // (and CPS3RECOMP_VBLANK_DUMP=FRAME:FILE: main RAM at that frame's vertical blank, as it is)
+        static const char *dump = getenv("CPS3RECOMP_VBLANK_DUMP");
+        if (dump && strtoull(dump, nullptr, 10) == m_frame) {
+            if (const char *colon = strchr(dump, ':')) {
+                if (FILE *f = fopen(colon + 1, "wb")) {
+                    fwrite(mainRam, 1, 0x80000, f);
+                    fclose(f);
+                }
+            }
+        }
     }
     // (the bus's timing forced on for the timing harness, CPS3RECOMP_BUS_TIMING=1; otherwise the arcade_timing
     // feature's, set by the port before the frame)
@@ -191,6 +201,21 @@ void Machine::RunFrame() {
                 m_cpu.R[15] = 0x0207F000;
                 m_cpu.SR.u32 |= 0xF0;
             }
+        }
+    }
+    // (debugging aid, CPS3RECOMP_POKE=FRAME:ADDRESS:WORD,...: a word of main RAM set at the start of those frames, to
+    // keep a run in step with the timing harness's reference past a value the timing decides)
+    if (const char *pokes = getenv("CPS3RECOMP_POKE")) {
+        for (const char *e = pokes; e && *e;) {
+            char *end;
+            const uint64_t frame = strtoull(e, &end, 10);
+            const uint32 address = static_cast<uint32>(strtoul(end + 1, &end, 16)) & 0x7FFFE;
+            const uint32 value = static_cast<uint32>(strtoul(end + 1, &end, 16));
+            if (frame == m_frame) {
+                mainRam[address] = static_cast<uint8>(value >> 8);
+                mainRam[address + 1] = static_cast<uint8>(value);
+            }
+            e = *end == ',' ? end + 1 : nullptr;
         }
     }
     m_frameStart = m_now;

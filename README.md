@@ -34,6 +34,8 @@ or sponsored by Capcom. *Street Fighter* is a trademark of Capcom Co., Ltd.
 - **A custom soundtrack**: your own music in place of the game's, by song or as a playlist; or any stage's music
   for every fight.
 - **Gill playable**, for either player.
+- **Arcade timing** (off unless chosen): the board's processor speed, its memory and cache as the board has them, so
+  the game slows down where the arcade game does. Checked against jotego's CPS-3 core ([docs/TIMING.md](docs/TIMING.md)).
 
 ## Training mode
 
