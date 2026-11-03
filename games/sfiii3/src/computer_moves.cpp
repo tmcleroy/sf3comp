@@ -72,8 +72,8 @@ namespace {
                                                 // byte +10 -1 while it may be used (ok)
     constexpr uint32_t kHolding = 0x3CE;        // byte (tsukami_f): holding the other in a throw
     constexpr uint32_t kRunning = 0x3E4;        // byte (running_f): a dash under way
-    constexpr uint32_t kAttackStep = 0x298;     // word (cg_ja.atix): the attack's hit box out        // byte (running_f): a dash under way          // byte (hf.hit.player)
-    constexpr uint32_t kPermitted = 0x46C;      // word (permited_koa): bit 0x10: no normal attack now
+    constexpr uint32_t kAttackStep = 0x298;     // word (cg_ja.atix): not 0 once the attack's hit box is out
+    constexpr uint32_t kPermitted = 0x46C;      // word (permited_koa): bit 0x10: a normal (a target combo) may follow
     constexpr uint32_t kFighterSize = 0x498;
     constexpr uint32_t kFighters = 0x02068C6C;  // the fighters' records (plw)
 
