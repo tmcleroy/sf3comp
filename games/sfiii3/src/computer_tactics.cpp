@@ -1,8 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Tommy McLeroy
 //
-// 3rd Strike's computer player, written again as C++ (rewrites: runtime/lift.h): the computer's tactics: the modes in which it defends and is hit (7-13), the plan's mode (2), and what they call.
+// 3rd Strike's computer player, written again as C++ (rewrites: runtime/lift.h): the computer's tactics: the modes in which it defends and is hit (7-13), the plan's mode (2), the choices of a plan, an answer and a reaction, and steps of the plans.
 // The computer's design, its record's fields and the other parts: computer.h.
+//
+// How the computer chooses. In mode 1 (free) a plan is chosen (Select_Active): from the character's table for the
+// range the gap is in, by the level of eight (how far the game has got) and a dice; a super art's plan when the art
+// calls for it (Check_SA_Active). Through a plan, and as a hit or a guard ends, the computer looks for an answer to
+// the other (Check_Passive): the other knocked into the air (wait for it to fall, mode 14), backing off, stunned or
+// lying down, a projectile coming (mode 8, a plan by when it arrives and its kind, or a guard or a parry), or what
+// the other's attack or movement calls for (computer_answers.cpp). An answer is a number (kAnswer) and its reaction a
+// plan (Select_Passive): from the character's table by the range, the answer, the level and a column at random (the
+// second half of the columns when its super art is ready or either fighter is low on health); a wait (by the level)
+// before it, in mode 5, then mode 6 plays it.
 //
 // How the computer defends. The modes (computer_entry.cpp has the list) not about playing a plan are these:
 //    2  active (Com_Active): the plan checked (Pattern_Insurance) and played by the character's routine
@@ -34,7 +44,13 @@
 // they leave; the steps of modes 10-12 are called through the modes' own tables, the same. The routines with other
 // callers leave the registers as the game's code does where those callers (or theirs) read them (tools/liveout.py).
 // They call the routines not here through the game's calls (Guest::Call), so a call runs the rewrite of the routine
-// called if there is one; this file's own routines it calls as C++ where nothing reads the registers after.
+// called if there is one; this file's own routines it calls as C++ where nothing reads the registers after. The
+// steps of the plans (Com_Sub, reached by tail jumps from the plans: computer_moves.cpp) leave every register as the
+// game's code does, but where liveout.py found their callers read none, and the stack pointer what they call sees is
+// the game's (Frame).
+//
+// Checked in layers (checklifts.sh): while a rewrite is compared what it calls runs as the game's own code, so the
+// inner ones were met with only themselves registered (SFIII3_LIFTS_ONLY), and with more seeds than the check's.
 #include "computer.h"
 
 #include <iterator>
@@ -61,7 +77,10 @@ namespace {
                                               // attack's end
     constexpr uint32_t kGuardBits = 0x2E1;    // byte: how its attack is guarded (att.guard): 8 low, 16 high
     constexpr uint32_t kShellKind = 0x05;     // in a projectile's record, a byte (charset_id): 2 not one to guard
+    constexpr uint32_t kAttackReach = 0x210;  // byte: how far its attack reaches, a class (hit_range)
     constexpr uint32_t kHitOk = 0x2FE;        // byte: its attack can hit now (att_hit_ok)
+    constexpr uint32_t kStuck = 0x3C9;        // byte (micchaku_flag): pressed against the other
+    constexpr uint32_t kPushed = 0x3CB;       // byte (hos_em_flag)
     constexpr uint32_t kCharacter = 0x3C0;    // word: the character (player_number); byte 0x3C1 its low byte
     constexpr uint32_t kSuperArt = 0x3F0;     // long: the super art's state (sa): word +0 the art (0-2), byte +10 not 0
                                               // while it may be used
@@ -85,6 +104,15 @@ namespace {
     constexpr uint32_t kShell = 0x02015610;       // long: the projectile the computer is against (Shell_Address)
     constexpr uint32_t kAnswering = 0x0201561C;   // byte (Passive_Flag)
     constexpr uint32_t kRecovering = 0x0201561E;  // byte (Flip_Flag)
+    constexpr uint32_t kFreeLever = 0x02015618;   // word: the lever Keep_Status holds (Free_Lever)
+    constexpr uint32_t kWidth = 0x02015632;       // word: the computer's character's width (Com_Width_Data)
+    constexpr uint32_t kGuarding = 0x0201563B;    // byte (Guard_Flag): guarding through a plan's wait
+    constexpr uint32_t kDenjinTest = 0x02015834;  // word: Ryu's Denjin: the test for after its charge
+    constexpr uint32_t kDenjinPlan = 0x02015838;  // byte: ... and the plan
+    constexpr uint32_t kHeldDown = 0x0201563E;    // word: the lever held down, kept (Lever_Squat)
+    constexpr uint32_t kOtherLying = 0x02015624;  // byte: the other is lying on the floor (Lie_Flag)
+    constexpr uint32_t kComboSpeed = 0x020155AE;  // byte: frames before the attack's button or the jump (Combo_Speed)
+    constexpr uint32_t kGetUpSeen = 0x02015663;   // byte: cleared as Wait_Get_Up begins
     constexpr uint32_t kTermTimer = 0x02015626;   // word: cleared as EM_Term begins
     constexpr uint32_t kLimited = 0x0201562D;     // byte (Limited_Flag)
     constexpr uint32_t kRunAgain = 0x020157CC;    // byte: on to the next step at once (Disposal_Again)
@@ -119,6 +147,8 @@ namespace {
     constexpr uint32_t kBossRank = 0x02016B33;    // byte: not 0: the boss's tables (row 18), not the character's (EM_Rank)
     constexpr uint32_t kLevelNow = 0x0200DCF4;    // byte: the level just worked out (Lv)
     constexpr uint32_t kDiceNow = 0x0200DCF5;     // byte: the random number just taken (Rnd)
+    constexpr uint32_t kScreen = 0x02026C90;      // the screen's record: words +102 and +106 its edges' x
+    constexpr uint32_t kScreenMargin = 0x02026BD4; // word: kept from the screen's edges
     constexpr uint32_t kFullHealth = 0x02016B30;  // word: a fighter's full health
     constexpr uint32_t kWins = 0x02011382;        // words, a side: rounds won
     constexpr uint32_t kClock = 0x02011376;       // word: the round's clock
@@ -147,10 +177,14 @@ namespace {
     constexpr uint32_t kShellLimits = 0x06178D1C; // bytes, a character: frames within which a projectile is parried or
                                                   // guarded, not answered
     constexpr uint32_t kShellKinds = 0x06178BA7;  // bytes, by a projectile's byte 4: its kind for kShellPlans, 0xFF none
+    constexpr uint32_t kJumpLengths = 0x06178E6E; // words, a character: how far its jump goes back
+    constexpr uint32_t kYagyouPlans = 0x0613E74C; // bytes, 16 at random: Oro's Yagyou Dama's plans, less 100
     constexpr uint32_t kAnswerable = 0x0613E858;  // bytes, by the other's kDoing: not 0 when what it does may be answered
     constexpr uint32_t kActives = 0x0613E544;     // 21 longs: each character's routine for mode 2 (Computer00-20)
     constexpr uint32_t kVsShells = 0x0613E640;    // 21 longs: each character's routine for mode 8 (Shell00 ...)
     constexpr uint32_t kLastPlans = 0x0613E6F5;   // bytes, four a character: the last plan of each kind (Pattern_Insurance)
+    constexpr uint32_t kReachByClass = 0x061773DE; // words, by an attack's reach class (the record's byte 0x210):
+                                                   // how far it reaches (Hit_Range_Data)
     constexpr uint32_t kKnockedDown = 0x061773C2; // bytes, by kDoingHow: 2 thrown into the air, not 0 knocked down
                                                   // (PL_Blow_Off_Data)
     constexpr uint32_t kRecoverable = 0x0617735E; // bytes, by kDoingHow: not 0 in a parry's (PL_Damage_Data)
@@ -206,6 +240,14 @@ namespace {
     constexpr uint32_t kCheckGuard = 0x06010F4C;  // Check_Guard (r4): a guard has begun (computer_entry.cpp)
     constexpr uint32_t kOtherFalling = 0x060138E0; // Check_Blow_Off (r4, r5 the other, r6 an answer)
     constexpr uint32_t kShellCheck = 0x0601156A;  // (r4): a projectile coming: mode 8 (not 0)
+    constexpr uint32_t kClearHighJump = 0x060B5CD6; // hi_jump_flag_clear (r4 the side; computer_moves.cpp)
+    constexpr uint32_t kFirstMenu = 0x0601047C;   // Check_First_Menu (r4): kComboSpeed set (computer_moves.cpp)
+    constexpr uint32_t kStartJump = 0x0600F1DC;   // Jump_Init (r4, r5 the way): the jump's lever (computer_moves.cpp)
+    constexpr uint32_t kShellAbove = 0x06011414;  // Check_Diagonal_Shell (r4): a projectile from above (computer_moves.cpp)
+    constexpr uint32_t kAirGuard = 0x0600B974;    // Check_Air_Guard (r4) (computer_moves.cpp)
+    constexpr uint32_t kOtherUp = 0x0600AEA2;     // Check_Wait_Term (r4, r5 what): the other has got up (computer_moves.cpp)
+    constexpr uint32_t kReactionExit = 0x06010350; // Reaction_Exit_Sub (r4): the plan on (computer_moves.cpp)
+    constexpr uint32_t kJump = 0x0600B558;        // Jump (r4, r5 the way)
     constexpr uint32_t kTermTest = 0x06011C10;    // (r4, r5 the other, r6 the test): a test of the fight by its number
                                                   // (the table at 0x0613E864): 0 met, 1 the other plan, 2 not yet, 3 and up
                                                   // a reaction
@@ -1652,17 +1694,28 @@ namespace {
         return true;
     }
 
-    // 0600FCEE: the gap to the other along the floor, and the lever toward it (8 to the right, 4 to the left)
+    // 0600FCEE: the gap to the other along the floor, and the lever toward it (8 to the right, 4 to the left).
+    // Leaves the registers as the routine does.
     bool GapAndLeverLift(Guest &g) {
         Side s(g, g.R(4));
-        const int16_t gap = static_cast<int16_t>(g.Read16(s.Other() + kX) - g.Read16(s.me + kX));
-        s.SetWord(kGap, gap);
-        if (gap > 0) {
+        const int32_t x = s.Field(kX);
+        g.R(2) = Signed(x);
+        g.R(1) = Signed(static_cast<int16_t>(g.Read16(s.Other() + kX)) - x);
+        s.SetWord(kGap, static_cast<int32_t>(g.R(1)));
+        g.R(5) = kGap;
+        if (s.Word(kGap) > 0) {
             s.SetWord(kLever, 8);
+            g.R(0) = Signed(s.side * 2);
+            g.R(3) = 8;
+            g.R(6) = kLever;
         } else {
             s.SetWord(kLever, 4);
-            s.SetWord(kGap, -s.Word(kGap));
+            g.R(3) = Signed(-s.Word(kGap));
+            s.SetWord(kGap, static_cast<int32_t>(g.R(3)));
+            g.R(0) = Signed(s.side);
+            g.R(6) = s.At(kGap, 2);
         }
+        g.SetT(false);
         g.Return(20);
         return true;
     }
@@ -2498,6 +2551,919 @@ namespace {
     }
 
 
+    // 0600942C (Check_Arrival, r5 a gap, r6 the way: 3 away): far enough away (the gap at least r5, or pressed
+    // against the other: kStuck), or near enough (the gap r5 or less, or kPushed)
+    bool ArrivedLift(Guest &g) {
+        Side s(g, g.R(4));
+        const int16_t target = static_cast<int16_t>(g.R(5));
+        g.R(7) = kGap;
+        if (static_cast<int16_t>(g.R(6)) == 3) {
+            g.R(3) = Signed(s.Word(kGap));
+            g.R(0) = target > s.Word(kGap) ? s.FieldByte(kStuck) : 1u;
+        } else if (s.FieldByte(kPushed) != 0) {
+            g.R(0) = 1;
+        } else {
+            g.R(3) = Signed(s.Word(kGap));
+            g.R(0) = target >= s.Word(kGap) ? 1 : 0;
+        }
+        g.Return(16);
+        return true;
+    }
+
+    // 060092EA (Approach_Walk, r5 the gap to reach, r6 3 to walk away, else toward): walk (the lever toward the
+    // other, or away) until the gap is reached (Check_Arrival): then the plan's next step; given up (free again) after
+    // 120 frames, or as an answer begins (but while the other lies on the floor). The other's standing time is kept
+    // through Check_Passive. Leaves the registers as the routine does.
+    bool ApproachLift(Guest &g) {
+        Frame frame(g, 28);
+        Side s(g, g.R(4));
+        const int16_t target = static_cast<int16_t>(g.R(5)), way = static_cast<int16_t>(g.R(6));
+        switch (s.Place(1)) {
+        case 0:
+            s.SetPlace(1, s.Place(1) + 1);
+            Call(g, kClearDash, Signed(s.side));
+            s.SetWord(kTimer, 120);
+            break;
+        case 1:
+            break;
+        default:
+            g.R(0) = Signed(s.Place(1));
+            g.R(4) = kPlanPlace;
+            g.SetT(false);
+            g.Return(30);
+            return true;
+        }
+        const int16_t standing = static_cast<int8_t>(s.Byte(kStanding));
+        if (s.Byte(kOtherLying) == 0 && Call(g, kCheckAnswer, s.me) != 0) {
+            g.SetT(false);
+            g.Return(30);
+            return true;
+        }
+        s.SetByte(kStanding, standing);
+        s.SetWord(kTimer, s.Word(kTimer) - 1);
+        g.R(1) = kTimer;
+        g.R(2) = s.At(kTimer, 2);
+        if (s.Word(kTimer) == 0) {
+            frame.Pop();
+            Call(g, kBeFree, s.me);
+            g.Return(30);
+            return true;
+        }
+        CallWith(g, 0x0600942C, s.me, Signed(target), Signed(way));
+        if (g.R(0) != 0) {
+            s.SetByte(kRunAgain, 1);
+            s.SetPlace(0, s.Place(0) + 1);
+            for (int n = 1; n < 4; n++) {
+                s.SetPlace(n, 0);
+            }
+            s.SetByte(kRecovering, 0);
+            s.SetByte(kLimited, 0);
+            g.R(1) = kMode;
+            g.R(2) = s.At(kRunAgain, 1);
+            g.R(4) = 0;
+            if (s.ModeWord(0) == 6) {
+                g.R(0) = 6;
+                g.R(3) = s.At(kLimited, 1);
+                g.SetT(true);
+            } else {
+                s.SetByte(kAnswering, 0);
+                g.R(0) = Signed(s.side);
+                g.R(3) = s.At(kAnswering, 1);
+                g.SetT(false);
+            }
+            g.Return(30);
+            return true;
+        }
+        g.R(4) = s.me;
+        g.Call(0x0600FCEE);
+        if (way == 3) {
+            s.SetWord(kLever, s.Word(kLever) ^ 12);
+            g.R(0) = Signed(s.Word(kLever));
+            g.R(1) = s.At(kLever, 2);
+            g.R(3) = Signed(s.side * 2);
+            g.SetT(false);
+        } else {
+            g.R(0) = Signed(way);
+            g.SetT(false);
+        }
+        g.Return(30);
+        return true;
+    }
+
+    // The stage's edges as the computer sees them: the screen (0x02026C90: x of its left edge +102, its right +106)
+    // and a margin (0x02026BD4)
+    int32_t RightEdge(Guest &g) {
+        return static_cast<int16_t>(g.Read16(kScreen + 106)) - static_cast<int16_t>(g.Read16(kScreenMargin));
+    }
+    int32_t LeftEdge(Guest &g) {
+        return static_cast<int16_t>(g.Read16(kScreen + 102)) + static_cast<int16_t>(g.Read16(kScreenMargin));
+    }
+
+    // 06009242 (Search_Back_Term, r5 a distance, r6 a mode, r7 a plan): no room behind the computer for the distance
+    // (the screen's edge): that plan instead; else the plan's next step. The lever kLeverNow. Leaves the registers as
+    // the routine does.
+    bool RoomBehindLift(Guest &g) {
+        Frame frame(g, 24);
+        Side s(g, g.R(4));
+        const int32_t distance = static_cast<int32_t>(g.R(5));
+        const int16_t mode = static_cast<int16_t>(g.R(6)), plan = static_cast<int16_t>(g.R(7));
+        const int16_t x = s.Field(kX);
+        bool noRoom;
+        if (s.FieldByte(0x0B) != 0) {
+            const int16_t back = static_cast<int16_t>(x - distance);
+            g.R(1) = Signed(RightEdge(g));
+            g.R(2) = Signed(x - distance);
+            g.R(5) = Signed(back);
+            noRoom = static_cast<int32_t>(g.R(1)) > back;
+        } else {
+            const int16_t back = static_cast<int16_t>(x + distance);
+            g.R(1) = Signed(x);
+            g.R(2) = Signed(LeftEdge(g));
+            g.R(5) = Signed(back);
+            noRoom = !(static_cast<int32_t>(g.R(2)) >= back);
+        }
+        if (noRoom) {
+            g.R(1) = kAnotherPlan;
+            CallWith(g, kAnotherPlan, s.me, Signed(mode), Signed(plan));
+        } else {
+            s.SetPlace(0, s.Place(0) + 1);
+            g.R(2) = Signed(s.Place(0));
+        }
+        s.SetWord(kLever, s.Word(kLeverNow));
+        g.R(0) = kLever;
+        g.R(3) = Signed(s.Word(kLever));
+        g.R(4) = Signed(s.side * 2);
+        g.SetT(false);
+        g.Return(30);
+        return true;
+    }
+
+    // 060091C0 (Setup_KA_Jump): to keep away, jump back (Place 3: 2), or, with no room behind for the character's
+    // jump, forward over the other (1). Leaves the registers as the routine does.
+    bool KeepAwayJumpLift(Guest &g) {
+        Side s(g, g.R(4));
+        s.SetPlace(3, 2);
+        const int16_t jump = static_cast<int16_t>(g.Read16(kJumpLengths + Signed(s.Character() * 2)));
+        const int16_t x = s.Field(kX);
+        g.R(3) = kScreenMargin;
+        g.R(6) = kScreen;
+        g.R(7) = Signed(static_cast<int16_t>(g.Read16(kScreenMargin)));
+        g.R(1) = kPlanPlace;
+        bool over;
+        if (s.FieldByte(0x0B) != 0) {
+            const int16_t back = static_cast<int16_t>(x - jump);
+            g.R(0) = 106;
+            g.R(2) = Signed(RightEdge(g));
+            g.R(5) = Signed(back);
+            over = static_cast<int32_t>(g.R(2)) > back;
+            g.SetT(over);
+        } else {
+            const int16_t back = static_cast<int16_t>(x + jump);
+            g.R(0) = 102;
+            g.R(2) = Signed(LeftEdge(g));
+            g.R(5) = Signed(back);
+            over = !(static_cast<int32_t>(g.R(2)) >= back);
+            g.SetT(!over);
+        }
+        if (over) {
+            s.SetPlace(3, 1);
+            g.R(1) = s.PlaceAt(0);
+            g.R(0) = 1;
+        }
+        g.Return(20);
+        return true;
+    }
+
+    // 06009232 (Setup_KA_Walk): to keep away, walk back (Place 3: 4)
+    bool KeepAwayWalkLift(Guest &g) {
+        Side s(g, g.R(4));
+        s.SetPlace(3, 4);
+        g.R(0) = Signed(s.side * 16);
+        g.R(2) = s.PlaceAt(3);
+        g.R(3) = 4;
+        g.Return(8);
+        return true;
+    }
+
+    // 06009100 (Keep_Away, r5 a gap, r6 how: 0 at random, 1 jumping, else walking): get away from the other to the
+    // gap: first how (kept in Place 3: 1 jump forward, 2 back, 3 and 4 walk), then the jump (Jump) or the walk
+    // (Approach_Walk, away)
+    bool KeepAwayLift(Guest &g) {
+        Frame frame(g, 16);
+        Side s(g, g.R(4));
+        const int16_t target = static_cast<int16_t>(g.R(5));
+        const int16_t how = static_cast<int16_t>(g.R(6));
+        switch (s.Place(3)) {
+        case 0:
+            if (how == 0) {
+                if (Dice(g, kDice64) >= 4) {
+                    Call(g, 0x06009232, s.me);
+                } else {
+                    Call(g, 0x060091C0, s.me);
+                }
+            } else if (how == 1) {
+                Call(g, 0x060091C0, s.me);
+            } else {
+                s.SetPlace(3, how + 1);
+            }
+            [[fallthrough]];
+        case 1:
+        case 2:
+            frame.Pop();
+            g.R(4) = s.me;
+            g.R(5) = Signed(s.Place(3) - 1);
+            g.Call(kJump);
+            break;
+        case 3:
+        case 4:
+            frame.Pop();
+            CallWith(g, 0x060092EA, s.me, Signed(target), Signed(s.Place(3) - 1));
+            break;
+        default:
+            g.R(0) = Signed(s.Place(3));
+            g.SetT(false);
+            break;
+        }
+        g.Return(30);
+        return true;
+    }
+
+
+    // 0600B558 (Jump, r5 the way: 0 toward, 2 straight up, else away): a jump, in steps (Place 1): 0 holding
+    // kLeverNow, once any attack is over, the high jump's command read again and the frames before it chosen
+    // (Check_First_Menu); 1 those frames (kComboSpeed), then the jump's lever (Jump_Init), free again at once against
+    // a projectile from above (Check_Diagonal_Shell); 2 the jump held until off the floor, then guarding in the air
+    // (Check_Air_Guard); then, back on the floor, the plan's next step. An answer may break it off in the first two.
+    // Leaves the registers as the routine does.
+    bool JumpLift(Guest &g) {
+        Frame frame(g, 16);
+        Side s(g, g.R(4));
+        const uint32_t way = g.R(5);
+        g.R(7) = kLeverNow;
+        g.R(6) = kLever;
+        g.R(4) = kLever;
+        g.R(5) = kLeverNow;
+        const auto done = [&]() {
+            g.Return(40);
+            return true;
+        };
+        const auto holdLeverNow = [&]() {
+            g.R(6) = Signed(s.side * 2);
+            g.R(4) = s.At(kLever, 2);
+            g.R(5) = s.At(kLeverNow, 2);
+            g.R(3) = Signed(s.Word(kLeverNow));
+            s.SetWord(kLever, static_cast<int32_t>(g.R(3)));
+        };
+        const auto answered = [&]() {
+            g.R(2) = kCheckAnswer;
+            if (Call(g, kCheckAnswer, s.me) != 0) {
+                g.SetT(false);
+                return true;
+            }
+            return false;
+        };
+        switch (s.Place(1)) {
+        case 0:
+            holdLeverNow();
+            if (answered()) {
+                return done();
+            }
+            if (s.Field(kDoing) == kDoingAttack && s.FieldByte(kMoveKind) != 64) {
+                g.R(0) = s.FieldByte(kMoveKind);
+                g.SetT(false);
+                return done();
+            }
+            s.SetPlace(1, s.Place(1) + 1);
+            g.R(3) = kClearHighJump;
+            Call(g, kClearHighJump, Signed(s.side));
+            frame.Pop();
+            g.R(2) = kFirstMenu;
+            Call(g, kFirstMenu, s.me);
+            return done();
+        case 1: {
+            if (answered()) {
+                return done();
+            }
+            const int32_t frames = static_cast<int8_t>(s.Byte(kComboSpeed)) - 1;
+            s.SetByte(kComboSpeed, frames);
+            g.R(0) = Signed(s.side);
+            g.R(1) = kComboSpeed;
+            g.R(2) = s.At(kComboSpeed, 1);
+            g.R(3) = Signed(static_cast<int8_t>(frames));
+            if (static_cast<int8_t>(frames) != 0) {
+                g.SetT(false);
+                return done();
+            }
+            s.SetPlace(1, s.Place(1) + 1);
+            g.R(3) = kStartJump;
+            g.R(5) = Signed(static_cast<int16_t>(way));
+            Call(g, kStartJump, s.me);
+            g.R(2) = kShellAbove;
+            if (Call(g, kShellAbove, s.me) == 0) {
+                g.SetT(true);
+                return done();
+            }
+            frame.Pop();
+            g.R(3) = kBeFree;
+            Call(g, kBeFree, s.me);
+            return done();
+        }
+        case 2:
+            g.R(5) = Signed(s.side * 2);
+            g.R(3) = Signed(s.Word(kJumpLever));
+            g.R(4) = s.At(kLever, 2);
+            s.SetWord(kLever, static_cast<int32_t>(g.R(3)));
+            g.R(0) = 104;
+            g.R(2) = Signed(s.Field(kY));
+            if (!(s.Field(kY) > 0)) {
+                g.SetT(false);
+                return done();
+            }
+            s.SetPlace(1, s.Place(1) + 1);
+            g.R(6) = s.At(kLever, 2);
+            g.R(7) = s.At(kLeverNow, 2);
+            g.R(3) = Signed(s.Word(kLeverNow));
+            s.SetWord(kLever, static_cast<int32_t>(g.R(3)));
+            g.R(0) = Signed(s.side);
+            frame.Pop();
+            Call(g, kAirGuard, s.me);
+            return done();
+        default:
+            holdLeverNow();
+            g.R(0) = Signed(s.Field(kY));
+            if (s.Field(kY) != 0) {
+                g.SetT(false);
+                return done();
+            }
+            s.SetPlace(0, s.Place(0) + 1);
+            for (int n = 1; n < 4; n++) {
+                s.SetPlace(n, 0);
+            }
+            g.R(0) = 0;
+            g.R(3) = s.PlaceAt(2);
+            g.R(4) = 0;
+            g.SetT(true);
+            return done();
+        }
+    }
+
+
+    // A step's routine done: the plan on to its next step, the routine's words cleared, the parry and limit flags
+    // cleared, and on to it at once (as EM_Term and the like do)
+    void StepDone(Side &s) {
+        s.SetByte(kRunAgain, 1);
+        s.SetPlace(0, s.Place(0) + 1);
+        for (int n = 1; n < 4; n++) {
+            s.SetPlace(n, 0);
+        }
+        s.SetByte(kRecovering, 0);
+        s.SetByte(kLimited, 0);
+    }
+
+    // 0600B30E (SHELL_Term, r5 a row of the limits, r6 a test, r7 a mode; on the stack a plan): wait for the
+    // projectile against (kShell): the test (0x06011C10) -1: that plan instead; else once it is to arrive within the
+    // character's limit (the row r5 of kShellLimits), the plan's next step. An answer may break it off.
+    void UntilShell(Side &s, int16_t row, int16_t test, int16_t mode, int16_t plan) {
+        Guest &g = s.g;
+        const uint32_t shell = g.Read32(s.At(kShell, 4));
+        s.SetWord(kLever, s.Word(kLeverNow));
+        switch (s.Place(1)) {
+        case 0:
+            s.SetPlace(1, s.Place(1) + 1);
+            s.SetWord(kTermTimer, 0);
+            break;
+        case 1:
+            break;
+        default:
+            return;
+        }
+        if (Call(g, kCheckAnswer, s.me) != 0) {
+            return;
+        }
+        CallWith(g, kTermTest, s.me, shell, Signed(test));
+        if (static_cast<int32_t>(g.R(0)) == -1) {
+            CallWith(g, kAnotherPlan, s.me, Signed(mode), Signed(plan));
+            return;
+        }
+        CallWith(g, 0x0601176E, s.me, shell);
+        const int16_t frames = static_cast<int16_t>(g.R(0));
+        if (frames >= g.Read8(kShellLimits + Signed(row * 24) + Signed(s.Character()))) {
+            return;
+        }
+        StepDone(s);
+    }
+    bool UntilShellLift(Guest &g) {
+        Frame frame(g, 32);
+        Side s(g, g.R(4));
+        UntilShell(s, static_cast<int16_t>(g.R(5)), static_cast<int16_t>(g.R(6)), static_cast<int16_t>(g.R(7)),
+                   static_cast<int16_t>(g.Read16(frame.entry + 2)));
+        g.Return(40);
+        return true;
+    }
+
+    // 0600A4AE (Check_SA), 0600A522 (Check_EX), 0600A5C0 (Check_SA_Full) (r5 a mode, r6 a plan): go on with the plan
+    // only when the super art may be used (its byte 10), or an EX move (byte 12), or the gauge is full (bit 64 of the
+    // fighter's word 0x46C); else that plan instead. The lever kLeverNow.
+    void OnlyWithGauge(Side &s, bool ready, int16_t mode, int16_t plan) {
+        if (ready) {
+            s.SetPlace(0, s.Place(0) + 1);
+        } else {
+            s.SetModeWord(0, mode);
+            s.SetByte(kRunAgain, 1);
+            CallWith(s.g, kAnotherPlan, s.me, Signed(mode), Signed(plan));
+        }
+        s.SetWord(kLever, s.Word(kLeverNow));
+    }
+    uint32_t SuperArtOf(Side &s) {
+        return s.g.Read32(kFighters + kSuperArt + Signed(static_cast<int16_t>(s.side * kFighterSize)));
+    }
+    bool SuperArtReadyLift(Guest &g) {
+        Frame frame(g, 20);
+        Side s(g, g.R(4));
+        OnlyWithGauge(s, g.Read8(SuperArtOf(s) + 10) != 0, static_cast<int16_t>(g.R(5)), static_cast<int16_t>(g.R(6)));
+        g.Return(30);
+        return true;
+    }
+    bool ExReadyLift(Guest &g) {
+        Frame frame(g, 20);
+        Side s(g, g.R(4));
+        OnlyWithGauge(s, g.Read8(SuperArtOf(s) + 12) != 0, static_cast<int16_t>(g.R(5)), static_cast<int16_t>(g.R(6)));
+        g.Return(30);
+        return true;
+    }
+    bool GaugeFullLift(Guest &g) {
+        Frame frame(g, 16);
+        Side s(g, g.R(4));
+        s.SetByte(kRunAgain, 1);
+        const bool full = (static_cast<uint16_t>(s.Field(0x46C)) & 64) != 0;
+        const int16_t mode = static_cast<int16_t>(g.R(5)), plan = static_cast<int16_t>(g.R(6));
+        if (full) {
+            s.SetPlace(0, s.Place(0) + 1);
+        } else {
+            s.SetModeWord(0, mode);
+            CallWith(g, kAnotherPlan, s.me, Signed(mode), Signed(plan));
+        }
+        s.SetWord(kLever, s.Word(kLeverNow));
+        g.Return(30);
+        return true;
+    }
+
+    // 0600A79A (Branch_Wait_Area, r5-r7 and a word on the stack: frames for each range): wait as long as the range
+    // says, then the plan's next step
+    bool WaitByRangeLift(Guest &g) {
+        Frame frame(g, 12);
+        Side s(g, g.R(4));
+        if (s.Place(1) == 0) {
+            s.SetPlace(1, s.Place(1) + 1);
+            const int16_t times[4] = {static_cast<int16_t>(g.R(5)), static_cast<int16_t>(g.R(6)), static_cast<int16_t>(g.R(7)),
+                                      static_cast<int16_t>(g.Read16(frame.entry + 2))};
+            s.SetWord(kTimer, times[s.Word(kRange) & 3]);
+        } else {
+            s.SetWord(kTimer, s.Word(kTimer) - 1);
+            if (s.Word(kTimer) == 0) {
+                s.SetPlace(0, s.Place(0) + 1);
+                for (int n = 1; n < 4; n++) {
+                    s.SetPlace(n, 0);
+                }
+                s.SetByte(kRecovering, 0);
+                s.SetByte(kLimited, 0);
+                if (s.ModeWord(0) != 6) {
+                    s.SetByte(kAnswering, 0);
+                }
+            }
+        }
+        g.Return(30);
+        return true;
+    }
+
+    // 0600ADA0 (Wait_Get_Up, r5 a lever: 0 none, else back (and down with bit 2), r6 what to wait for): hold the
+    // lever (kLeverNow) until the other has got up (Check_Wait_Term), then the plan's next step, as an answer. Leaves
+    // the registers as the routine does.
+    bool WaitGetUpLift(Guest &g) {
+        Frame frame(g, 32);
+        Side s(g, g.R(4));
+        const int16_t lever = static_cast<int16_t>(g.R(5)), what = static_cast<int16_t>(g.R(6));
+        if (s.Place(1) == 0) {
+            s.SetPlace(1, s.Place(1) + 1);
+            g.R(3) = kClearDash;
+            Call(g, kClearDash, Signed(s.side));
+            s.SetByte(kGetUpSeen, 0);
+            g.R(2) = Signed(lever);
+            if (lever != 0) {
+                s.SetWord(kLeverNow, static_cast<int32_t>(LeverFor(g, s.me, 1)));
+                g.R(2) = Signed(s.Word(kLeverNow) | (lever & 2));
+                s.SetWord(kLeverNow, static_cast<int32_t>(g.R(2)));
+            } else {
+                s.SetWord(kLeverNow, 0);
+            }
+        }
+        s.SetWord(kLever, s.Word(kLeverNow));
+        g.R(3) = Signed(s.Word(kLever));
+        g.R(0) = Signed(what);
+        CallWith(g, kOtherUp, s.me, Signed(what), g.R(6));
+        if (g.R(0) == 0) {
+            g.SetT(true);
+            g.Return(40);
+            return true;
+        }
+        s.SetPlace(0, s.Place(0) + 1);
+        for (int n = 1; n < 4; n++) {
+            s.SetPlace(n, 0);
+        }
+        s.SetByte(kRunAgain, 1);
+        s.SetByte(kAnswering, 1);
+        s.SetByte(kRecovering, 0);
+        s.SetByte(kLimited, 0);
+        g.R(0) = Signed(s.side);
+        g.R(3) = s.At(kLimited, 1);
+        g.R(4) = 1;
+        g.SetT(false);
+        g.Return(40);
+        return true;
+    }
+
+
+    // 06009746 (Forced_Guard, r5 the guard): guard now (Next_Be_Guard; free again first when the other is not
+    // attacking or its attack would not reach), holding down too if the lever was held down (kHeldDown). Leaves the
+    // registers as the routine does.
+    bool ForcedGuardLift(Guest &g) {
+        Frame frame(g, 16);
+        Side s(g, g.R(4));
+        const int16_t guard = static_cast<int16_t>(g.R(5));
+        const uint32_t other = s.Other();
+        if (s.Byte(kOtherAttacking) == 0) {
+            g.R(3) = kBeFree;
+            Call(g, kBeFree, s.me);
+        }
+        const int16_t reach = static_cast<int16_t>(g.Read16(kReachByClass + g.Read8(other + kAttackReach) * 2u) + s.Word(kWidth));
+        if (s.Word(kGap) > reach) {
+            g.R(3) = kBeFree;
+            Call(g, kBeFree, s.me);
+        }
+        g.R(3) = 0x06011248;
+        CallWith(g, 0x06011248, s.me, other, Signed(guard));
+        g.R(3) = Signed(s.Word(kHeldDown));
+        g.R(2) = Signed(s.Word(kLever) | s.Word(kHeldDown));
+        s.SetWord(kLever, static_cast<int32_t>(g.R(2)));
+        g.R(0) = kLever;
+        g.R(4) = Signed(s.side * 2);
+        g.SetT(false);
+        g.Return(40);
+        return true;
+    }
+
+    // 060097B2 (Provoke, r5 a lever or -1): a taunt: the lever held from now on (back and down as r5 says), and
+    // once the fighter may (bit 128 of its word 0x46C), the taunt's buttons (0x240); then, once it is no longer
+    // taunting, the plan on (Reaction_Exit_Sub). An answer may break it off first. Leaves the registers as the
+    // routine does.
+    bool ProvokeLift(Guest &g) {
+        Frame frame(g, 28);
+        Side s(g, g.R(4));
+        const int16_t lever = static_cast<int16_t>(g.R(5));
+        const auto taunt = [&]() {
+            g.R(0) = static_cast<uint16_t>(s.Field(0x46C));
+            if (!(g.R(0) & 128)) {
+                g.SetT(true);
+                return;
+            }
+            s.SetPlace(1, s.Place(1) + 1);
+            g.R(3) = 0x240;
+            g.R(2) = s.At(kLever, 2);
+            s.SetWord(kLever, 0x240);
+            g.R(0) = Signed(s.side * 2);
+            g.SetT(false);
+        };
+        switch (s.Place(1)) {
+        case 0:
+            if (Call(g, kCheckAnswer, s.me) != 0) {
+                g.SetT(false);
+                break;
+            }
+            s.SetPlace(1, s.Place(1) + 1);
+            g.R(1) = 2;
+            g.R(2) = s.PlaceAt(1);
+            g.R(3) = Signed(s.Place(1));
+            if (lever != -1) {
+                s.SetWord(kLeverNow, static_cast<int32_t>(LeverFor(g, s.me, Signed(lever & 1))));
+                g.R(3) = s.At(kLeverNow, 2);
+                g.R(2) = Signed(s.Word(kLeverNow) | (lever & 2));
+                s.SetWord(kLeverNow, static_cast<int32_t>(g.R(2)));
+            }
+            taunt();
+            break;
+        case 1:
+            taunt();
+            break;
+        default:
+            g.R(3) = Signed(s.Word(kLeverNow));
+            s.SetWord(kLever, static_cast<int32_t>(g.R(3)));
+            g.R(4) = s.me + 0x24;
+            g.R(0) = Signed(s.Field(kDoing));
+            if (s.Field(kDoing) == kDoingAttack) {
+                g.R(0) = Signed(s.Field(kDoingHow));
+                if (s.Field(kDoingHow) == 30) {
+                    g.SetT(true);
+                    break;
+                }
+            }
+            frame.Pop();
+            g.R(2) = kReactionExit;
+            Call(g, kReactionExit, s.me);
+            break;
+        }
+        g.Return(40);
+        return true;
+    }
+
+    // 0600AA6C (Keep_Status, r5 a lever, r6 a way or -1): hold the lever (kFreeLever, and the way's) for 10 frames,
+    // and after them while the other attacks; then the plan's next step. Leaves the registers as the routine does.
+    bool KeepStatusLift(Guest &g) {
+        Frame frame(g, 28);
+        Side s(g, g.R(4));
+        const int16_t lever = static_cast<int16_t>(g.R(5)), way = static_cast<int16_t>(g.R(6));
+        if (s.Place(1) == 0) {
+            s.SetPlace(1, s.Place(1) + 1);
+            g.R(5) = s.PlaceAt(0);
+            g.R(3) = kClearDash;
+            Call(g, kClearDash, Signed(s.side));
+            s.SetWord(kTimer, 10);
+            s.SetWord(kFreeLever, lever);
+            g.R(0) = Signed(way);
+            if (way != -1) {
+                g.R(5) = Signed(way);
+                const uint32_t bits = LeverFor(g, s.me, Signed(way));
+                g.R(3) = Signed(s.Word(kFreeLever)) | bits;
+                s.SetWord(kFreeLever, static_cast<int32_t>(g.R(3)));
+            }
+            g.R(0) = kLever;
+            g.R(3) = Signed(s.Word(kFreeLever));
+            g.R(4) = Signed(s.side * 2);
+            s.SetWord(kLever, static_cast<int32_t>(g.R(3)));
+            g.SetT(false);
+            g.Return(40);
+            return true;
+        }
+        g.R(4) = kPlanPlace;
+        g.R(5) = Signed(s.side * 2);
+        s.SetWord(kLever, s.Word(kFreeLever));
+        s.SetWord(kTimer, s.Word(kTimer) - 1);
+        g.R(0) = Signed(s.side * 2);
+        g.R(3) = Signed(s.Word(kTimer));
+        if (s.Word(kTimer) != 0) {
+            g.SetT(false);
+            g.Return(40);
+            return true;
+        }
+        s.SetWord(kTimer, 1);
+        g.R(1) = kOtherAttacking;
+        g.R(0) = Signed(s.side);
+        g.R(3) = static_cast<uint32_t>(static_cast<int8_t>(s.Byte(kOtherAttacking)));
+        if (s.Byte(kOtherAttacking) != 0) {
+            g.SetT(false);
+            g.Return(40);
+            return true;
+        }
+        s.SetPlace(0, s.Place(0) + 1);
+        for (int n = 1; n < 4; n++) {
+            s.SetPlace(n, 0);
+        }
+        s.SetByte(kRecovering, 0);
+        s.SetByte(kLimited, 0);
+        g.R(2) = kMode;
+        g.R(4) = s.PlaceAt(0);
+        g.R(5) = 0;
+        if (s.ModeWord(0) == 6) {
+            g.R(0) = 6;
+            g.R(3) = s.At(kLimited, 1);
+            g.SetT(true);
+        } else {
+            s.SetByte(kAnswering, 0);
+            g.R(0) = Signed(s.side);
+            g.R(3) = s.At(kAnswering, 1);
+            g.SetT(false);
+        }
+        g.Return(40);
+        return true;
+    }
+
+    // 0600ABC0 (VS_Jump_Guard): against the other's jump: guard if it attacks (Check_Guard: 1); else, once it is
+    // low (24 or less up), the plan's next step. Leaves the registers as the routine does.
+    bool VsJumpGuardLift(Guest &g) {
+        Frame frame(g, 12);
+        Side s(g, g.R(4));
+        if (s.Place(1) == 0) {
+            if (Call(g, kCheckGuard, s.me) != 0) {
+                g.R(0) = 1;
+                g.SetT(false);
+                g.Return(30);
+                return true;
+            }
+            Call(g, kClearDash, Signed(s.side));
+            s.SetPlace(1, s.Place(1) + 1);
+            g.R(0) = Signed(s.Place(1));
+            g.Return(30);
+            return true;
+        }
+        if (Call(g, kCheckGuard, s.me) != 0) {
+            g.R(0) = 1;
+            g.SetT(false);
+            g.Return(30);
+            return true;
+        }
+        const uint32_t other = s.Other();
+        g.R(3) = 24;
+        g.R(2) = Signed(static_cast<int16_t>(g.Read16(other + kY)));
+        if (static_cast<int32_t>(g.R(2)) > 24) {
+            g.R(0) = 104;
+            g.SetT(true);
+            g.Return(30);
+            return true;
+        }
+        s.SetPlace(0, s.Place(0) + 1);
+        for (int n = 1; n < 4; n++) {
+            s.SetPlace(n, 0);
+        }
+        s.SetByte(kAnswering, 0);
+        s.SetByte(kRecovering, 0);
+        s.SetByte(kLimited, 0);
+        g.R(0) = Signed(s.side);
+        g.R(2) = s.At(kLimited, 1);
+        g.R(4) = 0;
+        g.SetT(false);
+        g.Return(30);
+        return true;
+    }
+
+
+    // 0600AC74 (Wait_Lie, r5 a lever: 0 none, else back, and down with bit 2): hold the lever (kFreeLever) while the
+    // other is knocked into the air (Check_Blow_Off), until it lies on the floor; then the plan's next step. Leaves
+    // the registers as the routine does.
+    bool WaitLieLift(Guest &g) {
+        Frame frame(g, 28);
+        Side s(g, g.R(4));
+        const int16_t lever = static_cast<int16_t>(g.R(5));
+        if (s.Place(1) == 0) {
+            s.SetPlace(1, s.Place(1) + 1);
+            g.R(3) = kClearDash;
+            Call(g, kClearDash, Signed(s.side));
+            s.SetByte(kGetUpSeen, 0);
+            g.R(2) = Signed(lever);
+            if (lever != 0) {
+                s.SetWord(kFreeLever, static_cast<int32_t>(LeverFor(g, s.me, 1)));
+                g.R(2) = Signed(s.Word(kFreeLever) | (lever & 2));
+                s.SetWord(kFreeLever, static_cast<int32_t>(g.R(2)));
+            } else {
+                s.SetWord(kFreeLever, 0);
+            }
+        }
+        g.R(6) = 0;
+        s.SetWord(kLever, s.Word(kFreeLever));
+        g.R(3) = kOtherFalling;
+        CallWith(g, kOtherFalling, s.me, s.Other(), 0);
+        if (g.R(0) != 0) {
+            g.R(0) = Signed(s.side);
+            g.R(1) = kOtherLying;
+            g.R(3) = static_cast<uint32_t>(static_cast<int8_t>(s.Byte(kOtherLying)));
+            if (s.Byte(kOtherLying) == 0) {
+                g.SetT(true);
+                g.Return(30);
+                return true;
+            }
+            g.SetT(false);
+        } else {
+            g.SetT(true);
+        }
+        s.SetPlace(0, s.Place(0) + 1);
+        for (int n = 1; n < 4; n++) {
+            s.SetPlace(n, 0);
+        }
+        s.SetByte(kRecovering, 0);
+        s.SetByte(kLimited, 0);
+        g.R(0) = Signed(s.side);
+        g.R(3) = s.At(kLimited, 1);
+        g.Return(30);
+        return true;
+    }
+
+    // 0600B016 (Check_Exit_Guard, r5 0: wait for the other's attack): go on waiting? While the computer is hit; else,
+    // r5 0, while the other is attacking, else while its attack is out
+    bool StillToWait(Side &s, int16_t option) {
+        if (s.Field(kDoing) == kDoingHit) {
+            return true;
+        }
+        if (option == 0) {
+            return static_cast<int16_t>(s.g.Read16(s.Other() + kDoing)) == kDoingAttack;
+        }
+        return s.Byte(kOtherAttacking) != 0;
+    }
+    bool StillToWaitLift(Guest &g) {
+        Side s(g, g.R(4));
+        g.R(0) = StillToWait(s, static_cast<int16_t>(g.R(5))) ? 1 : 0;
+        g.Return(10);
+        return true;
+    }
+
+    // 0600AF10 (Wait_Attack_Complete, r5 a lever, r6 as Check_Exit_Guard): hold the lever (kLeverNow: back, and
+    // down with bit 2, guarding) until the other's attack is done; then the plan's next step
+    bool WaitAttackDoneLift(Guest &g) {
+        Frame frame(g, 32);
+        Side s(g, g.R(4));
+        const int16_t lever = static_cast<int16_t>(g.R(5)), option = static_cast<int16_t>(g.R(6));
+        if (s.Place(1) == 0) {
+            s.SetPlace(1, s.Place(1) + 1);
+            Call(g, kClearDash, Signed(s.side));
+            if (lever != 0) {
+                s.SetWord(kLeverNow, static_cast<int32_t>(LeverFor(g, s.me, 1)));
+                s.SetWord(kLeverNow, s.Word(kLeverNow) | (lever & 2));
+                s.SetByte(kGuarding, 1);
+            } else {
+                s.SetWord(kLeverNow, 0);
+            }
+        }
+        s.SetWord(kLever, s.Word(kLeverNow));
+        if (!StillToWait(s, option)) {
+            s.SetPlace(0, s.Place(0) + 1);
+            for (int n = 1; n < 4; n++) {
+                s.SetPlace(n, 0);
+            }
+            s.SetByte(kGuarding, 0);
+            s.SetByte(kRecovering, 0);
+            s.SetByte(kLimited, 0);
+            if (option == 0) {
+                s.SetByte(kAnswering, 0);
+            }
+        }
+        g.Return(40);
+        return true;
+    }
+
+
+    // 06008C2A (Next_Be_Passive): free again (Next_Be_Free)
+    bool BeFreeAgainLift(Guest &g) {
+        g.R(3) = kBeFree;
+        Call(g, kBeFree, g.R(4));
+        g.Return(10);
+        return true;
+    }
+
+    // 0600A422 (SA_Range_Check, r5 an art, r6 a gap, with 0x8000 "at least"): with that super art chosen, is the
+    // other out of its range (the gap more than r6, or with 0x8000 less than r6's low bits)? Then the plan's next
+    // step, and 1.
+    bool SuperArtRangeLift(Guest &g) {
+        Side s(g, g.R(4));
+        const int16_t art = static_cast<int16_t>(g.R(5));
+        if (static_cast<int16_t>(g.Read16(SuperArtOf(s))) != art) {
+            g.R(0) = 0;
+            g.Return(14);
+            return true;
+        }
+        g.R(7) = kGap;
+        const uint16_t range = static_cast<uint16_t>(g.R(6));
+        const int16_t gap = s.Word(kGap);
+        const bool out = (range & 0x8000) ? !(gap >= static_cast<int16_t>(range & 0x7FFF)) : gap > static_cast<int16_t>(range);
+        if (out) {
+            s.SetPlace(0, s.Place(0) + 1);
+        }
+        g.R(0) = out ? 1 : 0;
+        g.Return(20);
+        return true;
+    }
+
+    // 0600A3B0 (DENJIN_Check, r5 a plan, r6 where the plan is kept, r7 a test): with Ryu's third super art (the
+    // Denjin Hadouken, charged), kept: the test (0x02015834) and the plan (byte 0x02015838) for after the charge,
+    // and plan 55 (the charge) in its place
+    bool DenjinLift(Guest &g) {
+        Side s(g, g.R(4));
+        if (static_cast<int16_t>(g.Read16(SuperArtOf(s))) != 2) {
+            g.Return(14);
+            return true;
+        }
+        s.SetWord(kDenjinTest, static_cast<int32_t>(g.R(7)));
+        s.SetByte(kDenjinPlan, static_cast<int32_t>(g.R(5)));
+        g.Write16(g.R(6), 55);
+        g.R(0) = 1;
+        g.Return(16);
+        return true;
+    }
+
+    // 0600A3E2 (YAGYOU_Check, r5 where the plan is kept, r6 a plan or 0): with Oro's second super art (the
+    // Yagyou Dama), that plan (or, 0, one of plans 100 and up at random: 0x0613E74C) in its place
+    bool YagyouLift(Guest &g) {
+        Side s(g, g.R(4));
+        const uint32_t place = g.R(5);
+        if (static_cast<int16_t>(g.Read16(SuperArtOf(s))) == 1) {
+            uint32_t plan = g.R(6);
+            if (static_cast<uint16_t>(plan) == 0) {
+                plan = g.Read8(kYagyouPlans + static_cast<uint32_t>(Dice(g, kDice64))) + 100u;
+            }
+            g.Write16(place, static_cast<uint16_t>(plan));
+            g.R(0) = 1;
+        }
+        g.Return(20);
+        return true;
+    }
+
+
     // --- the lifts ---
     template <void (*F)(Side &)>
     bool Lifted(Guest &g) {
@@ -2510,6 +3476,8 @@ namespace {
     // (free: everything, for the modes and their steps, called through tables by routines that read nothing after;
     // r1-r7 and T for a routine with a result whose callers keep nothing there)
     constexpr uint32_t kAll = 0x17FFF, kResult = 0x100FE;
+    // (The entries commented out are rewrites the check has not met in its runs, so not registered: what the runs'
+    // characters and made-up players never led to.)
     const Lift kLifts[] = {
         {"ComputerBossRow", 0x060111AC, 0x14, 0x8D1E57EC6021F127ull, BossRowLift, true, kResult},
         {"ComputerPlanCheck", 0x06008BF0, 0x28, 0x38D66E1E1890153Full, PlanCheckLift, true, 0x13F1F},
@@ -2566,15 +3534,39 @@ namespace {
         {"ComputerOtherOnFloor", 0x060136C6, 0x74, 0x2260A6CC4BE92996ull, OtherOnFloorLift, true, 0x100FE},
         {"ComputerOtherDown", 0x06013864, 0x4A, 0xE96DAF2CBA8900ACull, OtherDownLift, true, 0x1201E},
         {"ComputerCheckAnswer", 0x06010DEA, 0x162, 0xEA9D485FDBE655AAull, CheckAnswerLift, true, 0x10018},
-        // {"ComputerShellBehind", 0x06011A60, 0x66, 0xFBD27BBBD3150114ull, ShellBehindLift, true, 0x100FE},
-        // {"ComputerShellLetBe", 0x06011704, 0x6A, 0x881ACF8A97B054A7ull, ShellLetBeLift, true, 0x100FE},
-        // {"ComputerShellArrival", 0x0601176E, 0x42, 0x7EDCA223658014B3ull, ArrivalLift, true, 0x102FE},
-        // {"ComputerShellIgnore", 0x060117B0, 0xB6, 0xA7D00798B6CB2548ull, ShellIgnoreLift, true, 0x100FE},
+        {"ComputerShellBehind", 0x06011A60, 0x66, 0xFBD27BBBD3150114ull, ShellBehindLift, true, 0x100FE},
+        {"ComputerShellLetBe", 0x06011704, 0x6A, 0x881ACF8A97B054A7ull, ShellLetBeLift, true, 0x100FE},
+        {"ComputerShellArrival", 0x0601176E, 0x42, 0x7EDCA223658014B3ull, ArrivalLift, true, 0x102FE},
+        {"ComputerShellIgnore", 0x060117B0, 0xB6, 0xA7D00798B6CB2548ull, ShellIgnoreLift, true, 0x100FE},
         // {"ComputerShellPlan", 0x060119C6, 0x8C, 0xD85523218C674FCAull, ShellPlanLift, true, 0x120FC},
-        // {"ComputerAgainstShell", 0x06011866, 0x160, 0x49D001E3EB72C080ull, AgainstShellLift, true, kAll},
+        {"ComputerAgainstShell", 0x06011866, 0x160, 0x49D001E3EB72C080ull, AgainstShellLift, true, kAll},
         {"ComputerShellComing", 0x0601156A, 0x19A, 0x0329C3C9CAE62D9Dull, ShellComingLift, true},
         {"ComputerUntilTerm", 0x0600B19C, 0x172, 0x5AA401B6B97FDF58ull, UntilTermLift, true, kResult},
         {"ComputerSuperArtTerm", 0x0600A07E, 0x332, 0x9F4041443CE32E1Dull, SuperArtTermLift, true, kResult},
+        {"ComputerArrived", 0x0600942C, 0x8E, 0xB611D75BD8FBB156ull, ArrivedLift, true, kResult},
+        {"ComputerApproach", 0x060092EA, 0x142, 0x98C494AD8E2C53C8ull, ApproachLift, true},
+        {"ComputerRoomBehind", 0x06009242, 0xA8, 0x0DB8C604F6388A8Bull, RoomBehindLift, true},
+        {"ComputerKeepAwayJump", 0x060091C0, 0x72, 0xE24C6C3BF2CD9E54ull, KeepAwayJumpLift, true},
+        {"ComputerKeepAwayWalk", 0x06009232, 0x10, 0x1523FA4A9DBB2057ull, KeepAwayWalkLift, true},
+        {"ComputerKeepAway", 0x06009100, 0xC0, 0x661A068C63BA8A0Aull, KeepAwayLift, true},
+        {"ComputerJump", 0x0600B558, 0x19E, 0xF04361017BF100D9ull, JumpLift, true},
+        // {"ComputerUntilShell", 0x0600B30E, 0x158, 0x3F6F3E68FD438AA0ull, UntilShellLift, true, kAll},
+        // {"ComputerSuperArtReady", 0x0600A4AE, 0x74, 0xB11B4FA4E20073DFull, SuperArtReadyLift, true, kAll},
+        // {"ComputerExReady", 0x0600A522, 0x74, 0x8116145AF7C9B74Dull, ExReadyLift, true, kAll},
+        // {"ComputerGaugeFull", 0x0600A5C0, 0x66, 0xAFE4B448B1CC93B3ull, GaugeFullLift, true, kAll},
+        // {"ComputerWaitByRange", 0x0600A79A, 0xF0, 0x8601B62552597ECBull, WaitByRangeLift, true, kAll},
+        {"ComputerWaitGetUp", 0x0600ADA0, 0x102, 0xC63876D237C61896ull, WaitGetUpLift, true},
+        {"ComputerForcedGuard", 0x06009746, 0x6C, 0x17B7B3DD7A52CABCull, ForcedGuardLift, true},
+        {"ComputerProvoke", 0x060097B2, 0x114, 0x3A9A26E9991046FEull, ProvokeLift, true},
+        {"ComputerKeepStatus", 0x0600AA6C, 0x154, 0x98225F16575BA57Bull, KeepStatusLift, true},
+        {"ComputerVsJumpGuard", 0x0600ABC0, 0xB4, 0x687344B5B200A306ull, VsJumpGuardLift, true},
+        {"ComputerWaitLie", 0x0600AC74, 0xF8, 0xA89E8DF4C6EC08FEull, WaitLieLift, true},
+        // {"ComputerStillToWait", 0x0600B016, 0x50, 0x48A7BA9A92BEB5A2ull, StillToWaitLift, true, kAll},
+        // {"ComputerWaitAttackDone", 0x0600AF10, 0x106, 0xEF7C4F9E483F295Dull, WaitAttackDoneLift, true, kAll},
+        // {"ComputerSuperArtRange", 0x0600A422, 0x8C, 0x988A96E6A3C2F63Dull, SuperArtRangeLift, true, 0x1007E},
+        // {"ComputerDenjin", 0x0600A3B0, 0x32, 0xC06062CE4F199EF8ull, DenjinLift, true, 0x1007F},
+        // {"ComputerBeFreeAgain", 0x06008C2A, 0x6, 0x7E5D0E68E47D42C4ull, BeFreeAgainLift, true},
+        // {"ComputerYagyou", 0x0600A3E2, 0x40, 0x35F0595B67A655F6ull, YagyouLift, true, 0x1007F},
     };
 } // namespace
 

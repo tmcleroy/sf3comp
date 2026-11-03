@@ -12,7 +12,9 @@
 //   computer_entry.cpp    0x06006040 itself, 0x060060B4 and what it calls (0x060061D0, 0x0600643C, 0x0600653C,
 //                         0x06006610, 0x06006C72, 0x06006CE0, 0x060083A0, 0x060084A4, 0x060088D4, 0x0600FC20,
 //                         0x0600FC6A), and 0x0600899A, 0x06008A08 after it
-//   computer_tactics.cpp  0x06006C22's 0x06008BF0 and what it calls, but for the scripts
+//   computer_tactics.cpp  the modes 2 and 7-13 (0x06006C22, 0x060066E8 ... 0x06008126) and their steps, the plan's
+//                         choice (0x060104B4), the answer's (0x06010DEA) and the reaction's (0x060109AC), the levels,
+//                         and steps of the plans the moves left (0x06009100-0x0600B6F6: EM_Term, SA_Term, Jump ...)
 //   computer_answers.cpp  0x06012588 (Ck_Passive_Term) and what it calls: the answers to the other (the three chains,
 //                         eight dispatchers, twelve tests, per-character lists)
 //   computer_moves.cpp    0x06006C22's 0x06066874 and what it calls
