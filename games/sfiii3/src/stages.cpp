@@ -341,6 +341,17 @@ namespace {
             if (camera == 0 || std::abs(g.offset) < 256) {
                 g.offset = 0;
             }
+            // (nor one with its fighters' middle between its stage's ends, where its game keeps them: their coordinates
+            // are its camera's, and the camera was held off its stage as its fight began. 2nd Impact's Necro stage's
+            // camera is at 250 then, its fighters either side of 512, its ends 262 and 764: taken as an offset of
+            // -262, its fighters were put 262 right of where they were wanted, its camera after them every frame, 6
+            // columns right of where it was sent)
+            if (game.rightAt && g.offset != 0) {
+                const int middle = (one + two) / 2;
+                if (middle >= static_cast<int16_t>(Word(ram, game.leftAt)) && middle <= static_cast<int16_t>(Word(ram, game.rightAt))) {
+                    g.offset = 0;
+                }
+            }
             if (getenv("SFIII3_STAGE_CAMERA")) {
                 fprintf(stderr, "stage fight: camera %d, fighters %d %d: offset %d\n", static_cast<int16_t>(Word(ram, game.camera[1])), one, two, g.offset);
             }
@@ -423,17 +434,23 @@ namespace {
             // (their middle, which its camera follows, kept between the ends it was given: near a stage's end 3rd Strike's
             // fighters' middle is past its camera's limit, and a game that keeps its own limits would follow them there,
             // past the narrowed ones, and show past its stage's end in widescreen)
+            // (mapped as the camera is, from one stage's ends to the other's; but on a stage wider than 3rd Strike's, each
+            // only as far from its camera as 3rd Strike's is from 3rd Strike's: mapped, its fighters stood further
+            // apart, past the quarters of the picture its camera keeps them in, and its camera went on after them, 6
+            // columns a frame: 2nd Impact's Ken and Necro stages, 1.25 and 1.4 times as wide, 3-4 columns off on
+            // average)
+            int theirs = theirLeft + (std::clamp(camera, left, right) - left) * (theirRight - theirLeft) / (right - left);
+            const bool wider = theirRight - theirLeft > right - left;
             int placed[2];
             for (int p = 0; p < 2; p++) {
                 const int x = static_cast<int16_t>(Ram16(sfiii3::kPlayer[p] + sfiii3::kX));
-                placed[p] = theirLeft + (x - left) * (theirRight - theirLeft) / (right - left);
+                placed[p] = wider ? theirs + x - std::clamp(camera, left, right) : theirLeft + (x - left) * (theirRight - theirLeft) / (right - left);
             }
             const int middle = (placed[0] + placed[1]) / 2;
             const int push = middle < theirLeft ? theirLeft - middle : middle > theirRight ? theirRight - middle : 0;
             for (int p = 0; p < 2; p++) {
                 SetWord(ram, game.players[p] + 0x64, placed[p] + push - g.offset);
             }
-            int theirs = theirLeft + (std::clamp(camera, left, right) - left) * (theirRight - theirLeft) / (right - left);
             // (3rd Strike between rounds, its camera's ends not its stage's yet (1 and 95 seen, before a round's start):
             // its middle, where 3rd Strike's camera begins a round, its fighters either side of it. Followed from
             // those ends, it went to its right end, and as the round began panned back across for some 40 frames

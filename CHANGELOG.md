@@ -4,6 +4,10 @@
 
 - Bonus games: straight from character select to the bonus stage, as the game itself goes there after a won match
   ("BONUS STAGE", the versus screen, the stage), with no match fought unseen first.
+- Guest stages: the camera follows 3rd Strike's across and up on every stage (it followed on some only as the fighters
+  neared the picture's edges, on 2nd Impact's Elena stage not at all), Oro's entrance from the sky included, and on
+  both Necro stages and the widest ones it is no longer a few columns to one side. Widescreen fills on New
+  Generation's stages (a strip showed past their ends).
 
 ## 0.1.0-beta.2
 

@@ -65,8 +65,12 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
 
 - The stage board's camera: its camera words are given 3rd Strike's place mapped from one stage's ends to the
   other's, and its fighters, unseen, are put where 3rd Strike's are (mapped the same way), so its game's own camera
-  step leaves it about there (over all 28 stages in a one-player game: within 0.2-1.6 columns on average, 6 on the
-  two widest, 2nd Impact's Necro and New Generation's beer festival). In widescreen the ends its game keeps are
+  step leaves it about there (over all 28 stages in a one-player game in widescreen: within 0-0.5 columns on average,
+  1.3-1.7 on 2nd Impact's four widest, Alex's, Dudley's, Necro's and Ken's). Both Necro stages were 6 off, their
+  cameras held off the stage as the fight began and taken for an offset of their fighters' coordinates (as New
+  Generation's rainy London stage's 512): one is taken now only with the fighters' middle outside the stage's ends. On a
+  stage wider than 3rd Strike's the fighters keep 3rd Strike's distances from the camera (mapped from end to end, they
+  stood past the quarters its camera keeps them in, and it went after them). In widescreen the ends its game keeps are
   narrowed by the margin, so its picture fills the wide screen (both games). Up: its fighters raised so that its
   camera goes up as 3rd Strike's (the higher one's height past 88 times 1.75, as in 3rd Strike), and its layers'
   places up given too, for the frames its game holds its camera (its own round's start).
@@ -128,3 +132,8 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
    the match's ends (the score's tally over the stage, as 3rd Strike's own has it) and the next fight's stage, the
    stage's music in fights and training. Not looked at: the continue screen (not a stage: 3rd Strike's own screen,
    nothing composed), a third round.
+9. 2026-11-04, later: the stage board's camera against where it was sent, every frame of a one-player game's first
+   fight on each of the 28 (made-up play, seed 7, widescreen, frames 2000-4800 of the board), mean columns off, before
+   and after: New Generation's Gill 1.64 to 0.44, Necro 5.77 to 0.49, Ken 2.73 to 0.49; 2nd Impact's Alex 2.35 to
+   1.38, Necro 5.77 to 1.68, Ken 2.96 to 1.46; the other 22 the same as before (0-0.5; 2nd Impact's Dudley 1.32). The
+   pictures (frame 3600, both Necro stages) show the stage some 5 columns further left of the fighters before.
