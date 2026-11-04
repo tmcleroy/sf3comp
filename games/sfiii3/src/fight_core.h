@@ -16,6 +16,8 @@
 //   fight_judge.cpp  what the hit tests found made of: a hit (0x0608CE68), a throw (0x0608C994), a trade (0x0608C860),
 //                    and what they call: the guards and parries (0x0608DC44, 0x0608DAE8), the damage and stun
 //                    (0x0608D7FC), the reaction (0x0608D02C), the hit stops
+//   fight_commands.cpp  the command reader (0x060B2BCC: each of a fighter's commands moved on by its input, by
+//                    the step types' routines), the input picked up for it (0x060B59BE, 0x060B55F8)
 //   fight_hits.cpp   two boxes' overlap (0x0608E908: the hit tests' own), the throws' and the attacks' tests of the
 //                    frame's hit queue (0x0608E43C, 0x0608E5C4), what was hit given its results (0x0608C7F8), the two
 //                    fighters' push boxes (0x0611DBA4)
