@@ -363,6 +363,7 @@ void RegisterComputerEntry();
 void RegisterComputerTactics();
 void RegisterComputerAnswers();
 void RegisterComputerMoves();
+void RegisterStageCamera();
 
 void RegisterLifts3rdStrike() {
     RegisterGameLifts(kLifts, std::size(kLifts));
@@ -370,6 +371,7 @@ void RegisterLifts3rdStrike() {
     RegisterComputerTactics();
     RegisterComputerAnswers();
     RegisterComputerMoves();
+    RegisterStageCamera();
     AddHook("VerticalBlank", 0x06000528, 8, 0xF41697FE6C5AEE4Dull, VerticalBlank);
 }
 
