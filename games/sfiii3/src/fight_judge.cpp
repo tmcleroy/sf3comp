@@ -24,6 +24,10 @@
 //     frame (0x0608D638).
 //   A throw: two throws that met, one stands (by kind, the parry windows open, then the frame); it may be parried or
 //     guarded as an attack; else the thrower to its throw and the caught one held (routine 3).
+//   And the helpers: the combo counted (add_combo_work 0x0608E098), the damage scaled by the combo's hits weighted by
+//     kind (cal_combo_waribiki 0x0608E1FC), the stun by their number (0x0608E3E4), the score's index for the damage
+//     (0x0608DA3C), the spark's place (0x0608CF62), the way an effect's hit turns the one hit (0x0608F240), and the
+//     round's grades: hits, guards and parries counted (0x060942B2, 0x0609433E, 0x06094744).
 #include "fight_core.h"
 
 #include <iterator>
@@ -1594,6 +1598,294 @@ namespace {
         return true;
     }
 
+    // --- the hit path's helpers: the combo counted and its scalings, the score's index, the spark's place, the way
+    // an effect's hit turns, the round's grades ---
+    constexpr uint32_t kScoreTable = 0x0618BBA0;  // [16] {word: damage from, word: the score's index}
+    constexpr uint32_t kComboKinds = 0x0202884C;  // words [player][10]: the hits by the kind's group
+    constexpr uint32_t kComboScalings = 0x065FF1CC; // longs, by the kind of the move over 2: a table of [9][4] words
+    constexpr uint32_t kDamageScalings = 0x065FF048, kDamageScalingsTwo = 0x065FEFC4; // ... [32] words: by the combo's
+                                                  // weight (the second for two characters' second forms)
+    constexpr uint32_t kSparks = 0x061B959E;      // [kind] {word across, word up}: an attack's spark (by att.mkh_ix)
+    constexpr uint32_t kSparkBoxes = 0x0200EC4C, kSparkBoxes2 = 0x0200EC50; // longs, 16 bytes apart: the hit queue's
+                                                  // boxes
+    constexpr uint32_t kBoxesMiddle = 0x0608E9D0; // the middle of where two boxes overlap, the spark's place
+    constexpr uint32_t kGrades = 0x02010C4C;      // the players' round records: 0x98 bytes a player, 76 a round
+    constexpr uint32_t kGradeRound = 0x020113B5;  // byte: the round (for the records)
+    constexpr uint32_t kGradeSteps = 0x02068C5C;  // word (pcon_rno[0]): 0 before the fight
+    // ... in a record
+    constexpr uint32_t kMoveKindOf = 0x20F;       // byte (kind_of_waza)
+    constexpr uint32_t kComboRecord = 0x3F4, kComboRecord2 = 0x42C; // longs: the combo's records (the hits so far:
+                                                  // a count, then by kind)
+    constexpr uint32_t kKindHit = 0x3C8;          // byte: the last hit's kind
+    constexpr uint32_t kNoCombo = 0x41D;          // byte: the hit not counted in a combo
+    constexpr uint32_t kScreenY = 0x58, kSparkScreenY = 0x318; // words: its height on the screen, its spark's
+
+    // A player's record of the round (grades), r0 its offset by the round, as the game's code works it out
+    void Add(Guest &g, uint32_t at, int value) {
+        g.Write16(at, static_cast<uint16_t>(Word(g, at) + value));
+    }
+
+    uint32_t RoundRecord(Guest &g, int32_t player) {
+        const uint32_t round = static_cast<uint16_t>(Byte(g, kGradeRound));
+        return kGrades + Extended(player * 0x98) + ((76 * round) & 0xFF);
+    }
+
+    // 0608DA3C (remake_score_index): the score's index for a hit's damage (r4): the table's last band it reaches.
+    // Leaves r5 the band, r6 16, r7 the table.
+    bool ScoreIndex(Guest &g) {
+        const int16_t damage = static_cast<int16_t>(g.R(4));
+        uint32_t band = 0;
+        while (band < 16 && damage >= Word(g, kScoreTable + band * 4)) {
+            band++;
+        }
+        g.R(5) = band;
+        g.R(6) = 16;
+        g.R(7) = kScoreTable;
+        g.R(0) = Extended(Word(g, kScoreTable + band * 4 + 2));
+        g.Return(20);
+        return true;
+    }
+
+    // 0608E098 (add_combo_work): a hit (r4 the attacker, r5 the one hit) counted in the combo: its kind kept, the
+    // hits by kind and by the kind's group, the hits so far
+    bool ComboCounted(Guest &g) {
+        const uint32_t attacker = g.R(4), hurt = g.R(5);
+        g.R(0) = kNoCombo;
+        g.R(1) = Signed(Byte(g, hurt + kNoCombo));
+        if (g.R(1) != 0) {
+            g.SetT(false);
+            g.Return(10);
+            return true;
+        }
+        const uint32_t kind = g.Read8(attacker + kMoveKindOf);
+        const uint32_t record = g.Read32(hurt + kComboRecord);
+        g.Write16(record + 2, static_cast<uint16_t>(kind));
+        g.Write8(hurt + kKindHit, static_cast<uint8_t>(kind));
+        const int16_t id = Word(g, hurt + 8);
+        Add(g, record + 8 + kind * 2, 1);
+        const uint32_t groups = kComboKinds + Signed(static_cast<int8_t>(id * 20));
+        Add(g, groups + ((kind & 120) >> 3) * 2, 1);
+        Add(g, g.Read32(hurt + kComboRecord), 1);
+        const uint32_t second = g.Read32(hurt + kComboRecord2);
+        Add(g, second + 8 + kind * 2, 1);
+        Add(g, g.Read32(hurt + kComboRecord2), 1);
+        g.R(0) = kComboRecord2;
+        g.R(1) = g.Read32(hurt + kComboRecord2);
+        g.R(2) = kComboKinds;
+        g.R(3) = Extended(Word(g, g.R(1)));
+        g.R(6) = second + 8;
+        g.R(7) = groups;
+        g.SetT(false); // (from the group's shift)
+        g.Return(30);
+        return true;
+    }
+
+    // 0608E1FC (cal_combo_waribiki): the damage (r5's dm_vital) scaled by the combo so far: each of its hits by kind
+    // (the second record: 9 groups of 4 counts, two words each) weighted by the attack's kind's table, the sum's whole
+    // part (rounded up, at most 31) the index of the scaling (in 32nds; the second forms' own for Gill and Oro's
+    // second), at least 1. Leaves r1 the product, r7 the attacker's character (or its form's record).
+    bool ComboDiscount(Guest &g) {
+        const uint32_t attacker = g.R(4), hurt = g.R(5);
+        if (Word(g, hurt + kDamage) == 0 || Word(g, g.Read32(hurt + kComboRecord2)) == 0) {
+            g.Return(20);
+            return true;
+        }
+        const uint32_t kind = g.Read8(attacker + kMoveKindOf) >> 1;
+        const uint32_t weights = g.Read32(kComboScalings + kind * 4);
+        uint32_t sum = 0;
+        for (uint32_t group = 0; group < 9; group++) {
+            for (uint32_t n = 0; n < 4; n++) {
+                const uint32_t at = g.Read32(hurt + kComboRecord2) + 8 + group * 16 + n * 4;
+                const int32_t hits = Word(g, at) + Word(g, at + 2);
+                if (static_cast<int16_t>(hits) != 0) {
+                    const int32_t weight = Word(g, weights + group * 8 + n * 2);
+                    sum += static_cast<uint32_t>(weight * static_cast<int16_t>(hits)) << 8;
+                }
+            }
+        }
+        int16_t weight = static_cast<int16_t>(sum >> 16);
+        if ((sum & 0xFFFF) != 0) {
+            weight++;
+        }
+        uint32_t scalings = g.Read32(kDamageScalings + kind * 4);
+        const int16_t character = Word(g, attacker + kCharacter);
+        g.R(7) = Signed(character);
+        if (character == 3 || character == 10) {
+            const uint32_t form = g.Read32(attacker + 0x3F0);
+            g.R(7) = form;
+            if (Word(g, form) == 2 && Byte(g, form + 10) == -1) {
+                scalings = g.Read32(kDamageScalingsTwo + kind * 4);
+            }
+        }
+        if (weight > 31) {
+            weight = 31;
+        }
+        const int32_t product = Word(g, scalings + Signed(weight) * 2) * Word(g, hurt + kDamage);
+        g.R(1) = Signed(product);
+        const int16_t damage = static_cast<int16_t>(static_cast<int16_t>(product) >> 5);
+        g.Write16(hurt + kDamage, static_cast<uint16_t>(damage > 0 ? damage : 1));
+        g.Return(100);
+        return true;
+    }
+
+    // 0608E3E4 (cal_combo_waribiki_2): the stun (r4's dm_piyo) scaled by the combo's hits: (32 - 2 x hits)/32, at
+    // least 1/32, and at least 1
+    bool StunDiscount(Guest &g) {
+        const uint32_t hurt = g.R(4);
+        if (Word(g, hurt + kStun) == 0 || Word(g, g.Read32(hurt + kComboRecord)) == 0) {
+            g.SetT(true);
+            g.Return(10);
+            return true;
+        }
+        int32_t part = 32 - Word(g, g.Read32(hurt + kComboRecord)) * 2;
+        if (static_cast<int16_t>(part) <= 0) {
+            part = 1;
+        }
+        const int32_t stun = static_cast<int32_t>(static_cast<int16_t>(part) * static_cast<uint32_t>(g.Read16(hurt + kStun)));
+        g.Write16(hurt + kStun, static_cast<uint16_t>((stun < 0 ? stun + 31 : stun) >> 5));
+        g.SetT(Word(g, hurt + kStun) == 0);
+        if (Word(g, hurt + kStun) == 0) {
+            g.Write16(hurt + kStun, 1);
+        }
+        g.Return(30);
+        return true;
+    }
+
+    // 0608CF62 (cal_hit_mark_pos): where a hit's spark is (r4 the attacker, r5 the one hit, r6 and r7 their boxes' places
+    // in the hit queue): an attack's own spark (att.mkh_ix) from its place (across, by its facing), else the middle of
+    // where the boxes met (0x0608E9D0); and its height on the screen
+    bool SparkPlace(Guest &g) {
+        const uint32_t attacker = g.R(4);
+        {
+            Frame frame(g, 20); // (r14, pr, three words)
+            const uint32_t mark = g.Read8(attacker + kSparkMark);
+            if (mark != 0) {
+                const uint32_t spark = kSparks + mark * 4;
+                const int16_t x = Word(g, attacker + kX), offset = Word(g, spark);
+                g.Write16(attacker + kSparkX, static_cast<uint16_t>(Byte(g, attacker + kFacing) != 0 ? x - offset : x + offset));
+                g.R(1) = attacker + kSparkY;
+                g.R(5) = spark;
+                g.Write16(attacker + kSparkY, static_cast<uint16_t>(Word(g, spark + 2) + Word(g, attacker + kY)));
+            } else {
+                const uint32_t mine = g.R(6), theirs = g.R(7);
+                g.R(0) = Extended(static_cast<int32_t>(mine));
+                g.R(4) = g.R(5);
+                g.R(7) = g.Read32(kSparkBoxes + (Extended(static_cast<int32_t>(mine)) << 4));
+                g.R(6) = g.Read32(kSparkBoxes2 + (Extended(static_cast<int32_t>(theirs)) << 4));
+                g.R(5) = attacker;
+                g.R(3) = kBoxesMiddle;
+                g.Call(kBoxesMiddle);
+            }
+            g.R(0) = kSparkScreenY;
+            g.R(2) = Signed(Word(g, attacker + kScreenY)) - 8;
+            g.Write16(attacker + kSparkScreenY, static_cast<uint16_t>(g.R(2)));
+        }
+        g.Return(40);
+        return true;
+    }
+
+    // 0608F240 (setup_dm_rl_pldm): the way a fighter (r5) hit by an effect (r4) turns: the effect's facing; in the
+    // air, for an effect that says so (att.dipsw 2), away from it (by their places across; level, the facing)
+    bool HurtWayByEffect(Guest &g) {
+        const uint32_t effect = g.R(4), hurt = g.R(5);
+        g.Write8(hurt + kHurtFacing, g.Read8(effect + kFacing));
+        if (Word(g, hurt + kY) > 0 && (g.Read8(effect + kAttackFlags) & 2)) {
+            const int16_t apart = static_cast<int16_t>(Word(g, hurt + kX) - Word(g, effect + kX));
+            g.Write8(hurt + kHurtFacing, apart != 0 ? (apart > 0 ? 1 : 0) : g.Read8(effect + kFacing));
+        }
+        g.Return(20);
+        return true;
+    }
+
+    // 060942B2 (grade_add_clean_hits): a hit by a fighter (r4; an effect's: its owner's) counted in its player's
+    // record of the round, once the fight is on. Leaves r0-r5 and T as the game's code.
+    bool GradeHit(Guest &g) {
+        g.R(3) = kGradeSteps;
+        g.R(2) = Extended(Word(g, kGradeSteps));
+        if (g.R(2) == 0) {
+            g.SetT(true);
+            g.Return(10);
+            return true;
+        }
+        g.R(5) = Extended(Word(g, g.R(4) + 8));
+        g.R(0) = Extended(Word(g, g.R(4) + kKind));
+        if (g.R(0) != 1) {
+            g.R(4) = g.Read32(g.R(4) + kOwnerRecord);
+            g.R(0) = Extended(Word(g, g.R(4) + kKind));
+            g.SetT(g.R(0) == 1);
+            if (g.R(0) != 1) {
+                g.Return(10);
+                return true;
+            }
+            g.R(5) = Extended(Word(g, g.R(4) + 8));
+        }
+        g.SetT(true);
+        g.R(1) = Signed(Byte(g, kGradeRound));
+        g.R(5) = Extended(static_cast<int16_t>(g.R(5)) * 0x98);
+        g.R(3) = kGrades + g.R(5);
+        g.R(2) = g.R(3) + ((76 * (g.R(1) & 0xFFFF)) & 0xFF);
+        g.R(0) = Signed(Word(g, g.R(2) + 12)) + 1;
+        g.Write16(g.R(2) + 12, static_cast<uint16_t>(g.R(0)));
+        g.Return(20);
+        return true;
+    }
+
+    // 0609433E (grade_add_guard_success): a guard counted in the player's (r4) record of the round. Leaves r2 1 or the
+    // player's records.
+    bool GradeGuard(Guest &g) {
+        const uint32_t player = g.R(4) & 0xFFFF;
+        g.R(2) = 1;
+        if (static_cast<int32_t>(player) > 1) {
+            g.Return(10);
+            return true;
+        }
+        g.R(2) = kGrades + Extended(static_cast<int16_t>(g.R(4)) * 0x98);
+        const uint32_t at = RoundRecord(g, static_cast<int16_t>(g.R(4))) + 16;
+        Add(g, at, 1);
+        g.Return(20);
+        return true;
+    }
+
+    // 06094744 (grade_add_blocking): a parry counted in the parrier's (r4) record of the round, by its kind (0 while
+    // standing, 1 while hurt, 2 in the air): its health then kept, the count (at most 15). Leaves r0-r7 and T as the
+    // game's code.
+    bool GradeParry(Guest &g) {
+        const uint32_t fighter = g.R(4);
+        g.R(6) = 15;
+        g.R(5) = kPlayType;
+        g.R(7) = Extended(Word(g, fighter + 8));
+        const uint32_t base = kGrades + Extended(static_cast<int16_t>(g.R(7)) * 0x98);
+        const uint32_t round = (76 * (Signed(Byte(g, kGradeRound)) & 0xFFFF)) & 0xFF;
+        const uint32_t kind = g.Read8(fighter + kParryKind);
+        g.R(0) = kind;
+        g.R(1) = base;
+        g.R(2) = round;
+        if (kind > 2) {
+            g.SetT(false);
+            g.Return(20);
+            return true;
+        }
+        const uint32_t record = base + round;
+        g.Write16(record + 56 + kind * 2, g.Read16(fighter + kHealth));
+        const uint32_t count = 20 + kind * 2;
+        g.R(0) = record;
+        g.R(1) = count;
+        g.R(3) = record + count;
+        g.R(2) = Signed(Word(g, record + count)) + 1;
+        g.Write16(record + count, static_cast<uint16_t>(g.R(2)));
+        g.R(2) = Extended(static_cast<int32_t>(g.R(2)));
+        g.SetT(static_cast<int32_t>(g.R(2)) > 15);
+        if (static_cast<int32_t>(g.R(2)) > 15) {
+            g.R(2) = 76;
+            g.R(3) = 0x98;
+            g.R(7) = record;
+            g.R(0) = 15;
+            g.Write16(record + count, 15);
+        }
+        g.Return(30);
+        return true;
+    }
+
     const Lift kLifts[] = {
         {"ResultsExtra", 0x0608C860, 0x12A, 0x5E96AF72EB69F185ull, ResultsExtra, true, 0x00004},
         {"ParryCounted", 0x0608DBEC, 0x48, 0x7602A93C2CD70889ull, ParryCounted, true, 0x1001F},
@@ -1619,6 +1911,15 @@ namespace {
         {"EffectHitsPlayer", 0x0608F008, 0x208, 0xB9B37B7732AF8605ull, EffectHitsPlayer, true, 0x100FD},
         {"PlayerHitsEffect", 0x0608EEA0, 0x158, 0x86B39048D6547452ull, PlayerHitsEffect, true, 0x100FD},
         {"EffectHitsEffect", 0x0608F290, 0x148, 0x8BC4E5B04F5A6460ull, EffectHitsEffect, true, 0x100FD},
+        {"ScoreIndex", 0x0608DA3C, 0x26, 0xD98E2C27563736D6ull, ScoreIndex, true, 0x1007E},
+        {"ComboCounted", 0x0608E098, 0x88, 0xDF38C01F2C3B62BEull, ComboCounted, true, 0x00018},
+        {"ComboDiscount", 0x0608E1FC, 0x1E8, 0x8C3D124CD24204F6ull, ComboDiscount, true, 0x1007D},
+        {"StunDiscount", 0x0608E3E4, 0x58, 0x28F133578D0B415Eull, StunDiscount, true, 0x0007D},
+        {"SparkPlace", 0x0608CF62, 0x9E, 0xCCEF250AC7CC5D05ull, SparkPlace, true, 0x1001D},
+        {"HurtWayByEffect", 0x0608F240, 0x4A, 0x3AF332A1D5618C8Bull, HurtWayByEffect, true, 0x100FF},
+        {"GradeHit", 0x060942B2, 0x46, 0x6495D6200457E962ull, GradeHit, true, 0},
+        {"GradeGuard", 0x0609433E, 0x2E, 0x1579B1D2ED09E8FEull, GradeGuard, true, 0x1503B},
+        {"GradeParry", 0x06094744, 0x118, 0xD8BBD9A0547C0719ull, GradeParry, true, 0},
     };
 } // namespace
 

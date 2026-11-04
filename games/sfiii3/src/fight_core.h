@@ -17,7 +17,8 @@
 //                    played on the arcade), the computer's put in a person's form (0x060B6242)
 //   fight_judge.cpp  what the hit tests found made of: a hit (0x0608CE68), a throw (0x0608C994), a trade (0x0608C860),
 //                    and what they call: the guards and parries (0x0608DC44, 0x0608DAE8), the damage and stun
-//                    (0x0608D7FC), the reaction (0x0608D02C), the hit stops
+//                    (0x0608D7FC), the reaction (0x0608D02C), the hit stops, the combo's count and scalings, the
+//                    spark's place, the round's grades
 //   fight_commands.cpp  the command reader (0x060B2BCC: each of a fighter's commands moved on by its input, by
 //                    the step types' routines), the input picked up for it (0x060B59BE, 0x060B55F8)
 //   fight_hits.cpp   two boxes' overlap (0x0608E908: the hit tests' own), the throws' and the attacks' tests of the
