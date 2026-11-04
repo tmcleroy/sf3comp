@@ -119,11 +119,28 @@ if [ "$CHECKLIFTS_RUNS" = all ]; then
         [ $f -gt 0 ] && POKES[3]+="$f:2011376:20,"
     done
 fi
-# (SFIII3_CHECK_VERSUS=1: versus games of made-up play instead, two players: checkstages.sh)
+# (SFIII3_CHECK_VERSUS=1: versus games of made-up play instead, two players, and training sessions on every stage:
+# checkstages.sh)
 if [ -n "$SFIII3_CHECK_VERSUS" ]; then
     NAMES=(vs7 vs11 vs23 vs37)
     ARGS=("--auto 7:300" "--auto 11:300" "--auto 23:300" "--auto 37:300")
     POKES=("" "" "" "")
+    # Training sessions started again every 800 frames (each fought from about 250 frames after its start), each on the
+    # next stage (training_stage: 3rd Strike's stage numbers plus one), seven to nine a run: every stage's routines met.
+    # In the second, player 1 is Oro (kChosen), for his entrance from the sky on his stage.
+    stages() {
+        local s=$1 f out=""
+        for ((f = 30; f < FRAMES - 600; f += 800)); do
+            out+="$f:ftraining_stage=$s,$f:ctraining_start,"
+            s=$((s % 21 + 1))
+        done
+        echo "$out"
+    }
+    NAMES+=(stages1 stages10 stages19)
+    ARGS+=("--features dummy_computer --auto 3:300:1 --keys $(stages 1)"
+           "--features dummy_computer --auto 5:300:1 --poke 2011387=09 --keys $(stages 10)"
+           "--features training_watch --auto 13:300:1 --keys $(stages 19)")
+    POKES+=("" "" "")
 fi
 
 # Every rewrite registered: the names in the sources' lift tables ({"Name", 0x...}, not in a remark), unless

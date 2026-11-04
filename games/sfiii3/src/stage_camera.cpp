@@ -510,9 +510,14 @@ namespace {
 } // namespace
 
 void RegisterGameLifts(const Lift *lifts, size_t count); // lifts.cpp
+void RegisterStageZoom();  // stage_zoom.cpp
+void RegisterStageParts(); // stage_parts.cpp
 
+// (the stage's other rewrites too, the zoom's and the stages' own)
 void RegisterStageCamera() {
     RegisterGameLifts(kLifts, std::size(kLifts));
+    RegisterStageZoom();
+    RegisterStageParts();
 }
 
 } // namespace cps3recomp
