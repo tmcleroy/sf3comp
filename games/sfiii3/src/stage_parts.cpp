@@ -186,10 +186,8 @@ namespace {
     void Remy(Guest &g) {
         Run(g, {StepFrom(1, 0x0619E4F8), StepFrom(0, 0x0619E4F0), LayerRoutine(2, 0x060BEC48), kZoom, kScrolls, kBoard});
     }
-    // 060BED24 (Bonus_bg): the bonus game's (no zoom)
-    void Bonus(Guest &g) {
-        Run(g, {StepFrom(1, 0x0619E508), StepFrom(0, 0x0619E500), kScrolls, kBoard});
-    }
+    // (the bonus game's, 060BED24 Bonus_bg, is the same with no zoom and its own steps: not written again, no check run
+    // reaches a bonus game)
 
 
     // --- a layer's routines (the layer being worked on: kLayerAt) ---
@@ -402,26 +400,34 @@ namespace {
     // A far layer (2) with its own routine (bg0103 and the like): set up (its speeds, its top, its number 2, its place up
     // 0 and the fractions of its places cleared: after its places are copied, or by Ibuki's before), then moved; its
     // objects with it
+    enum Clear { kClearAfter, kClearBefore, kClearNone }; // (when the fractions of its places are cleared)
     struct Far {
         int32_t speedAcross, speedUp, top;
-        bool clearedFirst;
+        Clear clear;
+        bool notWide; // (its kWide cleared too)
+        int32_t home = 0x200;
     };
     template <const Far &F>
     void FarLayer(Guest &g) {
         const uint32_t layer = LayerNow(g);
         switch (Word(g, layer + kStep)) {
         case 0:
-            if (F.clearedFirst) {
+            if (F.clear == kClearBefore) {
                 SetWord(g, layer + kFamily, 2);
                 SetWord(g, layer + kShownUp + 2, 0);
                 SetWord(g, layer + kShownAcross + 2, 0);
             }
-            Home(g, layer, 0x200, kHeldLong);
+            Home(g, layer, F.home, kHeldLong);
+            if (F.notWide) {
+                g.Write32(layer + kWide, 0);
+            }
             SetWord(g, layer + kHomeUp, 0);
             SetWord(g, layer + kShownUp, 0);
             SetWord(g, layer + kFamily, 2);
-            SetWord(g, layer + kShownUp + 2, 0);
-            SetWord(g, layer + kShownAcross + 2, 0);
+            if (F.clear == kClearAfter) {
+                SetWord(g, layer + kShownUp + 2, 0);
+                SetWord(g, layer + kShownAcross + 2, 0);
+            }
             SetWord(g, layer + kTopEnd, F.top);
             SetWord(g, layer + kTop, F.top);
             g.Write32(layer + kSpeedAcross, static_cast<uint32_t>(F.speedAcross));
@@ -433,15 +439,20 @@ namespace {
             break;
         }
     }
-    constexpr Far kAlexFar = {0xB000, 0xE000, 0xF0, false};   // 060BC244 (bg0103)
-    constexpr Far kHugoFar = {0x10800, 0x10000, 0xF0, false}; // 060BCF90
-    constexpr Far kIbukiFar = {0xE000, 0xF800, 0xC0, true};   // 060BD294
+    constexpr Far kAlexFar = {0xB000, 0xE000, 0xF0, kClearAfter, false};   // 060BC244 (bg0103)
+    constexpr Far kHugoFar = {0x10800, 0x10000, 0xF0, kClearAfter, false}; // 060BCF90
+    constexpr Far kIbukiFar = {0xE000, 0xF800, 0xC0, kClearBefore, false}; // 060BD294
+    constexpr Far kUrienFar = {0xE000, 0xE000, 0xD0, kClearNone, true};    // 060BE22A
+    constexpr Far kAkumaFar = {0xA000, 0xE000, 0xF0, kClearAfter, false};  // 060BE49C
+    constexpr Far kChunLiFar = {0xF000, 0xF000, 0xF0, kClearNone, true};   // 060BE77C
+    constexpr Far kMakotoFar = {0x12000, 0x10000, 0xF0, kClearNone, true}; // 060BE9FC
+    constexpr Far kRemyFar = {0xD000, 0xE000, 0xF0, kClearAfter, false, 0x1D0}; // 060BEC48
 
     // A layer's first step with its place shown measured from the picture's left edge (Hugo's and Q's nearer layer):
-    // its step within its step 0, home 0x200, and kHeld its place less the picture's left edge (from its middle), up 0;
-    // and the stage's things set going
+    // its step within its step 0, home 0x200, and kHeld its place less the picture's left edge (from its middle); its
+    // place up 0 (but Yang's nearer layer's); and the stage's things set going
     constexpr uint32_t kLeftOfMiddle = kStage + 0x28; // word (pos_offset)
-    void SetUpFromEdge(Guest &g, std::initializer_list<CallTo> calls) {
+    void SetUpFromEdge(Guest &g, std::initializer_list<CallTo> calls, bool down = true) {
         const uint32_t layer = LayerNow(g);
         SetWord(g, layer + kTurn, 0);
         StepOn(g, layer);
@@ -452,8 +463,10 @@ namespace {
         g.Write32(layer + kAcross, g.Read32(layer + kShownAcross));
         SetWord(g, layer + kHeld, Word(g, layer + kAcross) - Word(g, kLeftOfMiddle));
         SetWord(g, layer + kHeld + 2, 0);
-        g.Write32(layer + kAcross + 4, 0);
-        g.Write32(layer + kShownUp, 0);
+        if (down) {
+            g.Write32(layer + kAcross + 4, 0);
+            g.Write32(layer + kShownUp, 0);
+        }
         CallAll(g, calls);
     }
     void AlexFighters(Guest &g) { // 060BC150
@@ -758,6 +771,61 @@ namespace {
     }
 
 
+    // --- Yang's, Sean's, Urien's, Akuma's, Chun-Li's, Makoto's, Remy's ---
+    void YangNear(Guest &g) { // 060BDB9A
+        SetUpFromEdge(g, {Plain(0x060E563A), Plain(0x060E736C)}, false);
+    }
+    void YangFighters(Guest &g) { // 060BDC50
+        SetUpFromEdge(g, {With(kLoad, 0xD990, 1), Plain(0x060DD486), Plain(0x060DD612), With(0x060EB982, 5)});
+    }
+    void SeanFighters(Guest &g) { // 060BDF94
+        SetUp(g, 0x200, kHeldLong, {With(kLoad, 0xDAC0, 1), Plain(0x060DD486), Plain(0x060DD612), Plain(0x060ED862), With(0x060E10AE, 2)});
+    }
+    // 060BDFF0: Sean's far layers (2, 6, 5): set up (speeds by its number), then moved; their objects with them
+    void SeanFar(Guest &g) {
+        const uint32_t layer = LayerNow(g);
+        if (Word(g, layer + kStep) == 0) {
+            Home(g, layer, 0x200, kHeldLong);
+            SetWord(g, layer + kHomeUp, 0);
+            SetWord(g, layer + kShownUp, 0);
+            const int family = Word(g, layer + kFamily);
+            g.Write32(layer + kSpeedAcross, family == 2 ? 0xC000 : family == 6 ? 0x9000 : 0x12000);
+            g.Write32(layer + kSpeedUp, 0x10000);
+            SetWord(g, layer + kShownUp + 2, 0);
+            SetWord(g, layer + kShownAcross + 2, 0);
+            SetWord(g, layer + kTopEnd, 0xF0);
+            SetWord(g, layer + kTop, 0xF0);
+        } else {
+            CallAll(g, {Plain(kMoveAcross), Plain(kMoveUp)});
+        }
+        CallAll(g, {With(kWithLayer, Word(g, LayerNow(g) + kFamily))});
+    }
+    void UrienFighters(Guest &g) { // 060BE184
+        SetUp(g, 0x200, kHeldLong, {With(kLoad, 0x2A00, 1), Plain(0x060DD486)});
+    }
+    // 060BE39C: Akuma's fighters' layer: set up, no stage's entrance, and the stage's things set going
+    void AkumaFighters(Guest &g) {
+        const uint32_t layer = LayerNow(g);
+        Home(g, layer, 0x200, kHeldLong);
+        g.Write32(layer + kWide, 0);
+        g.Write8(kStageEntrance, 0);
+        CallAll(g, {With(kLoad, 0xDA30, 1), Plain(0x060DD486), Plain(0x060DD612), With(0x060E10AE, 0), With(0x060E3A00, 10)});
+    }
+    void ChunLiFighters(Guest &g) { // 060BE6F8
+        SetUp(g, 0x200, kHeldLong, {With(kLoad, 0xDE10, 1), With(kLoad, 0xE0A0, 1), Plain(0x060DD486), With(0x060E10AE, 5), Plain(0x060DD612),
+                                    With(0x060EB982, 8), With(0x060E6028, 0), With(0x060F6FF8, 0), With(0x060F6FF8, 1), Plain(0x0610B5D2),
+                                    Plain(0x060F58C8)});
+    }
+    void MakotoFighters(Guest &g) { // 060BE95A
+        SetUp(g, 0x200, kHeldLong, {With(kLoad, 0xDBF0, 1), Plain(0x060DD486), Plain(0x060DD612), With(0x060EB982, 2), Plain(0x060E4D90),
+                                    With(0x060F6FF8, 2)});
+    }
+    void RemyFighters(Guest &g) { // 060BEBD4
+        SetUp(g, 0x1D0, kHeldLong, {With(kLoad, 0xDD60, 1), Plain(0x060DD486), Plain(0x060DD612), Plain(0x060F1652), With(0x060E3A00, 8),
+                                    With(0x060E3A00, 9), Plain(0x06113626), With(0x060EB982, 6), With(0x060E10AE, 3)});
+    }
+
+
     void IbukiFighters(Guest &g) { // 060BD240
         SetUp(g, 0x200, kHeldLong, {With(kLoad, 0xDCA0, 1), Plain(0x060DD612), With(0x060F6FF8, 3), Plain(0x0610E076)});
     }
@@ -792,7 +860,6 @@ namespace {
         {"StageMakoto", 0x060BE85C, 0x78, 0xE909E6F017F91331ull, Lifted<Makoto>, true, kFree},
         {"StageQ", 0x060BCB14, 0x90, 0x08C497B141B75AB2ull, Lifted<Q>, true, kFree},
         {"StageRemy", 0x060BEAB4, 0x78, 0x1205BA60E1ED9BA0ull, Lifted<Remy>, true, kFree},
-        {"StageBonus", 0x060BED24, 0x58, 0x2D168912B1C4BFEFull, Lifted<Bonus>, true, kFree},
         // (the layers' routines)
         {"StageMoveWithCamera", 0x060BACE4, 0xE, 0xDF3593D3EE365783ull, Lifted<MoveWithCamera>, true, kFree},
         {"StageGillFighters", 0x060BBD76, 0x138, 0xDBE4D0486C6FABE4ull, Lifted<GillFighters>, true, kFree},
@@ -841,6 +908,26 @@ namespace {
         {"StageOroFar", 0x060BD800, 0x11E, 0x8FE92B0B772457FEull, Lifted<OroFar>, true, kFree},
         {"StageOroNear", 0x060BD718, 0x32, 0x02631853A4FEA820ull, Lifted<OroNear>, true, kFree},
         {"StageOroFighters", 0x060BD7B0, 0x50, 0x7F867BF370806035ull, Lifted<OroFighters>, true, kFree},
+        {"StageYangNear", 0x060BDB9A, 0x5E, 0x9F446B95B995C57Cull, Lifted<YangNear>, true, kFree},
+        {"StageYangFighters", 0x060BDC50, 0x76, 0x8590C5DE81DEB2C2ull, Lifted<YangFighters>, true, kFree},
+        {"StageSeanNear", 0x060BDF10, 0x36, 0x2D3728B2ECA18FB4ull, Lifted<SetUpOnly<0x200, kHeldLong>>, true, kFree},
+        {"StageSeanFighters", 0x060BDF94, 0x5C, 0xB7C1EE747A62AA52ull, Lifted<SeanFighters>, true, kFree},
+        {"StageSeanFar", 0x060BDFF0, 0xB8, 0x09B19433361246ECull, Lifted<SeanFar>, true, kFree},
+        {"StageUrienFighters", 0x060BE184, 0x48, 0x8CDCBDCF4BA1A21Eull, Lifted<UrienFighters>, true, kFree},
+        {"StageUrienNear", 0x060BE1F4, 0x36, 0xCC8E2F6151A61A40ull, Lifted<SetUpOnly<0x200, kHeldLong>>, true, kFree},
+        {"StageUrienFar", 0x060BE22A, 0xBE, 0x80C830636F314E50ull, Lifted<FarLayer<kUrienFar>>, true, kFree},
+        {"StageAkumaFighters", 0x060BE39C, 0x64, 0xEA7C1F6F8689F8D5ull, Lifted<AkumaFighters>, true, kFree},
+        {"StageAkumaNear", 0x060BE428, 0x36, 0xF7DC1A01731BBEF9ull, Lifted<SetUpOnly<0x200, kHeldLong>>, true, kFree},
+        {"StageAkumaFar", 0x060BE49C, 0x9A, 0xF6C85B5B48AF2D9Aull, Lifted<FarLayer<kAkumaFar>>, true, kFree},
+        {"StageChunLiNear", 0x060BE678, 0x36, 0x4E6257B6F3149EEBull, Lifted<SetUpOnly<0x200, kHeldLong>>, true, kFree},
+        {"StageChunLiFighters", 0x060BE6F8, 0x84, 0x394D2F15B1D38B2Cull, Lifted<ChunLiFighters>, true, kFree},
+        {"StageChunLiFar", 0x060BE77C, 0x9A, 0x4A7798AE1EEA1528ull, Lifted<FarLayer<kChunLiFar>>, true, kFree},
+        {"StageMakotoNear", 0x060BE8FC, 0x36, 0x0B7D3BDBECE56D6Bull, Lifted<SetUpOnly<0x200, kHeldLong>>, true, kFree},
+        {"StageMakotoFighters", 0x060BE95A, 0x62, 0x810FA11080A58780ull, Lifted<MakotoFighters>, true, kFree},
+        {"StageMakotoFar", 0x060BE9FC, 0x9C, 0x04308437E3A1C569ull, Lifted<FarLayer<kMakotoFar>>, true, kFree},
+        {"StageRemyNear", 0x060BEB54, 0x36, 0x4E6257B6F3149EEBull, Lifted<SetUpOnly<0x1D0, kHeldLong>>, true, kFree},
+        {"StageRemyFighters", 0x060BEBD4, 0x74, 0xD7B098C411107363ull, Lifted<RemyFighters>, true, kFree},
+        {"StageRemyFar", 0x060BEC48, 0x9A, 0x5DA80F158B790981ull, Lifted<FarLayer<kRemyFar>>, true, kFree},
     };
 } // namespace
 
