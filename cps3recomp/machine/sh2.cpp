@@ -8,7 +8,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
 #include <map>
+#include <tuple>
 #include <vector>
 
 namespace cps3recomp::machine {
@@ -123,6 +125,63 @@ static inline bool PlainRead(uint32 a) {
     const uint32 area = a >> 29, address = a & 0x1FFFFFFFu;
     return (area <= 1 && (address < 0x80000u || (address >> 24) == 6)) || area == 6;
 }
+// Debugging aid, CPS3RECOMP_HW_CENSUS=path (run with CPS3RECOMP_NO_BLOCKS=1, so that PC is the instruction's): every
+// access to the board's video and sound chips, its controls and interrupts (anything but main RAM, the ROMs, the flash
+// and the cache RAM), counted by the instruction, written at exit as "R|W PC PR AREA LOW HIGH SIZES COUNT LINES": AREA is the
+// register's address for the chips' registers, the memory's start for their memories (LOW-HIGH the addresses met; LINES the first and last of the frame's 264 lines, from the vertical
+// blank's start, an access was made at)
+namespace {
+    struct Census {
+        const char *path = getenv("CPS3RECOMP_HW_CENSUS");
+        struct Entry {
+            uint32 pr = 0, low = 0xFFFFFFFFu, high = 0, sizes = 0, firstLine = 999, lastLine = 0;
+            uint64 count = 0;
+        };
+        std::map<std::tuple<char, uint32, uint32>, Entry> counts; // (kind, PC, area)
+        static uint32 Area(uint32 a) {
+            if (a >= 0x04000000u && a < 0x04080000u) {
+                return a < 0x04002000u ? 0x04000000u : 0x04002000u; // (the object lists; the rest of sprite RAM)
+            }
+            if (a >= 0x04080000u && a < 0x040C0000u) {
+                return 0x04080000u;
+            }
+            if (a >= 0x04100000u && a < 0x04200000u) {
+                return 0x04100000u;
+            }
+            if (a >= 0x05040000u && a < 0x05050000u) {
+                return a < 0x05044000u ? 0x05040000u : a < 0x05048000u ? 0x05044000u : 0x05048000u; // (map, line scroll, characters)
+            }
+            if (a >= 0x040E0000u && a < 0x040E0200u) {
+                return 0x040E0000u; // (the voices; 040E0200 on, key on, by address)
+            }
+            return a & ~3u;
+        }
+        void Note(char kind, uint32 a, uint32 size, uint32 pc, uint32 pr, uint32 line) {
+            a &= 0x1FFFFFFFu;
+            if ((a >> 24) == 6 || a < 0x80000u || (a >= 0x04200000u && a < 0x04400000u) || (a >= 0x02000000u && a < 0x02080000u)) {
+                return;
+            }
+            Entry &e = counts[{kind, pc, Area(a)}];
+            e.pr = pr;
+            e.low = std::min(e.low, a);
+            e.high = std::max(e.high, a);
+            e.sizes |= size;
+            e.firstLine = std::min(e.firstLine, line);
+            e.lastLine = std::max(e.lastLine, line);
+            e.count++;
+        }
+        ~Census() {
+            if (FILE *f = path ? fopen(path, "w") : nullptr) {
+                for (const auto &[key, e] : counts) {
+                    fprintf(f, "%c %08X %08X %08X %08X %08X %u %llu %u-%u\n", std::get<0>(key), std::get<1>(key), e.pr, std::get<2>(key), e.low, e.high, e.sizes,
+                            static_cast<unsigned long long>(e.count), e.firstLine, e.lastLine);
+                }
+                fclose(f);
+            }
+        }
+    } g_census;
+    const bool g_censusOn = g_census.path != nullptr;
+} // namespace
 uint8 SH2::Read8(uint32 a) {
     if (m_busTiming) [[unlikely]] {
         m_busExtra += m_bus.Read(a, 1);
@@ -132,6 +191,9 @@ uint8 SH2::Read8(uint32 a) {
     }
     ++g_activity;
     g_hardware += !PlainRead(a);
+    if (g_censusOn) [[unlikely]] {
+        g_census.Note('R', a, 1, PC, PR, static_cast<uint32>(m_machine.FramePosition() * Machine::kLines));
+    }
     switch (a >> 29) {
     case 0: case 1: return m_machine.BusRead8(a & 0x1FFFFFFFu);
     case 6: return m_cacheData[a & 0xFFF];
@@ -149,6 +211,9 @@ uint16 SH2::Read16(uint32 a) {
     }
     ++g_activity;
     g_hardware += !PlainRead(a);
+    if (g_censusOn) [[unlikely]] {
+        g_census.Note('R', a, 2, PC, PR, static_cast<uint32>(m_machine.FramePosition() * Machine::kLines));
+    }
     switch (a >> 29) {
     case 0: case 1: return m_machine.BusRead16(a & 0x1FFFFFFFu);
     case 6: return Get16(&m_cacheData[a & 0xFFE]);
@@ -166,6 +231,9 @@ uint32 SH2::Read32(uint32 a) {
     }
     ++g_activity;
     g_hardware += !PlainRead(a);
+    if (g_censusOn) [[unlikely]] {
+        g_census.Note('R', a, 4, PC, PR, static_cast<uint32>(m_machine.FramePosition() * Machine::kLines));
+    }
     switch (a >> 29) {
     case 0: case 1: return m_machine.BusRead32(a & 0x1FFFFFFFu);
     case 6: return Get32(&m_cacheData[a & 0xFFC]);
@@ -254,6 +322,9 @@ void SH2::Write8(uint32 a, uint8 v) {
             g_hardwareWrites->push_back({a, v, 1});
         }
     }
+    if (g_censusOn) [[unlikely]] {
+        g_census.Note('W', a, 1, PC, PR, static_cast<uint32>(m_machine.FramePosition() * Machine::kLines));
+    }
     switch (a >> 29) {
     case 0: case 1: m_machine.BusWrite8(a & 0x1FFFFFFFu, v); break;
     case 2: break; // (the cache's associative purge area: a write there drops a line from the cache; there is no cache here)
@@ -289,6 +360,9 @@ void SH2::Write16(uint32 a, uint16 v) {
         if (g_hardwareWrites) [[unlikely]] {
             g_hardwareWrites->push_back({a, v, 2});
         }
+    }
+    if (g_censusOn) [[unlikely]] {
+        g_census.Note('W', a, 2, PC, PR, static_cast<uint32>(m_machine.FramePosition() * Machine::kLines));
     }
     switch (a >> 29) {
     case 0: case 1: m_machine.BusWrite16(a & 0x1FFFFFFFu, v); break;
@@ -329,6 +403,9 @@ void SH2::Write32(uint32 a, uint32 v) {
         if (g_hardwareWrites) [[unlikely]] {
             g_hardwareWrites->push_back({a, v, 4});
         }
+    }
+    if (g_censusOn) [[unlikely]] {
+        g_census.Note('W', a, 4, PC, PR, static_cast<uint32>(m_machine.FramePosition() * Machine::kLines));
     }
     switch (a >> 29) {
     case 0: case 1: m_machine.BusWrite32(a & 0x1FFFFFFFu, v); break;
