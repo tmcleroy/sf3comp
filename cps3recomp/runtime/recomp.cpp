@@ -60,6 +60,9 @@ struct Access {
         machine::Bus bus; // (the bus's timing: its cache's state, and the pipeline's)
         bool operator==(const Registers &) const = default;
     };
+    static machine::Machine &Board(SH2 &c) {
+        return c.m_machine;
+    }
     static Registers Get(SH2 &c) {
         return {c.R, c.PC, c.PR, c.SR.u32, c.GBR, c.VBR, c.MAC.u64, c.m_cyclesExecuted, c.m_intrFlags.pending, c.m_intrFlags.allow,
                 c.m_delaySlot, c.m_sleep, c.m_delaySlotTarget, c.m_recompResume, c.m_bus};
@@ -1549,6 +1552,9 @@ void Guest::Call(uint32_t address) {
     m_cpu.RecalcInterrupts();
     m_cpu.PR = pr;
     m_cpu.PC = pc;
+}
+machine::Machine &Guest::Board() {
+    return Access::Board(m_cpu);
 }
 void Guest::Return(uint64_t cycles) {
     m_cpu.PC = m_cpu.PR;

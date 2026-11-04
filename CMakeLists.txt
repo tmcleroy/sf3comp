@@ -42,7 +42,7 @@ add_custom_target(game_cfg DEPENDS "${WORK_DIR}/game_cfg.h" "${WORK_DIR}/game_in
 
 set(MACHINE_SOURCES
     ${CR}/machine/sh2.cpp ${CR}/machine/machine.cpp ${CR}/machine/crypt.cpp ${CR}/machine/romset.cpp
-    ${CR}/machine/state.cpp ${CR}/machine/bus.cpp ${CR}/video/renderer.cpp ${CR}/sound/pcm.cpp)
+    ${CR}/machine/state.cpp ${CR}/machine/bus.cpp ${CR}/video/renderer.cpp ${CR}/video/native.cpp ${CR}/sound/pcm.cpp)
 add_library(cps3machine STATIC ${MACHINE_SOURCES})
 target_include_directories(cps3machine PUBLIC ${CR}/machine ${CR}/video ${CR}/sound ${CR}/runtime ${CR}/port)
 target_link_libraries(cps3machine PUBLIC ZLIB::ZLIB)

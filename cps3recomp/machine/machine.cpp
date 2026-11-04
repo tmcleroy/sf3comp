@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 namespace cps3recomp::machine {
 
@@ -222,6 +223,9 @@ void Machine::RunFrame() {
     m_irqLines |= 1u << 12;
     UpdateInterrupts();
     RunUntil(m_frameStart + static_cast<uint64>(kLines) * kCyclesPerLine);
+    if (nativeCheck) {
+        NativeCompare();
+    }
     if (g_traceDma) {
         fprintf(stderr, "frame %llu: %u character DMAs (%u bytes), %u palette, %u sprite lists (%u objects)\n", static_cast<unsigned long long>(m_frame),
                 g_charDmas, g_charBytes, g_palDmas, g_spriteDmas, m_spriteCount);
@@ -428,11 +432,17 @@ void Machine::WriteMasked(uint32 a, uint32 v, uint32 mask) {
             uint32 c = m_colourRam[index];
             Combine(c, v >> 16, mask >> 16);
             SetColour(index, static_cast<uint16>(c), 0);
+            if (nativeCheck) {
+                NoteColourWrite(index);
+            }
         }
         if (mask & 0xFFFFu) {
             uint32 c = m_colourRam[index + 1];
             Combine(c, v, mask & 0xFFFF);
             SetColour(index + 1, static_cast<uint16>(c), 0);
+            if (nativeCheck) {
+                NoteColourWrite(index + 1);
+            }
         }
         return;
     }
@@ -670,6 +680,11 @@ void Machine::PaletteDma(uint32 control) {
         }
         SetColour((m_palDmaDest + i) ^ 1, colour, m_palDmaFade);
     }
+    if (nativeCheck) {
+        // (the transfer as the board's registers have it, in the native interface's terms)
+        native::PaletteEvent e{native::PaletteEvent::kTransfer, {source >> 1, m_palDmaDest, length, m_palDmaFade}};
+        m_boardPaletteEvents.push_back(e);
+    }
     m_dmaStatus |= 4;
     m_dmaDoneAt = Now() + 2500; // (100 microseconds: the DMA's real speed is not known)
     m_cpu.RequestYield();
@@ -796,6 +811,108 @@ void Machine::CharacterDma(uint32 listAddress) {
     m_dmaStatus |= 2;
     m_dmaDoneAt = Now() + 2500;
     m_cpu.RequestYield();
+}
+
+// --- the native interface's check (video/native.h) ---
+namespace {
+    struct NativeTotals {
+        uint64 frames = 0, different = 0, events = 0, eventsDifferent = 0, transfers = 0, colours = 0;
+        unsigned reports = 8;
+        bool used = false;
+        ~NativeTotals() {
+            if (used) {
+                fprintf(stderr,
+                        "cps3recomp: native palette: %llu frames compared, %llu different; %llu events (%llu transfers, %llu colours written), "
+                        "%llu frames with the events different\n",
+                        static_cast<unsigned long long>(frames), static_cast<unsigned long long>(different), static_cast<unsigned long long>(events),
+                        static_cast<unsigned long long>(transfers), static_cast<unsigned long long>(colours),
+                        static_cast<unsigned long long>(eventsDifferent));
+            }
+        }
+    } g_nativeTotals;
+} // namespace
+
+void Machine::NativePaletteTransfer(const native::PaletteTransfer &t) {
+    if (!native::On()) {
+        return;
+    }
+    native.palette.Transfer(t, m_rom.graphics.data(), m_rom.graphics.size(), paletteColour);
+    if (nativeCheck) {
+        native.paletteEvents.push_back({native::PaletteEvent::kTransfer, t});
+    }
+}
+
+void Machine::NativeColour(uint32 index, uint16 value) {
+    if (!native::On()) {
+        return;
+    }
+    native.palette.Set(index, value);
+    if (nativeCheck) {
+        native.paletteEvents.push_back({native::PaletteEvent::kColour, {value, index & 0x1FFFF, 1, 0}});
+    }
+}
+
+// A colour the CPU wrote to colour RAM, for the check: the boot ROM's own passed on to the native palette (it is not the
+// game's code); the game's noted, to be met by what the rewrites hand over
+void Machine::NoteColourWrite(uint32 index) {
+    const uint16 value = m_colourRam[index & 0x1FFFF];
+    if (m_cpu.PC < 0x80000) {
+        native.palette.Set(index, value);
+        return;
+    }
+    m_boardPaletteEvents.push_back({native::PaletteEvent::kColour, {value, index & 0x1FFFF, 1, 0}});
+}
+
+void Machine::NativeCompare() {
+    NativeTotals &t = g_nativeTotals;
+    t.used = true;
+    t.frames++;
+    for (const native::PaletteEvent &e : m_boardPaletteEvents) {
+        t.events++;
+        (e.kind == native::PaletteEvent::kTransfer ? t.transfers : t.colours)++;
+    }
+    const auto say = [&](const char *what) {
+        if (t.reports) {
+            t.reports--;
+            fprintf(stderr, "native palette, frame %llu: %s\n", static_cast<unsigned long long>(m_frame), what);
+        }
+    };
+    char text[200];
+    if (m_boardPaletteEvents != native.paletteEvents) {
+        t.eventsDifferent++;
+        size_t i = 0;
+        while (i < m_boardPaletteEvents.size() && i < native.paletteEvents.size() && m_boardPaletteEvents[i] == native.paletteEvents[i]) {
+            i++;
+        }
+        const auto show = [](const std::vector<native::PaletteEvent> &v, size_t at) {
+            static char out[96];
+            if (at >= v.size()) {
+                snprintf(out, sizeof(out), "none");
+            } else {
+                const native::PaletteEvent &e = v[at];
+                snprintf(out, sizeof(out), "%s %X %X %X %X", e.kind == native::PaletteEvent::kTransfer ? "transfer" : "colour", e.transfer.source,
+                         e.transfer.dest, e.transfer.length, e.transfer.fade);
+            }
+            return std::string(out);
+        };
+        snprintf(text, sizeof(text), "events %zu (board) / %zu (native), the first to differ no. %zu: %s / %s", m_boardPaletteEvents.size(),
+                 native.paletteEvents.size(), i, show(m_boardPaletteEvents, i).c_str(), show(native.paletteEvents, i).c_str());
+        say(text);
+    }
+    m_boardPaletteEvents.clear();
+    native.paletteEvents.clear();
+    const uint16 *colours = native.palette.Colours();
+    uint32 first = 0, count = 0;
+    for (uint32 i = 0; i < native::Palette::kColours; i++) {
+        if (colours[i] != m_colourRam[i]) {
+            first = count++ ? first : i;
+        }
+    }
+    if (count) {
+        t.different++;
+        snprintf(text, sizeof(text), "%u colours different, the first %05X: %04X (board) / %04X (native)", count, first, m_colourRam[first], colours[first]);
+        say(text);
+    }
 }
 
 // --- the sound chip's registers (the mixing is sound/pcm.cpp) ---

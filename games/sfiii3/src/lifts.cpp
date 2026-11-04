@@ -377,6 +377,8 @@ void RegisterFightMoves();
 void RegisterFightBoxes();
 // The bonus games' (bonus.cpp): character select's step out and the bonus check
 void RegisterBonusLifts();
+// The palette (video_palette.cpp): the first piece of the native video
+void RegisterVideoPalette();
 
 void RegisterLifts3rdStrike() {
     RegisterGameLifts(kLifts, std::size(kLifts));
@@ -396,6 +398,7 @@ void RegisterLifts3rdStrike() {
     RegisterFightMoves();
     RegisterFightBoxes();
     RegisterBonusLifts();
+    RegisterVideoPalette();
     AddHook("VerticalBlank", 0x06000528, 8, 0xF41697FE6C5AEE4Dull, VerticalBlank);
 }
 

@@ -20,6 +20,7 @@
 
 namespace cps3recomp::machine {
 class SH2;
+class Machine;
 }
 
 #include <cstddef>
@@ -51,6 +52,8 @@ public:
     void Call(uint32_t address);
     // Leaves the routine as rts does; `cycles` is the time it is said to have taken
     void Return(uint64_t cycles = 100);
+    // The board this CPU is on: for rewrites that hand the native interface what they draw (video/native.h)
+    machine::Machine &Board();
 
 private:
     machine::SH2 &m_cpu;

@@ -131,6 +131,9 @@ void Machine::Serialize(Archive &ar) {
     ar.Pod(m_now);
     ar.Pod(m_frameStart);
     ar.Pod(m_spillover);
+    if (native::On()) {
+        native.Serialize(ar);
+    }
 }
 
 } // namespace cps3recomp::machine

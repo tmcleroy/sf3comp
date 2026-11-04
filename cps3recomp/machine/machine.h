@@ -26,6 +26,7 @@
 #pragma once
 
 #include "flash.h"
+#include "native.h"
 #include "romset.h"
 #include "sh2.h"
 
@@ -135,6 +136,9 @@ public:
     uint16 (*paletteColour)(uint32 word, uint32 index, uint16 colour) = nullptr;
     void WriteColour(uint32 index, uint16 value) {
         SetColour(index, value, 0);
+        if (native::On()) {
+            native.palette.Set(index, value);
+        }
     }
     const uint16 *ColourRam() const {
         return m_colourRam.data();
@@ -172,6 +176,20 @@ public:
 
     // The settings EEPROM (128 bytes)
     std::array<uint32, 32> eeprom{};
+
+    // --- the native interface (video/native.h, docs/NATIVE.md) ---
+    // What the game's rewritten code has handed over (kept when native::On(), and then in save states)
+    native::Video native;
+    // The rewrites hand it a palette transfer, or a colour the game's code writes (as they write the board's registers
+    // and colour RAM: the board model is still what is drawn)
+    void NativePaletteTransfer(const native::PaletteTransfer &t);
+    void NativeColour(uint32 index, uint16 value);
+    // The check (CPS3RECOMP_NATIVE_CHECK=1, for the machine that runs the game whose code is rewritten): after every
+    // frame, the palette events the board saw (its palette DMAs as its registers had them, the colours the game's code
+    // wrote to colour RAM) against those the rewrites handed over, and colour RAM against the native palette. The boot
+    // ROM's own colours (its memory test and warning screen: not the game's code) are passed on as they are written.
+    // Reported at the end (NativeCheckReport)
+    bool nativeCheck = false;
 
     void Serialize(Archive &ar);
 
@@ -227,6 +245,9 @@ private:
     uint16 m_lastb = 0, m_lastb2 = 0;
     uint16 m_eepromLatch = 0;
     uint16 m_irqLines = 0; // bit n: interrupt level n held
+    std::vector<native::PaletteEvent> m_boardPaletteEvents; // (the check: this frame's, as the board saw them)
+    void NativeCompare();
+    void NoteColourWrite(uint32 index);
     uint64 m_dmaDoneAt = 0, m_spriteDmaDoneAt = 0; // 0: none pending
     FlashChip m_flash[7][8]; // [SIMM][chip]
 

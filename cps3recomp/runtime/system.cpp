@@ -35,6 +35,7 @@ Machine::Machine(const RomSet &rom)
     : board(rom)
     , m_pcm(board) {
     g_board = &board;
+    board.nativeCheck = native::On(); // (the game's board: its rewrites hand the native interface what they draw)
     eeprom.words = board.eeprom.data();
     m_picture.assign(static_cast<size_t>(Video::kWidth) * Video::kHeight, 0);
 }
