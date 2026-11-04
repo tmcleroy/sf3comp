@@ -23,6 +23,12 @@
 // banner and both players' marks drawn on the panel; a second later the next round (step 7, the round's number on) and
 // a challenger let in (Quick_Entry).
 //
+// The next round's step (7, Game_Manage_7th, by C_No[1]): the winner's grades, marks and words; after a perfect, its
+// message and banners (7_4, 7_5); the judges' girls on, the round management's next step (7_6); and, when it comes
+// back, the girls sent off (7_7), the win records once they are gone (7_8), then its first step again (7_9). The
+// match's end (step 8, Game_Manage_8th): the round counted over (8_0: the score pooled for a person's win, the
+// bonuses and grades for a match won), then its own steps, the game's code still.
+//
 // Names in the comments are the game's own source's (fight_core.h); the arcade's build differs from the PlayStation 2's
 // here and there (no Mode_Type tests, Gill's number 18 where the PS2 has 17, no setFinishType), and the arcade's is what
 // is written.
@@ -91,6 +97,10 @@ namespace {
     constexpr uint32_t kOver = 0x020154AE;        // byte: the round's end is over (Complete_Victory)
     constexpr uint32_t kEndFrames = 0x02015434;   // word: frames the round's end has (900 from the conclusion)
     constexpr uint32_t kJudgesRound = 0x020113C2; // byte: the judges' round under way
+    constexpr uint32_t kExtraBonus = 0x0609A98C;  // Additional_Bonus (r4 the player)
+    constexpr uint32_t kStageGrades = 0x0609350A; // grade_makeup_stage_parameter (r4 the player)
+    constexpr uint32_t kBreakIntoComputer = 0x0609CB0A; // Check_Break_Into_CPU (r4 the player)
+    constexpr uint32_t kSceneCut = 0x02016D30;    // byte: the scene cut short (Scene_Cut)
     constexpr uint32_t kJudgeGals = 0x02015636;   // byte: the judges' girls (Event_Judge_Gals: -1 on)
     constexpr uint32_t kSettleSteps = 0x02068C5C; // words: the players' routine's step, its kind, its step, ... (pcon_rno)
     constexpr uint32_t kAppearType = 0x02068C64;  // word (appear_type)
@@ -1162,6 +1172,210 @@ namespace {
     }
 
     // (free: what liveout.py found no caller reads)
+    // The step's frames counted down (C_Timer): true when they are over. Leaves r3 and r4 as the game's code does.
+    bool StepTimeOver(Guest &g) {
+        g.R(4) = kStepTime;
+        g.R(3) = Extended(Word(g, kStepTime) - 1);
+        g.Write16(kStepTime, static_cast<uint16_t>(g.R(3)));
+        g.SetT(g.R(3) == 0);
+        return g.R(3) == 0;
+    }
+
+    // 0609A3A4 (Game_Manage_7_4): a perfect's message: once the step's frames are over, the centre's message 4 (the
+    // perfect: request_center_message, inlined) and its two banners (effect_58_init 155 at once and 156 a second on)
+    bool PerfectMessage(Guest &g) {
+        bool shown = false;
+        {
+            Frame frame(g, 4); // (pr)
+            if (StepTimeOver(g)) {
+                shown = true;
+                NextSubStep(g);
+                g.Write8(kMessage, 1);
+                g.Write16(kMessageWhich, 4);
+                g.R(1) = kMessageWhich;
+                g.R(2) = 1;
+                g.R(5) = 1;
+                g.R(6) = 0x9B;
+                g.R(4) = 6;
+                g.Call(kBanner);
+            }
+        }
+        if (shown) {
+            g.R(5) = 60;
+            g.R(4) = 6;
+            g.R(6) = 0x9C;
+            g.R(3) = kBanner;
+            g.Call(kBanner);
+        }
+        g.Return(20);
+        return true;
+    }
+
+    // 0609A3E4 (Game_Manage_7_5): once the message is gone, six frames, the judges' girls on (Event_Judge_Gals -1)
+    bool PerfectMessageGone(Guest &g) {
+        g.R(3) = kMessage;
+        g.R(0) = Signed(Byte(g, kMessage));
+        if (g.R(0) == 0) {
+            g.R(4) = kSubStep;
+            g.Write16(kSubStep, static_cast<uint16_t>(Word(g, kSubStep) + 1));
+            g.R(2) = Signed(-1);
+            g.R(3) = 6;
+            g.R(1) = kStepTime;
+            g.R(0) = kJudgeGals;
+            g.Write16(kStepTime, 6);
+            g.Write8(kJudgeGals, 0xFF);
+        }
+        g.SetT(Byte(g, kMessage) == 0);
+        g.Return(10);
+        return true;
+    }
+
+    // 0609A404 (Game_Manage_7_6), and 0609A8B2 (Game_Manage_8_3) the same code: the frames over (at once when the
+    // scene is cut, Scene_Cut), the round management's next step (C_No[0]), from its first
+    bool PerfectOver(Guest &g) {
+        g.R(4) = kStepTime;
+        g.R(3) = kSceneCut;
+        g.R(0) = Signed(Byte(g, kSceneCut));
+        if (g.R(0) != 0) {
+            g.R(2) = 1;
+            g.Write16(kStepTime, 1);
+        }
+        if (StepTimeOver(g)) {
+            g.R(2) = 0;
+            g.R(1) = kSubStep;
+            g.R(4) = kManageStep;
+            g.R(3) = Signed(Word(g, kManageStep)) + 1;
+            g.Write16(kManageStep, static_cast<uint16_t>(g.R(3)));
+            g.Write16(kSubStep, 0);
+        }
+        g.Return(10);
+        return true;
+    }
+
+    // 0609A430 (Game_Manage_7_7): the frames over, the judges' girls told to go (Event_Judge_Gals 3)
+    bool GirlsGo(Guest &g) {
+        if (StepTimeOver(g)) {
+            g.R(2) = 3;
+            g.R(1) = kJudgeGals;
+            NextSubStep(g);
+            g.Write8(kJudgeGals, 3);
+        }
+        g.Return(10);
+        return true;
+    }
+
+    // 0609A450 (Game_Manage_7_8): once the girls are gone (Event_Judge_Gals 0), half a second, the win records
+    // (Ck_Win_Record, jumped to)
+    bool GirlsGone(Guest &g) {
+        g.R(0) = kJudgeGals;
+        g.R(3) = Signed(Byte(g, kJudgeGals));
+        if (g.R(3) == 0) {
+            NextSubStep(g);
+            g.R(2) = 30;
+            g.R(1) = kStepTime;
+            g.Write16(kStepTime, 30);
+            g.R(3) = kWinRecords;
+            g.Call(kWinRecords);
+        } else {
+            g.SetT(false);
+        }
+        g.Return(10);
+        return true;
+    }
+
+    // 0609A46E (Game_Manage_7_9): the frames over, back to the next round's first step (C_No[1] 0)
+    bool NextRoundAgain(Guest &g) {
+        if (StepTimeOver(g)) {
+            g.R(1) = kSubStep;
+            g.R(2) = 0;
+            g.Write16(kSubStep, 0);
+        }
+        g.Return(10);
+        return true;
+    }
+
+    // 0609A486 (Game_Manage_8th): the match's end, its steps (table 0x06194560: the bonuses and the match won,
+    // Game_Manage_8_0-8_3, the game's own code still)
+    bool ManageMatchEnd(Guest &g) {
+        constexpr uint32_t table = 0x06194560;
+        Frame frame(g, 20); // (pr, the table)
+        g.R(0) = g.R(15);
+        g.R(2) = kSubStep;
+        g.R(1) = Signed(Word(g, kSubStep)) << 2;
+        g.R(3) = g.Read32(table + g.R(1));
+        g.Call(g.R(3));
+        g.Return(40);
+        return true;
+    }
+
+    // 0609A4E0 (Game_Manage_8_0): the round over: its number on, a challenger let in (Quick_Entry). A person's win:
+    // its round's score pooled (Pool_Score); the match won, the next step (the bonuses: Additional_Bonus), both players'
+    // grades for the stage (grade_makeup_stage_parameter) and whether the winner broke into the computer's match
+    // (Check_Break_Into_CPU, jumped to); not yet, step 3 next frame. The computer's: step 3 in half a second, the
+    // grades made when it won the match. (The arcade's: no Stop_Update_Score, no Mode_Type tests.)
+    bool MatchEndStart(Guest &g) {
+        bool broke = false;
+        {
+            Frame frame(g, 20); // (r11-r14, pr)
+            g.Write8(kRoundNumber, static_cast<uint8_t>(g.Read8(kRoundNumber) + 1));
+            g.Call(kChallenger);
+            const auto won = [&] {
+                g.R(2) = Signed(Word(g, kWins + Signed(Winner(g)) * 2));
+                g.R(1) = kPlayType;
+                g.R(0) = kRounds;
+                return static_cast<int32_t>(g.R(2)) >= RoundsToWin(g);
+            };
+            const auto grades = [&] {
+                g.R(4) = Signed(Byte(g, kMatchWinner));
+                g.Call(kStageGrades);
+                g.R(4) = Signed(Byte(g, kMatchLoser));
+                g.Call(kStageGrades);
+            };
+            if (g.Read8(kPerson + Signed(Winner(g))) != 0) {
+                g.R(4) = Signed(Byte(g, kMatchWinner));
+                g.Call(kPoolScore);
+                if (won()) {
+                    g.Write16(kSubStep, static_cast<uint16_t>(Word(g, kSubStep) + 1));
+                    g.R(4) = Signed(Byte(g, kMatchWinner));
+                    g.Call(kExtraBonus);
+                    grades();
+                    broke = true;
+                } else {
+                    g.Write16(kSubStep, 3);
+                    g.Write16(kStepTime, 1);
+                    g.R(2) = 1;
+                }
+            } else {
+                g.Write16(kSubStep, 3);
+                g.Write16(kStepTime, 30);
+                g.R(1) = kStepTime;
+                if (won()) {
+                    grades();
+                }
+            }
+        }
+        if (broke) {
+            g.R(4) = Signed(Byte(g, kMatchWinner));
+            g.Call(kBreakIntoComputer);
+        }
+        g.Return(60);
+        return true;
+    }
+
+    // 0609A58C (Game_Manage_8_1): the bonuses' steps, by C_No[2] (table 0x06194570: Game_Manage_81_0-81_3, the game's
+    // own code still)
+    bool MatchEndBonuses(Guest &g) {
+        constexpr uint32_t table = 0x06194570, step = 0x020154AA; // (C_No[2])
+        Frame frame(g, 20); // (pr, the table)
+        g.R(2) = step;
+        g.R(1) = g.R(15);
+        g.R(0) = Signed(Word(g, step)) << 2;
+        g.R(3) = g.Read32(table + g.R(0));
+        g.Call(g.R(3));
+        g.Return(40);
+        return true;
+    }
+
     const Lift kLifts[] = {
         {"CountWin", 0x060999B0, 0x1A6, 0xEA669C61DDBA99EAull, CountWin, true, 0x10079},
         {"WinMark", 0x06099B56, 0x116, 0x66E3D4704978B717ull, WinMark, true, 0x100FF},
@@ -1190,6 +1404,16 @@ namespace {
         {"CombosShown", 0x0609A2A6, 0x40, 0x67BE59926BCECCAAull, CombosShown, true, 0x1003E},
         {"NextRoundWordsOver", 0x0609A2E6, 0x74, 0xEDCC5B4436EB3E01ull, NextRoundWordsOver, true, 0x10078},
         {"HitCheck", 0x0608C7C0, 0x38, 0x8F3BEAE5BEB5090Eull, HitCheck, true, 0},
+        {"PerfectMessage", 0x0609A3A4, 0x40, 0x384D6064CF3FAD92ull, PerfectMessage, true, 0x10078},
+        {"PerfectMessageGone", 0x0609A3E4, 0x20, 0x8531003BC1E8F8E1ull, PerfectMessageGone, true, 0x10078},
+        {"PerfectOver", 0x0609A404, 0x2C, 0xD12CAB70F182D297ull, PerfectOver, true, 0x10078},
+        {"GirlsGo", 0x0609A430, 0x20, 0x15FFCE4B40781961ull, GirlsGo, true, 0x10078},
+        {"GirlsGone", 0x0609A450, 0x1E, 0x1494CAEEAAD1AD41ull, GirlsGone, true, 0x10078},
+        {"NextRoundAgain", 0x0609A46E, 0x18, 0x5A0FAE236AD17DA4ull, NextRoundAgain, true, 0x10078},
+        {"ManageMatchEnd", 0x0609A486, 0x2E, 0x145CAFD4AFEB5EDBull, ManageMatchEnd, true, 0x10079},
+        {"MatchEndStart", 0x0609A4E0, 0xAC, 0x5C48D49D1F3D41EDull, MatchEndStart, true, 0x10078},
+        {"MatchEndBonuses", 0x0609A58C, 0x2E, 0x29E7C39E6CA191FAull, MatchEndBonuses, true, 0x10078},
+        {"MatchEndOver", 0x0609A8B2, 0x2C, 0x159DF94C827992FAull, PerfectOver, true, 0x10078},
     };
 } // namespace
 

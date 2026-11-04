@@ -5,7 +5,7 @@
 // boxes' overlap (0x0608E908), and what tests with it: the throws (0x0608E43C) and the attacks (0x0608E5C4) of the
 // records queued for the frame's hit tests (fight_match.cpp's HitCheck calls them), and the two fighters' push boxes
 // (0x0611DBA4). What the results then make of a hit (guarded, parried, a counter hit: set_judge_result, 0x0608C7F8, and
-// what it calls) is the game's own code still. (A hit's damage, its scaling and its taking: lifts.cpp's BaseDamage,
+// what it calls) is fight_judge.cpp's. (A hit's damage, its scaling and its taking: lifts.cpp's BaseDamage,
 // ScaleDamage, TakeDamage.)
 //
 // Each frame the records that may hit or be hit (fighters, projectiles, effects with boxes) are queued (q_hit_push);

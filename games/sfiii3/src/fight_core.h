@@ -8,10 +8,14 @@
 //                    with its step for the fight (0x0609989E)
 //   fight_match.cpp  the match: the frame's hit tests (0x0608C7C0); the round counted (0x060999B0: the marks, the
 //                    wins, the match's records, the computer's play time), the judges' round (0x06099D5E and its eight
-//                    steps), the round's end (0x06099FE4), the next round's first steps (0x0609A13C)
+//                    steps), the round's end (0x06099FE4), the next round's steps (0x0609A13C, 0x0609A182-0x0609A46E), the
+//                    match's end's first (0x0609A486, 0x0609A4E0)
 //   fight_input.cpp  a fighter's frame (0x061195E0: its input, what it keeps of the last frame, its commands read, its
 //                    step's routine) and where its input comes from: a demonstration's recording (0x06092294, never
 //                    played on the arcade), the computer's put in a person's form (0x060B6242)
+//   fight_judge.cpp  what the hit tests found made of: a hit (0x0608CE68), a throw (0x0608C994), a trade (0x0608C860),
+//                    and what they call: the guards and parries (0x0608DC44, 0x0608DAE8), the damage and stun
+//                    (0x0608D7FC), the reaction (0x0608D02C), the hit stops
 //   fight_hits.cpp   two boxes' overlap (0x0608E908: the hit tests' own), the throws' and the attacks' tests of the
 //                    frame's hit queue (0x0608E43C, 0x0608E5C4), what was hit given its results (0x0608C7F8), the two
 //                    fighters' push boxes (0x0611DBA4)

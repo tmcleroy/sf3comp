@@ -207,10 +207,57 @@ namespace {
 
     // (free: r1-r7 and T for the first, r1-r6 and T for the second, whose callers read r7: liveout.py; Player_move's
     // leftovers are those of the step's routine, but for r1-r6 and T, which no caller reads)
+    // --- the commands (CMD_MAIN) ---
+    constexpr uint32_t kCommandPlayer = 0x02026B28; // long: the fighter whose input is read (cmd_pl)
+    constexpr uint32_t kCommandId = 0x02026B24;     // word: its player (cmd_id)
+    constexpr uint32_t kLeverRecord = 0x02026310;   // long: its lever's record (chk_pl: t_pl_lvr[cmd_id])
+    constexpr uint32_t kLeverRecords = 0x0202563C;  // 68 bytes each (t_pl_lvr)
+    constexpr uint32_t kPickUp = 0x060B59BE;        // sw_pick_up: the lever and buttons this frame into the record
+    constexpr uint32_t kCommandsRead = 0x060B2BCC;  // cmd_move: each command's state moved on by the input
+
+    // The fighter (r4) whose input the command routines read: cmd_pl, cmd_id and chk_pl set (the record's place from
+    // the low byte of 68 x the player, as the game's code takes it), and the lever and buttons picked up (sw_pick_up)
+    void CommandsFor(Guest &g, uint32_t fighter) {
+        g.Write32(kCommandPlayer, fighter);
+        const uint16_t id = g.Read16(fighter + 8);
+        g.Write16(kCommandId, id);
+        const uint32_t record = kLeverRecords + static_cast<uint8_t>(static_cast<int8_t>(id) * 68);
+        g.Write32(kLeverRecord, record);
+        g.R(0) = record;
+        g.R(1) = kPickUp;
+        g.R(2) = kLeverRecords;
+        g.R(3) = kLeverRecord;
+        g.R(4) = kCommandId;
+        g.R(5) = kCommandPlayer;
+        g.Call(kPickUp);
+    }
+
+    // 060B2934 (waza_check): a fighter's input read for its commands (special moves, super arts, dashes, parries'
+    // windows...): picked up (CommandsFor), then each command's state moved on (cmd_move, jumped to). Leaves r5-r7 and T
+    // as the game's code (the routines called leave them).
+    bool CommandsLift(Guest &g) {
+        {
+            Frame frame(g, 4); // (pr)
+            CommandsFor(g, g.R(4));
+        }
+        g.Call(kCommandsRead);
+        g.Return(40);
+        return true;
+    }
+
+    // 060B2960 (key_thru): only the input picked up, no command read (while a super art's freeze holds the fighter)
+    bool LetGoLift(Guest &g) {
+        CommandsFor(g, g.R(4));
+        g.Return(20);
+        return true;
+    }
+
     const Lift kLifts[] = {
         {"PlayerMove", 0x061195E0, 0x1AE, 0xA017029C1BCE23C9ull, PlayerMove, true, 0x1007E},
         {"NextRecorded", 0x06092294, 0x16, 0x0E25CAEB4E08C3AFull, NextRecorded, true, 0x100FE},
         {"AsPlayersInput", 0x060B6242, 0x12, 0xAA619E8E79F01418ull, AsPlayersInput, true, 0x1007E},
+        {"Commands", 0x060B2934, 0x2C, 0xDDC17A9C64C4197Aull, CommandsLift, true, 0x0211F},
+        {"LetGo", 0x060B2960, 0x26, 0x154F50DB24F3BF4Eull, LetGoLift, true, 0x0211F},
     };
 } // namespace
 
