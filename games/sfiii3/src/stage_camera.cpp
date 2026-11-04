@@ -18,7 +18,10 @@
 //   another layer (bg_x_move_check 0x060B886E, bg_y_move_check 0x060B8926): moved by the camera's move this frame
 //     (the head's +0x40 across and +0x14 up) times its own speed (+0x10, +0x14: 16.16 fixed point)
 //   then every layer's scroll for the board, a shake's offset added (bg_pos_hosei2, 0x060B9A2A), given to the board
-//     with its objects' place (Bg_Family_Set, 0x060B96EE)
+//     with its objects' place (Bg_Family_Set, 0x060B96EE; or one layer's, or eight lines lower, for some stages:
+//     0x060B975E, 0x060B97AA, 0x060B9832, 0x060B9880; a far layer's own scroll and objects, sync_fam_set3 0x060B630E)
+// And the stage's objects (the effects' records of its crowds, animals and the like) that move with a layer's lines
+// (sync_suzi): where each is shown, from its layer's table of offsets by line (0x060B9640, 0x060B96A8).
 //
 // Across: where the camera would like to be is worked out from where each fighter is in the picture (0x060B8510):
 // each fighter's place (+0x60 of its record) a character's half width (a table by character, 0x065EB304) towards the
@@ -38,7 +41,9 @@
 //
 // Registers: these routines' callers are the stages' routines and each other, compiled C that reads none of r0-r7 or
 // T after a call (tools/liveout.py: the reads it reports are of r8-r14, or r4-r7 assumed for a call through a pointer
-// that follows), so a rewrite leaves those as it likes (Lift::free). They call the routines not here through the
+// that follows), so a rewrite leaves those as it likes (Lift::free); the objects' two, called by the effects' code too,
+// and the layers-to-board ones whose callers read some, leave those as the game's code does. They call the routines
+// not here through the
 // game's calls (Guest::Call), so a call runs the rewrite of the routine called if there is one; this file's own
 // routines they call as C++.
 #include "lift.h"
@@ -450,6 +455,130 @@ namespace {
         }
     }
 
+    // One layer's scroll to the board and its objects' place, as LayersToBoard gives each, `lower` lines lower (r4 the
+    // layer, as the routines are called)
+    void OneToBoard(Guest &g, uint32_t n, int32_t lower) {
+        const uint32_t at = LayerAt(static_cast<int32_t>(n));
+        const int32_t column = Word(g, at + kColumn), line = Word(g, at + kLine) + lower;
+        g.R(4) = n;
+        g.R(5) = static_cast<uint32_t>(column);
+        g.R(6) = static_cast<uint32_t>(line);
+        g.Call(kSetScroll);
+        g.R(4) = n + 1;
+        g.R(5) = static_cast<uint32_t>(-column & 0x3FF);
+        g.R(6) = static_cast<uint32_t>((0x300 - (line & 0x3FF)) & 0x3FF);
+        g.Call(kSetFamily);
+    }
+    // 060B975E (Bg_Family_Set_appoint): one layer's (r4), as LayersToBoard gives it
+    void OneLayerToBoard(Guest &g) {
+        OneToBoard(g, g.R(4), 0);
+    }
+    // 060B97AA (Bg_Family_Set_2): every layer's eight lines lower (Dudley's stage); r0 left the layers' count, as the
+    // game's code leaves it
+    void LayersToBoardLower(Guest &g) {
+        for (int32_t n = 0; n < Word(g, kLayerCount); n++) {
+            OneToBoard(g, static_cast<uint32_t>(n), 8);
+        }
+        g.R(0) = static_cast<uint32_t>(Word(g, kLayerCount));
+    }
+    // 060B9832 (Bg_Family_Set_2_appoint): one layer's (r4) eight lines lower (Ryu's stage's nearer layer)
+    void OneLayerToBoardLower(Guest &g) {
+        OneToBoard(g, g.R(4), 8);
+    }
+    // 060B9880: layer 3's (a stage's that is given to the board on its own)
+    void LayerThreeToBoard(Guest &g) {
+        OneToBoard(g, 3, 0);
+    }
+
+    // 060B630E (sync_fam_set3): one layer's (r4) scroll from where it is (or its scripted place), a shake's offset added
+    // (across only while a shake is under way), as LayerScrolls makes each; then its objects placed with it (its scroll
+    // itself is given to the board with the others'): the far layers whose objects move with them (Ryu's, Necro's, Q's,
+    // Ibuki's, Sean's...)
+    void LayerWithObjects(Guest &g) {
+        const int32_t n = S16(static_cast<uint16_t>(g.R(4)));
+        const uint32_t at = LayerAt(n);
+        const int32_t across = Word(g, at + (Scripted(g, 0x0F) ? kChaseAcross : kAcross));
+        const int32_t up = Word(g, at + (Scripted(g, 0xF0) ? kChaseUp : kShownUp));
+        const int32_t left = Word(g, kLeftOfMiddle);
+        const int32_t shake = Word(g, kQuakeAcross) > 0 ? Word(g, kShakeAcross + static_cast<uint32_t>(Word(g, kQuakeAcross) * 2)) : 0;
+        const int32_t column = (((across & 0x3FF) - left) & 0x3FF) + shake;
+        SetWord(g, at + kColumn, column & 0x3FF);
+        SetWord(g, at + kShakenAcross, across - left + shake);
+        const int32_t shakeUp = Word(g, kShakeUp + static_cast<uint32_t>(Word(g, kQuakeUp) * 2));
+        const int32_t line = ((up & 0x3FF) + shakeUp) & 0x3FF;
+        SetWord(g, at + kLine, line);
+        SetWord(g, at + kShakenUp, up + shakeUp);
+        g.R(4) = static_cast<uint32_t>(n + 1);
+        g.R(5) = static_cast<uint32_t>(-column & 0x3FF);
+        g.R(6) = static_cast<uint32_t>((0x300 - line) & 0x3FF);
+        g.Call(kSetFamily);
+    }
+
+
+    // --- an object in step with a layer's lines (sync_suzi: the stages' objects that move with their layer, the
+    // effects' records; r4 the object) ---
+    constexpr uint32_t kObjectAcross = 0x64, kObjectUp = 0x68; // words: where it is on the stage (xyz)
+    constexpr uint32_t kObjectColumn = 0x54, kObjectLine = 0x56; // words: where it is shown (position_x, position_y)
+    constexpr uint32_t kInStep = 0x76;     // word: 0 no, 1 with its offset made once, 2 made every frame (sync_suzi)
+    constexpr uint32_t kOffsetAt = 0x78;   // long: where its offset across is, in its layer's table (suzi_offset)
+    constexpr uint32_t kItsLayer = 0x26E;  // word: its layer, plus one
+    constexpr uint32_t kLayerLines = 0x2C; // a layer's long: its table of offsets by line
+
+    // 060B964C (the body of suzi_offset_set, also called on its own): its offset's place in its layer's table, by the
+    // line it is on (from the bottom: 0x300 less its line's high bits, plus 0x100 less its low byte; a word each).
+    // Leaves r0 0, r2 0xFF, r3 its layer, r5 the offset, r6 its place, r7 0x300 and T as the game's code does.
+    void FindOffset(Guest &g, uint32_t object) {
+        const int32_t up = Word(g, object + kObjectUp);
+        const int32_t fromBottom = (0x300 - (up & 0x300)) + (0x100 - (up & 0xFF));
+        const int32_t layer = Word(g, object + kItsLayer) - 1;
+        const int32_t doubled = S16(static_cast<uint16_t>(fromBottom * 2));
+        const uint32_t offset = static_cast<uint32_t>(doubled) << 1;
+        const uint32_t place = g.Read32(LayerAt(layer) + kLayerLines) + offset;
+        g.Write32(object + kOffsetAt, place);
+        g.R(0) = 0;
+        g.R(2) = 0xFF;
+        g.R(3) = static_cast<uint32_t>(layer);
+        g.R(5) = offset;
+        g.R(6) = place;
+        g.R(7) = 0x300;
+        g.SetT(doubled < 0); // (the last shift's bit out)
+    }
+    // 060B9640 (suzi_offset_set): with the object in step once (1), its offset's place found; else r0 its kInStep
+    void OffsetOnce(Guest &g) {
+        const uint32_t object = g.R(4);
+        const int32_t inStep = Word(g, object + kInStep);
+        if (inStep != 1) {
+            g.R(0) = static_cast<uint32_t>(inStep);
+            g.SetT(false);
+            return;
+        }
+        FindOffset(g, object);
+    }
+    // 060B96A8 (suzi_sync_pos_set): where the object is shown: across less its layer's offset at its line (made again
+    // first, for one in step every frame, 2) from the board's middle (0x200), up as it is; both kept to the board's
+    // 1024. Leaves r0 0x56, r2 its place up, r3 and r5 where it is shown, and r6, r7 and T as the game's code does.
+    void ObjectShown(Guest &g) {
+        const uint32_t object = g.R(4);
+        const int32_t inStep = Word(g, object + kInStep);
+        int32_t offset = 0;
+        g.SetT(inStep == 0);
+        if (inStep != 0) {
+            g.SetT(inStep == 2);
+            if (inStep == 2) {
+                FindOffset(g, object);
+            }
+            offset = Word(g, g.Read32(object + kOffsetAt)) - 0x200;
+        }
+        const int32_t up = Word(g, object + kObjectUp);
+        const uint32_t column = static_cast<uint32_t>(Word(g, object + kObjectAcross) - offset) & 0x3FF;
+        SetWord(g, object + kObjectColumn, static_cast<int32_t>(column));
+        SetWord(g, object + kObjectLine, up & 0x3FF);
+        g.R(0) = kObjectLine;
+        g.R(2) = static_cast<uint32_t>(up);
+        g.R(3) = column;
+        g.R(5) = static_cast<uint32_t>(up & 0x3FF);
+    }
+
 
     // --- the frame ---
 
@@ -505,6 +634,13 @@ namespace {
         {"StageLayerUp", 0x060B8926, 0x96, 0xFBDCD9497C792531ull, Lifted<LayerUp>, true, kFree},
         {"StageLayersToBoard", 0x060B96EE, 0x70, 0x0BB4974CE80A5216ull, Lifted<LayersToBoard>, true, kFree},
         {"StageLayerScrolls", 0x060B9A2A, 0xEE, 0x561ED706B013141Dull, Lifted<LayerScrolls>, true, kFree},
+        {"StageOneLayerToBoard", 0x060B975E, 0x4C, 0xB4CF72CE71DF27F5ull, Lifted<OneLayerToBoard>, true, 0x13F1F},
+        {"StageLayersToBoardLower", 0x060B97AA, 0x88, 0x4AF6F5EE8AA27E98ull, Lifted<LayersToBoardLower>, true, 0x140FE},
+        {"StageOneLayerToBoardLower", 0x060B9832, 0x4E, 0x46F78821B8FD94C8ull, Lifted<OneLayerToBoardLower>, true, kFree},
+        {"StageLayerThreeToBoard", 0x060B9880, 0x34, 0xD1D25E919D2B2A40ull, Lifted<LayerThreeToBoard>, true, kFree},
+        {"StageLayerWithObjects", 0x060B630E, 0xF6, 0x57D2A9D41DCF4180ull, Lifted<LayerWithObjects>, true, kFree},
+        {"StageObjectOffsetOnce", 0x060B9640, 0x50, 0x42B3B097812B8D6Bull, Lifted<OffsetOnce>, true, 0x18},
+        {"StageObjectShown", 0x060B96A8, 0x46, 0xE10DDC206CB8CD84ull, Lifted<ObjectShown>, true, 0x10},
         {"StageFightersLayer", 0x060BACB4, 0x30, 0x0B4ACE5DAB5774AEull, Lifted<FightersLayer>, true, kFree},
     };
 } // namespace

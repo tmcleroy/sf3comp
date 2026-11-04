@@ -9,7 +9,8 @@
 //
 // The stages are numbered as the characters are, by whose stage it is: Gill 0, Alex 1 (and Ken's, 11: the same New
 // York), Ryu 2, Yun 3, Dudley 4, Necro 5, Hugo 6, Ibuki 7, Elena 8, Oro 9, Yang 10, Sean 12, Urien 13, Akuma 14 (and
-// Shin Akuma's, 15), Chun-Li 16, Makoto 17, Q 18 (and Twelve's, 19), Remy 20; 21 the bonus game's.
+// Shin Akuma's, 15), Chun-Li 16, Makoto 17, Q 18 (and Twelve's, 19), Remy 20; 21 and 22 the bonus stages' (the car,
+// Sean's basketballs).
 //
 // A stage's routine (the game's own source calls them BG000 ... BG190): for each of its layers, the layer made the one
 // being worked on (bgw_ptr), and the routine for its step called from a table of the stage's (a table in ROM copied to
@@ -186,8 +187,15 @@ namespace {
     void Remy(Guest &g) {
         Run(g, {StepFrom(1, 0x0619E4F8), StepFrom(0, 0x0619E4F0), LayerRoutine(2, 0x060BEC48), kZoom, kScrolls, kBoard});
     }
-    // (the bonus game's, 060BED24 Bonus_bg, is the same with no zoom and its own steps: not written again, no check run
-    // reaches a bonus game)
+    // 060BED24 (Bonus_bg): the car's bonus stage (21); 060BEEA8 (Bonus_bg2): the basketballs' (22). Two layers and no
+    // zoom of the picture's frame; here layer 0 is the fighters' (the camera's, bg_base_move_common's), layer 1 nearer
+    // and moved as the camera is
+    void BonusCar(Guest &g) {
+        Run(g, {StepFrom(1, 0x0619E508), StepFrom(0, 0x0619E500), kScrolls, kBoard});
+    }
+    void BonusBall(Guest &g) {
+        Run(g, {StepFrom(1, 0x0619E510), StepFrom(0, 0x0619E518), kScrolls, kBoard});
+    }
 
 
     // --- a layer's routines (the layer being worked on: kLayerAt) ---
@@ -803,13 +811,17 @@ namespace {
     void UrienFighters(Guest &g) { // 060BE184
         SetUp(g, 0x200, kHeldLong, {With(kLoad, 0x2A00, 1), Plain(0x060DD486)});
     }
-    // 060BE39C: Akuma's fighters' layer: set up, no stage's entrance, and the stage's things set going
-    void AkumaFighters(Guest &g) {
+    // A fighters' layer's first step with no entrance of the stage's: set up (home 0x200), the stage's entrance off,
+    // and the stage's things set going
+    void SetUpNoEntrance(Guest &g, std::initializer_list<CallTo> calls) {
         const uint32_t layer = LayerNow(g);
         Home(g, layer, 0x200, kHeldLong);
         g.Write32(layer + kWide, 0);
         g.Write8(kStageEntrance, 0);
-        CallAll(g, {With(kLoad, 0xDA30, 1), Plain(0x060DD486), Plain(0x060DD612), With(0x060E10AE, 0), With(0x060E3A00, 10)});
+        CallAll(g, calls);
+    }
+    void AkumaFighters(Guest &g) { // 060BE39C
+        SetUpNoEntrance(g, {With(kLoad, 0xDA30, 1), Plain(0x060DD486), Plain(0x060DD612), With(0x060E10AE, 0), With(0x060E3A00, 10)});
     }
     void ChunLiFighters(Guest &g) { // 060BE6F8
         SetUp(g, 0x200, kHeldLong, {With(kLoad, 0xDE10, 1), With(kLoad, 0xE0A0, 1), Plain(0x060DD486), With(0x060E10AE, 5), Plain(0x060DD612),
@@ -828,6 +840,26 @@ namespace {
 
     void IbukiFighters(Guest &g) { // 060BD240
         SetUp(g, 0x200, kHeldLong, {With(kLoad, 0xDCA0, 1), Plain(0x060DD612), With(0x060F6FF8, 3), Plain(0x0610E076)});
+    }
+
+
+    // --- the bonus stages: the car (bns01, bns02), the basketballs (bns11, bns12) ---
+    // 060BEDA4, 060BEF28: the fighters' layer (0): set up, and the stage's things set going (effect_05_init, 0x060DD486,
+    // the stage's crowd and the like, as on every stage; the basketballs' also effect_12_init 0x060E10AE, r4 4, and
+    // effect_35_init 0x060E8B68 four times, r4 and r5 its two words: the first 2 and, with player 1 the computer
+    // (plw[0]'s byte 3, operator, 0), 1, else 0)
+    void CarFighters(Guest &g) {
+        SetUpNoEntrance(g, {With(kLoad, 0xDCE0, 1), Plain(0x060DD486)});
+    }
+    constexpr uint32_t kBallThings = 0x060E8B68; // (effect_35_init)
+    void BallFighters(Guest &g) {
+        SetUpNoEntrance(g, {With(kLoad, 0xDFA0, 1), Plain(0x060DD486), With(0x060E10AE, 4)});
+        const bool computer = g.Read8(kPlayerOne + 3) == 0;
+        CallAll(g, {With(kBallThings, 2, computer ? 1 : 0), With(kBallThings, 12, 2), With(kBallThings, 18, 3), With(kBallThings, 2, 4)});
+    }
+    // 060BEDF0, 060BEFAA: ... its moves, the camera's (bg_base_move_common's: across, then up)
+    void BonusFightersMove(Guest &g) {
+        CallAll(g, {Plain(kCameraAcross), Plain(kCameraUp)});
     }
 
 
@@ -860,6 +892,8 @@ namespace {
         {"StageMakoto", 0x060BE85C, 0x78, 0xE909E6F017F91331ull, Lifted<Makoto>, true, kFree},
         {"StageQ", 0x060BCB14, 0x90, 0x08C497B141B75AB2ull, Lifted<Q>, true, kFree},
         {"StageRemy", 0x060BEAB4, 0x78, 0x1205BA60E1ED9BA0ull, Lifted<Remy>, true, kFree},
+        {"StageBonusCar", 0x060BED24, 0x58, 0x2D168912B1C4BFEFull, Lifted<BonusCar>, true, kFree},
+        {"StageBonusBall", 0x060BEEA8, 0x58, 0xE54E9FEA9E3A0BD4ull, Lifted<BonusBall>, true, kFree},
         // (the layers' routines)
         {"StageMoveWithCamera", 0x060BACE4, 0xE, 0xDF3593D3EE365783ull, Lifted<MoveWithCamera>, true, kFree},
         {"StageGillFighters", 0x060BBD76, 0x138, 0xDBE4D0486C6FABE4ull, Lifted<GillFighters>, true, kFree},
@@ -928,6 +962,14 @@ namespace {
         {"StageRemyNear", 0x060BEB54, 0x36, 0x4E6257B6F3149EEBull, Lifted<SetUpOnly<0x1D0, kHeldLong>>, true, kFree},
         {"StageRemyFighters", 0x060BEBD4, 0x74, 0xD7B098C411107363ull, Lifted<RemyFighters>, true, kFree},
         {"StageRemyFar", 0x060BEC48, 0x9A, 0x5DA80F158B790981ull, Lifted<FarLayer<kRemyFar>>, true, kFree},
+        {"StageCarFighters", 0x060BEDA4, 0x4C, 0xBA3048BBD1C358B7ull, Lifted<CarFighters>, true, kFree},
+        {"StageCarFightersMove", 0x060BEDF0, 0xE, 0xAC3A8DE2C0A1450Dull, Lifted<BonusFightersMove>, true, kFree},
+        {"StageCarNear", 0x060BEE26, 0x36, 0x6230FA463F25CA70ull, Lifted<SetUpOnly<0x200, kHeldLong>>, true, kFree},
+        {"StageCarNearMove", 0x060BEE5C, 0xE, 0x52612CD9EA40AACFull, Lifted<MoveWithCamera>, true, kFree},
+        {"StageBallFighters", 0x060BEF28, 0x82, 0x1CFB80B860CFD375ull, Lifted<BallFighters>, true, kFree},
+        {"StageBallFightersMove", 0x060BEFAA, 0xE, 0xB17DBCEAE48C483Aull, Lifted<BonusFightersMove>, true, kFree},
+        {"StageBallNear", 0x060BF024, 0x36, 0x1BF9D45A6697651Aull, Lifted<SetUpOnly<0x200, kHeldLong>>, true, kFree},
+        {"StageBallNearMove", 0x060BF05A, 0xE, 0x837C501D019732F2ull, Lifted<MoveWithCamera>, true, kFree},
     };
 } // namespace
 

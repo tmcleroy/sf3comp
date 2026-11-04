@@ -144,6 +144,15 @@ if [ -n "$SFIII3_CHECK_VERSUS" ]; then
            "--features dummy_computer --auto 5:300:1 --poke 2011387=09 --keys $(stages 10)"
            "--features training_watch --auto 13:300:1 --keys $(stages 19)")
     POKES+=("" "1200:2068C6A:200,1400:2068C6A:200,1600:2068C6A:200,1800:2068C6A:200,2000:2068C6A:200" "")
+    # The two bonus games (Alternative modes, bonus.cpp), the car from frame 30 and the ball from 6000 (each over by
+    # about 4300 and 2700 frames after it starts), the character chosen by made-up play: their stages (21, 22). Their
+    # way there is bonus.cpp's three rewrites choosing as the game would not: with only the stage's rewrites registered
+    # (checkstages.sh), those are registered as lifts and not compared.
+    if [ "$FRAMES" -ge 9000 ]; then
+        NAMES+=(bonus)
+        ARGS+=("--auto 7:300:1 --keys 30:cbonus_car,6000:cbonus_ball")
+        POKES+=("")
+    fi
 fi
 
 # Every rewrite registered: the names in the sources' lift tables ({"Name", 0x...}, not in a remark), unless

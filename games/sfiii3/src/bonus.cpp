@@ -31,7 +31,8 @@
 //
 // The three routines are rewrites (runtime/lift.h): with no bonus game on they do exactly what the game's code does
 // (checked by checklifts.sh: CPS3RECOMP_LIFT_CHECK), with one on they make its choice, so a bonus game run with the
-// check on reports them as different. They leave every register as the game's code does.
+// check on reports them as different (checkstages.sh's bonus games compare only the stage's rewrites: these then
+// registered as lifts, not compared). They leave every register as the game's code does.
 #include "game.h"
 #include "lift.h"
 #include "recomp.h"
@@ -44,6 +45,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <iterator>
+#include <string>
 
 namespace cps3recomp {
 
@@ -331,6 +333,19 @@ void BonusState(Archive &ar) {
 }
 
 void RegisterBonusLifts() {
+    // (with only some rewrites registered, SFIII3_LIFTS_ONLY, and these not among them: these still registered, as lifts
+    // that are not compared, so that a bonus game can be played in a check of other rewrites: checkstages.sh's)
+    if (const char *only = getenv("SFIII3_LIFTS_ONLY")) {
+        static Lift asLifts[std::size(kLifts)];
+        size_t count = 0;
+        for (const Lift &lift : kLifts) {
+            if ((std::string(",") + only + ",").find(std::string(",") + lift.name + ",") == std::string::npos) {
+                asLifts[count] = lift;
+                asLifts[count++].rewrite = false;
+            }
+        }
+        RegisterLifts(asLifts, count);
+    }
     RegisterGameLifts(kLifts, std::size(kLifts));
 }
 
