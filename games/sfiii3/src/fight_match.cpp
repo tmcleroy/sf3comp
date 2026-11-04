@@ -27,7 +27,15 @@
 // message and banners (7_4, 7_5); the judges' girls on, the round management's next step (7_6); and, when it comes
 // back, the girls sent off (7_7), the win records once they are gone (7_8), then its first step again (7_9). The
 // match's end (step 8, Game_Manage_8th): the round counted over (8_0: the score pooled for a person's win, the
-// bonuses and grades for a match won), then its own steps, the game's code still.
+// bonuses and grades for a match won), the bonuses' screen (8_1: Game_Manage_81_0-81_3, the names and points one
+// after another, onto the score), the screen's text cleared (8_2) and on.
+//
+// After the round (9th): the match won, the 10th's (the screen switched; a person's win to its screen or its ending,
+// the computer's to the loser's scene and the continue), or with a challenger waiting the 11th's (its music, the
+// challenger's character select); not won, the next round. The bonus stage's management (12th) by its steps.
+//
+// The game's own steps (G_No[1]): the next opponent's screen (Game05), the fight's (Game02, but its first two steps),
+// the continue's screen (Game07); the loser's scene (Game04) waits in a way g.Call cannot run, and stays the game's.
 //
 // Names in the comments are the game's own source's (fight_core.h); the arcade's build differs from the PlayStation 2's
 // here and there (no Mode_Type tests, Gill's number 18 where the PS2 has 17, no setFinishType), and the arcade's is what
@@ -1376,6 +1384,742 @@ namespace {
         return true;
     }
 
+    // --- the match's end, and after (Game_Manage_8_1's steps, 8_2, 9th-12th) ---
+    constexpr uint32_t kBonusStep = 0x020154AA;   // word (C_No[2])
+    constexpr uint32_t kLastStep = 0x020154AC;    // word (C_No[3])
+    constexpr uint32_t kForbidBreak = 0x0201138E; // byte (Forbid_Break)
+    constexpr uint32_t kRequestBreak = 0x0201138F; // bytes, a player each: a challenger's coin (Request_Break)
+    constexpr uint32_t kOrders = 0x02016BA8;      // bytes: an effect's order (Order), by its number
+    constexpr uint32_t kOrderTimes = 0x02016C70;  // bytes (Order_Timer)
+    constexpr uint32_t kOrderDirs = 0x02016C0C;   // bytes (Order_Dir)
+    constexpr uint32_t kPerfectBonus = 0x02016D94, kVitalBonus = 0x0201140C, kTimeBonus = 0x02011414; // longs, a
+                                                  // player each (Perfect_Bonus, Vital_Bonus, Time_Bonus)
+    constexpr uint32_t kCompleteBonus = 0x02016AF4; // long (Complete_Bonus)
+    constexpr uint32_t kGameStep = 0x02015438, kGameSub = 0x0201543A, kGameLast = 0x0201543C; // words (G_No[1-3])
+    constexpr uint32_t kGameTime = 0x02015434;    // word (G_Timer)
+    constexpr uint32_t kEndingSteps = 0x0201546A; // words, 4 (E_No)
+    constexpr uint32_t kMenuSteps = 0x020155EE;   // words, 4 (M_No)
+    constexpr uint32_t kPause = 0x0201136E;       // word (Game_pause)
+    constexpr uint32_t kMusicTime2 = 0x02016D13;  // byte (BGM_Timer[1])
+    constexpr uint32_t kSuicideAll = 0x02016D00;  // byte (Suicide[0])
+    constexpr uint32_t kCockpit = 0x02016D02;     // byte (Suicide[2]: the panel's tasks end)
+    constexpr uint32_t kGaugesStopped = 0x02028644; // words, a player each (gauge_stop_flag)
+    constexpr uint32_t kBattleQ = 0x02016D7F;     // bytes, a player each (Battle_Q: a challenger waits)
+    constexpr uint32_t kContinueCoins = 0x02015851; // bytes, a player each (Continue_Coin2)
+    constexpr uint32_t kEnding07 = 0x0201542E;    // bytes, 2 (E_07_Flag)
+    constexpr uint32_t kDemo = 0x0206AC67;        // byte: a demonstration's fight
+    constexpr uint32_t kTextLine = 0x0201542C, kTextColumn = 0x020113E6; // words
+    constexpr uint32_t kFadeOut = 0x0609C912;     // Check_Fade_Out_BGM (r4 the frames)
+    constexpr uint32_t kBonusSound = 0x06087024;  // (r4 the sound, r5 1)
+    constexpr uint32_t kBonusLine = 0x060F1E74;   // effect_76_init (r4 the order's number): a bonus's name
+    constexpr uint32_t kBonusPoints = 0x06107B84; // effect_G0_init (r4 the order, r5 its time, r6 the points, r7 its
+                                                  // place): a bonus's points, counted onto the score
+    constexpr uint32_t kSoundEffect = 0x0608FB34; // Sound_SE (r4)
+    constexpr uint32_t kScoreShown = 0x0609E57A;  // the player's (r4) score drawn on the panel (fight_score.cpp)
+    constexpr uint32_t kText = 0x060D632A;        // (r4-r7): lines of the screen's text cleared
+    constexpr uint32_t kEntryAgain = 0x0609C54E;  // Check_Entry_Again: r0 not 0 if a player may join again
+    constexpr uint32_t kOtherTasks = 0x060D94BC;
+    constexpr uint32_t kEffectsCleared = 0x060DB5E8; // effect_work_quick_init
+    constexpr uint32_t kSoundsOff = 0x0608FBA8;   // SE_All_Off
+    constexpr uint32_t kNaming = 0x0609AF1C;      // Check_Naming (r4 the player)
+    constexpr uint32_t kEnding = 0x0609C3A4;      // Check_Ending: the winner to its ending, all ten beaten
+    constexpr uint32_t kFlashCleared = 0x0609148A; // Clear_Flash_No
+    constexpr uint32_t kGameOverMusic = 0x060F4A8A; // (r4 30)
+
+    // 0609A5F8 (Game_Manage_81_0): the bonuses' screen: the music faded out, the bonus sound, then the names of the
+    // bonuses one after another 5 frames apart (the perfect's, if it was one; the health's, the time's, the
+    // complete's) with their points (effect_76_init, effect_G0_init: the last jumped to)
+    bool BonusesShown(Guest &g) {
+        int16_t place = 0;
+        uint8_t time = 1;
+        uint32_t points = 0;
+        {
+            Frame frame(g, 36); // (r8-r14, pr, a word)
+            g.R(4) = 0x222;
+            g.R(3) = kFadeOut;
+            g.Call(kFadeOut);
+            g.R(1) = kStepTime;
+            g.R(4) = kBonusStep;
+            g.R(0) = kForbidBreak;
+            g.Write16(kBonusStep, static_cast<uint16_t>(Word(g, kBonusStep) + 1));
+            g.Write16(kStepTime, 20);
+            g.R(2) = Signed(-1);
+            g.Write8(kForbidBreak, 0xFF);
+            g.R(4) = 0xBD28;
+            g.R(3) = kBonusSound;
+            g.R(5) = 1;
+            g.Call(kBonusSound);
+            uint8_t line = 0;
+            // A bonus's name, its order's time and place (effect_76_init); r2 or r3 the time's place, as the game's
+            const auto name = [&](uint32_t order, bool second) {
+                g.R(0) = order;
+                g.R(second ? 2 : 3) = kOrderTimes + order;
+                g.Write8(kOrders + order, 1);
+                g.Write8(kOrderTimes + order, time);
+                g.Write8(kOrderDirs + order, line++);
+                g.R(4) = order;
+                g.Call(kBonusLine);
+            };
+            // ... and its points (effect_G0_init)
+            const auto score = [&](uint32_t order, uint32_t bonus) {
+                g.R(3) = kWinner;
+                g.R(5) = Extended(time);
+                g.R(2) = kBonusPoints;
+                g.Write8(kOrders + order, 0);
+                g.R(7) = Extended(place++);
+                g.R(0) = bonus;
+                g.R(6) = g.Read32(bonus + Signed(Byte(g, kWinner)) * 4);
+                g.R(4) = order;
+                g.Call(kBonusPoints);
+            };
+            name(74, false);
+            time = 6;
+            g.R(3) = kPerfect;
+            g.R(4) = 6;
+            g.R(0) = Signed(Byte(g, kPerfect));
+            if (g.R(0) != 0) {
+                name(76, true);
+                score(81, kPerfectBonus);
+                time = 11;
+            }
+            name(78, false);
+            score(83, kVitalBonus);
+            time += 5;
+            name(79, false);
+            score(84, kTimeBonus);
+            time += 5;
+            g.R(0) = 75;
+            g.R(3) = kOrderTimes + 75;
+            g.Write8(kOrders + 75, 1);
+            g.Write8(kOrderTimes + 75, time);
+            g.Write8(kOrderDirs + 75, line);
+            g.R(4) = 75;
+            g.Call(kBonusLine);
+            g.Write8(kOrders + 80, 0);
+            g.Write8(kOrderDirs + 80, 1);
+            points = g.Read32(kCompleteBonus);
+        }
+        g.R(3) = kCompleteBonus;
+        g.R(5) = Extended(time);
+        g.R(2) = kBonusPoints;
+        g.R(4) = 80;
+        g.R(7) = Extended(place);
+        g.R(6) = points;
+        g.Call(kBonusPoints);
+        g.Return(100);
+        return true;
+    }
+
+    // 0609A724 (Game_Manage_81_1): once the complete bonus's points are counted (its Order_Dir 0), the next step in
+    // a third of a second
+    bool BonusesCounted(Guest &g) {
+        g.R(3) = kOrderDirs + 80;
+        g.R(2) = Signed(Byte(g, kOrderDirs + 80));
+        if (g.R(2) == 0) {
+            g.R(4) = kBonusStep;
+            g.R(2) = Signed(Word(g, kBonusStep)) + 1;
+            g.Write16(kBonusStep, static_cast<uint16_t>(g.R(2)));
+            g.R(1) = 20;
+            g.R(0) = kStepTime;
+            g.Write16(kStepTime, 20);
+        }
+        g.Return(10);
+        return true;
+    }
+
+    // A step's frames counted down, at once over for a scene cut: r0 Scene_Cut, r2 the frames left, r3 its place
+    bool CutFramesOver(Guest &g) {
+        g.R(3) = kSceneCut;
+        g.R(0) = Signed(Byte(g, kSceneCut));
+        if (g.R(0) != 0) {
+            g.Write16(kStepTime, 1);
+        }
+        g.R(2) = Extended(Word(g, kStepTime) - 1);
+        g.Write16(kStepTime, static_cast<uint16_t>(g.R(2)));
+        return g.R(2) == 0;
+    }
+
+    // 0609A798 (Game_Manage_81_2): the frames over (at once for a scene cut), the winner's score drawn, the bonuses'
+    // points told to go onto it (their orders 1), a sound (Sound_SE 100, jumped to)
+    bool BonusesAdded(Guest &g) {
+        {
+            Frame frame(g, 8); // (r14, pr)
+            g.R(4) = kStepTime;
+            if (!CutFramesOver(g)) {
+                g.Return(20);
+                return true;
+            }
+            g.R(4) = kBonusStep;
+            g.R(3) = Signed(Word(g, kBonusStep)) + 1;
+            g.Write16(kBonusStep, static_cast<uint16_t>(g.R(3)));
+            g.R(2) = kWinner;
+            g.R(3) = kScoreShown;
+            g.R(4) = Signed(Byte(g, kWinner));
+            g.Call(kScoreShown);
+            for (uint32_t order : {81u, 83u, 84u, 80u}) {
+                g.Write8(kOrders + order, 1);
+            }
+            g.Write8(kOrderDirs + 80, 1);
+        }
+        g.R(0) = 84;
+        g.R(3) = kSoundEffect;
+        g.R(2) = kOrderDirs + 80;
+        g.R(4) = 100;
+        g.Call(kSoundEffect);
+        g.Return(40);
+        return true;
+    }
+
+    // 0609A7EC (Game_Manage_81_3): once the points are on the score (Order_Dir 0), the match end's next step in 50
+    // frames
+    bool BonusesOver(Guest &g) {
+        g.R(3) = kOrderDirs + 80;
+        g.R(2) = Signed(Byte(g, kOrderDirs + 80));
+        if (g.R(2) == 0) {
+            g.R(4) = kSubStep;
+            g.R(0) = kBonusStep;
+            g.Write16(kSubStep, static_cast<uint16_t>(Word(g, kSubStep) + 1));
+            g.Write16(kBonusStep, 0);
+            g.R(2) = 50;
+            g.R(1) = kStepTime;
+            g.Write16(kStepTime, 50);
+        }
+        g.Return(10);
+        return true;
+    }
+
+    // 0609A80C (Game_Manage_8_2): the frames over (at once for a challenger's coin on the loser's side, or a scene
+    // cut): the screen's lines of text cleared (by whether it is a demonstration and who won), a player let in again
+    // (Check_Entry_Again: Forbid_Break 0), the panel's tasks and the gauges stopped, the round management's next step in
+    // half a second
+    bool MatchEndTextCleared(Guest &g) {
+        {
+            Frame frame(g, 16); // (r12-r14, pr)
+            g.R(0) = kRequestBreak;
+            g.R(4) = kWinner;
+            g.R(3) = Signed(Byte(g, kWinner)) ^ 1;
+            g.R(2) = Signed(Byte(g, kRequestBreak + g.R(3)));
+            if (g.R(2) != 0) {
+                g.Write16(kStepTime, 1);
+            }
+            if (!CutFramesOver(g)) {
+                g.Return(20);
+                return true;
+            }
+            const auto text = [&](uint32_t r4, uint32_t r5, uint32_t r6, uint32_t r7) {
+                g.R(7) = r7;
+                g.R(6) = r6;
+                g.R(5) = r5;
+                g.R(4) = r4;
+                g.Call(kText);
+            };
+            g.R(3) = kDemo;
+            g.R(1) = Signed(Byte(g, kDemo));
+            if (g.R(1) == 0) {
+                g.R(1) = Signed(Byte(g, kWinner));
+                if (g.R(1) == 0) {
+                    text(0, 0, 26, 1);
+                } else {
+                    text(21, 0, 47, 1);
+                }
+                text(0, 1, 47, 31);
+            } else {
+                text(0, 0, 47, 31);
+            }
+            g.R(2) = kEntryAgain;
+            g.Call(kEntryAgain);
+            if (g.R(0) != 0) {
+                g.R(2) = kForbidBreak;
+                g.R(3) = 0;
+                g.Write8(kForbidBreak, 0);
+            }
+            g.R(1) = kCockpit;
+            g.Write8(kCockpit, 1);
+            g.Write16(kGaugesStopped, 1);
+            g.Write16(kGaugesStopped + 2, 1);
+            g.R(4) = kManageStep;
+            g.Write16(kManageStep, static_cast<uint16_t>(Word(g, kManageStep) + 1));
+            g.R(0) = kSubStep;
+            g.R(2) = 0;
+            g.Write16(kSubStep, 0);
+            g.R(3) = 30;
+            g.Write16(kStepTime, 30);
+        }
+        g.Return(40);
+        return true;
+    }
+
+    // 0609AAD0 (Game_Manage_9th): after the round (C_No[1] 0): the match won (the winner's rounds), the round
+    // management's next step (10th) in 75 frames, or for a person who won against the computer with a challenger
+    // waiting (Battle_Q) the 11th; not yet, a second's wait (1), the screen switched (2, Switch_Screen) and the next
+    // round from the round management's first step (the game's step 5)
+    bool AfterRound(Guest &g) {
+        {
+            Frame frame(g, 20); // (r11-r14, pr)
+            const auto screen = [&] {
+                g.R(3) = kScreen;
+                g.Call(kScreen);
+                if (g.R(0) == 0) {
+                    return;
+                }
+                g.R(4) = 5;
+                g.Write8(kMusicStep, 1);
+                g.Write8(kMusicTime, 1);
+                g.Write16(kGameSub, 5);
+                g.Write16(kGameLast, 0);
+                g.Write16(kGameTime, 4);
+                g.Write8(kCover, 5);
+                g.Write16(kManageStep, 1);
+                g.Write16(kLastStep, 0);
+                g.Write16(kBonusStep, 0);
+                g.Write16(kSubStep, 0);
+                g.Write8(kSuicideAll, 1);
+                g.R(0) = kGameTime;
+                g.R(1) = kSuicideAll;
+                g.R(2) = kBonusStep;
+                g.R(3) = kLastStep;
+            };
+            g.R(4) = kStepTime;
+            const int16_t step = Word(g, kSubStep);
+            g.R(0) = Extended(step);
+            if (step == 0) {
+                g.R(0) = kWins;
+                g.R(3) = Signed(Byte(g, kWinner)) << 1;
+                g.R(2) = kPlayType;
+                g.R(1) = Extended(Word(g, kPlayType));
+                g.R(3) = Extended(Word(g, kWins + g.R(3)));
+                g.R(0) = kRounds;
+                g.R(1) = g.Read8(kRounds + g.R(1)) + 1u;
+                if (static_cast<int32_t>(g.R(3)) >= static_cast<int32_t>(g.R(1))) {
+                    g.Write16(kManageStep, static_cast<uint16_t>(Word(g, kManageStep) + 1));
+                    g.Write16(kSubStep, 0);
+                    g.R(3) = 75;
+                    g.R(1) = kComputerWins;
+                    g.Write16(kStepTime, 75);
+                    g.Call(kComputerWins);
+                    g.R(2) = kPlayType;
+                    g.R(0) = Extended(Word(g, kPlayType));
+                    if (g.R(0) != 1) {
+                        g.R(3) = kMatchWinner;
+                        g.R(4) = Signed(Byte(g, kMatchWinner));
+                        g.R(0) = kPerson;
+                        g.R(2) = Signed(Byte(g, kPerson + g.R(4)));
+                        if (g.R(2) != 0) {
+                            g.R(0) = kBattleQ;
+                            g.R(2) = g.Read8(kBattleQ + g.R(4));
+                            if (g.R(2) != 0) {
+                                g.R(2) = 10;
+                                g.Write16(kManageStep, 10);
+                            }
+                        }
+                    }
+                } else {
+                    g.Write16(kSubStep, static_cast<uint16_t>(Word(g, kSubStep) + 1));
+                    g.R(3) = 60;
+                    g.R(1) = kOtherTasks;
+                    g.Write16(kStepTime, 60);
+                    g.Call(kOtherTasks);
+                    g.R(2) = kComputerWins;
+                    g.Call(kComputerWins);
+                    g.R(1) = kComboStopped;
+                    g.Write8(kComboStopped, 1);
+                    g.R(3) = kMusicTime2;
+                    g.Write8(kMusicTime2, 1);
+                }
+            } else if (step == 1) {
+                CutFramesOver(g);
+                if (static_cast<int32_t>(g.R(2)) <= 0) {
+                    g.R(2) = Signed(Word(g, kSubStep)) + 1;
+                    g.Write16(kSubStep, static_cast<uint16_t>(g.R(2)));
+                    g.R(5) = 3;
+                    g.R(3) = kPause;
+                    g.Write16(kPause, 1);
+                    g.R(2) = kScreenStart;
+                    g.R(4) = 3;
+                    g.Call(kScreenStart);
+                    screen();
+                }
+            } else {
+                screen();
+            }
+        }
+        g.Return(40);
+        return true;
+    }
+
+    // 0609ABC8 (Game_Manage_10th): the match won: once its frames are over (or a button cuts them, Button_Cut_EX), the
+    // screen switched (Switch_Screen_Init 3); then, switched, the effects and sounds cleared, the names' ranks kept
+    // only for a name to enter (Check_Naming), the fighters' routines from their first steps; a person's win to the
+    // winner's screen (the game's step 3, E_No 5) or its ending (Check_Ending), the computer's to the continue (the
+    // game's step 4, E_No 6); the flashes cleared (Clear_Flash_No, jumped to)
+    bool MatchWon(Guest &g) {
+        uint32_t tail = 0;
+        {
+            Frame frame(g, 12); // (r13, r14, pr)
+            const int16_t step = Word(g, kSubStep);
+            g.R(0) = Extended(step);
+            if (step == 0) {
+                g.R(5) = 0x7FFF;
+                g.R(4) = kStepTime;
+                g.R(3) = kSkip;
+                g.Call(kSkip);
+                if (g.R(0) != 0) {
+                    g.R(2) = 25;
+                    g.R(1) = kCover;
+                    g.Write16(kSubStep, static_cast<uint16_t>(Word(g, kSubStep) + 1));
+                    g.R(3) = kComputerWins;
+                    g.Write8(kCover, 25);
+                    g.Call(kComputerWins);
+                    g.R(5) = 3;
+                    g.R(2) = kScreenStart;
+                    g.R(4) = 3;
+                    g.R(0) = kComboStopped;
+                    g.Write8(kComboStopped, 1);
+                    g.R(3) = kPause;
+                    g.Write16(kPause, 1);
+                    tail = kScreenStart;
+                }
+            } else if (step == 1) {
+                g.R(2) = kScreen;
+                g.Call(kScreen);
+                if (g.R(0) != 0) {
+                    g.R(3) = kEffectsCleared;
+                    g.Call(kEffectsCleared);
+                    g.R(2) = kSoundsOff;
+                    g.Call(kSoundsOff);
+                    g.R(4) = 0;
+                    g.Call(kNaming);
+                    g.R(4) = 1;
+                    g.Call(kNaming);
+                    for (uint32_t n = 0; n < 4; n++) {
+                        g.Write16(kSettleSteps + n * 2, 0);
+                    }
+                    g.Write16(kAppearType, 1);
+                    g.Write8(kContinueCoins + Signed(Byte(g, kMatchWinner)), 0);
+                    g.R(5) = kGameStep;
+                    g.R(6) = kGameSub;
+                    g.R(7) = kGameLast;
+                    const bool person = Byte(g, kPerson + Signed(Byte(g, kMatchWinner))) != 0;
+                    g.Write16(kGameStep, person ? 3 : 4);
+                    g.Write16(kGameSub, 0);
+                    g.Write16(kGameLast, 0);
+                    for (uint32_t n = 0; n < 4; n++) {
+                        g.Write16(kMenuSteps + n * 2, 0);
+                    }
+                    g.Write16(kEndingSteps, person ? 5 : 6);
+                    for (uint32_t n = 1; n < 4; n++) {
+                        g.Write16(kEndingSteps + n * 2, 0);
+                    }
+                    g.R(2) = kEndingSteps + 2;
+                    g.R(3) = kEndingSteps + 4;
+                    if (person) {
+                        g.R(4) = kEndingSteps + 6;
+                        g.R(0) = kEndingSteps;
+                        g.R(1) = kEnding;
+                        g.Call(kEnding);
+                        g.R(3) = Signed(Byte(g, kMatchWinner));
+                        g.R(0) = kContinueCoins;
+                        g.Write8(kContinueCoins + g.R(3), 0);
+                        g.R(2) = kFlashCleared;
+                    } else {
+                        g.R(0) = 0;
+                        g.R(1) = kFlashCleared;
+                        g.R(4) = kEnding07;
+                        g.Write8(kEnding07, 0);
+                        g.Write8(kEnding07 + 1, 0);
+                    }
+                    tail = kFlashCleared;
+                }
+            }
+        }
+        if (tail != 0) {
+            g.Call(tail);
+        }
+        g.Return(40);
+        return true;
+    }
+
+    // 0609ADC8 (Game_Manage_11th): a person's match won with a challenger waiting: no one may join (Forbid_Break),
+    // the challenge's music (0), its frames (1, 2), the screen switched (3: the text's lines cleared, 4), then the
+    // challenger's character select (the game's step 11, E_No 9)
+    bool ChallengerWaits(Guest &g) {
+        uint32_t tail = 0;
+        {
+            Frame frame(g, 8); // (r14, pr)
+            g.R(4) = kStepTime;
+            const int16_t step = Word(g, kSubStep);
+            g.R(0) = Extended(step);
+            switch (step) {
+            case 0:
+                g.Write8(kForbidBreak, 0xFF);
+                g.Write16(kSubStep, static_cast<uint16_t>(step + 1));
+                g.Write8(0x02016B33, 2);
+                g.R(2) = 0x02016D81;
+                g.R(3) = 0x020154F5;
+                g.Write8(0x02016D81, g.Read8(0x020154F5));
+                g.R(0) = 90;
+                g.Write16(kStepTime, 90);
+                g.R(4) = 30;
+                g.R(1) = kGameOverMusic;
+                tail = kGameOverMusic;
+                break;
+            case 1:
+                g.R(2) = Extended(Word(g, kStepTime) - 1);
+                g.Write16(kStepTime, static_cast<uint16_t>(g.R(2)));
+                if (g.R(2) == 0) {
+                    g.Write16(kSubStep, static_cast<uint16_t>(Word(g, kSubStep) + 1));
+                    g.R(2) = 150;
+                    g.R(3) = 60;
+                    g.Write16(kStepTime, 60);
+                }
+                break;
+            case 2:
+                g.R(1) = Extended(Word(g, kStepTime) - 1);
+                g.Write16(kStepTime, static_cast<uint16_t>(g.R(1)));
+                if (g.R(1) == 0) {
+                    g.R(3) = Signed(Word(g, kSubStep)) + 1;
+                    g.R(5) = 2;
+                    g.R(2) = kScreenStart;
+                    g.R(4) = 0;
+                    g.Write16(kSubStep, static_cast<uint16_t>(g.R(3)));
+                    tail = kScreenStart;
+                }
+                break;
+            case 3:
+                g.R(2) = kScreen;
+                g.Call(kScreen);
+                if (g.R(0) != 0) {
+                    g.Write16(kSubStep, static_cast<uint16_t>(Word(g, kSubStep) + 1));
+                    g.R(2) = kTextLine;
+                    g.R(7) = Signed(Word(g, kTextLine)) + 13;
+                    g.R(6) = Signed(Word(g, kTextColumn)) + 47;
+                    g.R(5) = Signed(Word(g, kTextLine)) + 11;
+                    g.R(4) = Signed(Word(g, kTextColumn));
+                    g.R(3) = kText;
+                    g.Call(kText);
+                    g.R(2) = kComputerWins;
+                    g.Call(kComputerWins);
+                    g.R(5) = 1;
+                    g.R(3) = kScreenStart;
+                    g.R(4) = 3;
+                    tail = kScreenStart;
+                }
+                break;
+            case 4:
+                g.R(3) = kScreen;
+                g.Call(kScreen);
+                if (g.R(0) != 0) {
+                    g.R(4) = 0;
+                    g.Write16(kGameStep, 11);
+                    g.Write16(kGameSub, 0);
+                    g.Write16(kGameLast, 0);
+                    g.Write16(kEndingSteps, 9);
+                    for (uint32_t n = 1; n < 4; n++) {
+                        g.Write16(kEndingSteps + n * 2, 0);
+                    }
+                    g.R(0) = kEndingSteps;
+                    g.R(2) = kEndingSteps + 4;
+                    g.R(1) = kEndingSteps + 6;
+                    g.R(3) = kEffectsCleared;
+                    g.Call(kEffectsCleared);
+                    g.R(3) = kCover;
+                    g.R(2) = 21;
+                    g.Write8(kCover, 21);
+                }
+                break;
+            }
+        }
+        if (tail != 0) {
+            g.Call(tail);
+        }
+        g.Return(40);
+        return true;
+    }
+
+    // 0609AF52 (Game_Manage_12th): its steps (table 0x061945AC, ten, copied onto the stack)
+    bool ManageTwelfth(Guest &g) {
+        constexpr uint32_t table = 0x061945AC;
+        Frame frame(g, 44); // (pr, the table)
+        g.R(1) = g.R(15);
+        g.R(2) = kSubStep;
+        g.R(0) = Signed(Word(g, kSubStep)) << 2;
+        g.R(3) = g.Read32(table + g.R(0));
+        g.Call(g.R(3));
+        g.Return(40);
+        return true;
+    }
+
+    // --- the game's steps (Game_Jmp_Tbl, 0x06194174, by G_No[1]) ---
+    constexpr uint32_t kBonusType = 0x02016B89;   // byte: the next opponent a bonus stage (Bonus_Type)
+    constexpr uint32_t kBonusGame = 0x02016B3A;   // word (Bonus_Game_Flag)
+    constexpr uint32_t kSceneSteps = 0x02016CF4;  // bytes, 4 (SC_No)
+    constexpr uint32_t kDraw = 0x060A04D4;        // BG_Draw_System
+    constexpr uint32_t kBasic = 0x060914D4;       // Basic_Sub
+    constexpr uint32_t kBonusStage = 0x060A2E66;  // Check_Bonus_Stage (bonus.cpp): r0 not 0 for a bonus stage
+    constexpr uint32_t kSlow = 0x0608F3EC;        // init_slow_flag
+    constexpr uint32_t kNextOpponent = 0x060A0D18; // Next_CPU: the next opponent's screen; r0 not 0 once it is over
+    constexpr uint32_t kGameSetUp = 0x06095674;   // Game01_Sub
+    constexpr uint32_t kMusicStopped = 0x0608FBA2; // BGM_Stop
+    constexpr uint32_t kCutCutCut = 0x060921A8;   // Cut_Cut_Cut: r0 1 when the scene may be cut short (a button held)
+
+    // 06095750 (Game05): the next opponent's screen (Next_CPU): its steps set (SC_No; 6 for a bonus stage), then
+    // once it is over the screen switched (Switch_Screen_Init 3) and, switched, the music stopped and on to the fight
+    // (the game's step 2) or the bonus stage (9)
+    bool NextOpponent(Guest &g) {
+        uint32_t tail = 0;
+        {
+            Frame frame(g, 12); // (r13, r14, pr)
+            g.R(3) = kDraw;
+            g.Call(kDraw);
+            g.R(2) = kBasic;
+            g.Call(kBasic);
+            const int16_t step = Word(g, kGameSub);
+            g.R(0) = Extended(step);
+            if (step == 0) {
+                g.Write16(kGameSub, static_cast<uint16_t>(step + 1));
+                for (uint32_t n = 0; n < 4; n++) {
+                    g.Write8(kSceneSteps + n, 0);
+                }
+                g.R(0) = 0;
+                g.R(3) = kBonusStage;
+                g.Call(kBonusStage);
+                if (g.R(0) != 0) {
+                    g.R(3) = 6;
+                    g.Write8(kSceneSteps, 6);
+                }
+                g.R(2) = kComboStopped;
+                g.Write8(kComboStopped, 0);
+                g.R(3) = kSlow;
+                tail = kSlow;
+            } else if (step == 1) {
+                g.R(3) = kNextOpponent;
+                g.Call(kNextOpponent);
+                if (g.R(0) == 0) {
+                    g.SetT(true);
+                } else {
+                    g.R(3) = Signed(Word(g, kGameSub)) + 1;
+                    g.Write16(kGameSub, static_cast<uint16_t>(g.R(3)));
+                    g.R(1) = kBonusType;
+                    g.R(2) = Signed(Byte(g, kBonusType));
+                    if (g.R(2) == 0) {
+                        g.Call(kGameSetUp);
+                    }
+                    g.R(3) = kComputerWins;
+                    g.Call(kComputerWins);
+                    g.R(5) = 3;
+                    g.R(4) = 3;
+                    g.R(2) = kScreenStart;
+                    tail = kScreenStart;
+                }
+            } else {
+                g.R(2) = kNextOpponent;
+                g.Call(kNextOpponent);
+                g.R(3) = kScreen;
+                g.Call(kScreen);
+                if (g.R(0) == 0) {
+                    g.SetT(true);
+                } else {
+                    g.R(2) = kCover;
+                    g.R(3) = 24;
+                    g.R(1) = kMusicStopped;
+                    g.Write8(kCover, 24);
+                    g.Call(kMusicStopped);
+                    g.R(7) = kGameStep;
+                    g.R(6) = kEndingSteps + 4;
+                    g.R(4) = kEndingSteps + 6;
+                    g.R(2) = kBonusType;
+                    g.R(3) = Signed(Byte(g, kBonusType));
+                    g.R(5) = 4;
+                    const bool fight = g.R(3) == 0;
+                    g.SetT(fight);
+                    g.Write16(kGameStep, fight ? 2 : 9);
+                    g.Write16(kGameSub, 0);
+                    if (!fight) {
+                        g.Write16(kGameLast, 0);
+                    }
+                    g.Write16(kEndingSteps, 4);
+                    for (uint32_t n = 1; n < 4; n++) {
+                        g.Write16(kEndingSteps + n * 2, 0);
+                    }
+                    if (fight) {
+                        g.Write16(kBonusGame, 0);
+                        g.R(1) = kEndingSteps + 2;
+                        g.R(2) = kBonusGame;
+                        g.R(3) = kEndingSteps;
+                    } else {
+                        g.R(1) = kEndingSteps;
+                        g.R(2) = kEndingSteps + 2;
+                        g.R(3) = kGameLast;
+                    }
+                }
+            }
+        }
+        if (tail != 0) {
+            g.Call(tail);
+        }
+        g.Return(40);
+        return true;
+    }
+
+    // 06095A16 (Game02): the fight's game step: whether the scene may be cut short (Cut_Cut_Cut: Scene_Cut), then its
+    // own step (Game02_Jmp_Tbl, 0x061941D0, by G_No[2], copied onto the stack). Its first two (the fight's start, which
+    // waits for the stage's loading, and the fight's frame, which a vertical blank may come into) are left the game's
+    // code: g.Call could not run them as they run.
+    bool FightGame(Guest &g) {
+        constexpr uint32_t table = 0x061941D0;
+        const int16_t step = Word(g, kGameSub);
+        if (step == 0 || step == 1) {
+            return false;
+        }
+        Frame frame(g, 28); // (pr, the table)
+        g.R(3) = table;
+        g.R(0) = g.R(15);
+        g.R(2) = g.Read32(table + 20);
+        g.R(1) = kCutCutCut;
+        g.Call(kCutCutCut);
+        g.R(3) = kSceneCut;
+        g.Write8(kSceneCut, static_cast<uint8_t>(g.R(0)));
+        g.R(1) = kGameSub;
+        g.R(3) = g.R(15);
+        g.R(2) = g.R(15) + (Signed(Word(g, kGameSub)) << 2);
+        g.R(0) = g.Read32(table + (Signed(Word(g, kGameSub)) << 2));
+        g.Call(g.R(0));
+        g.Return(40);
+        return true;
+    }
+
+    constexpr uint32_t kContinueScene = 0x0609DD78; // the continue's screen: r0 not 0 once it is over (not continued)
+
+    // 06096CB4 (Game07): the continue's screen; over (not continued), the game over (the game's step 6)
+    bool ContinueScreen(Guest &g) {
+        {
+            Frame frame(g, 4); // (pr)
+            g.R(3) = kDraw;
+            g.Call(kDraw);
+            g.R(2) = kGameSub;
+            g.R(0) = Extended(Word(g, kGameSub));
+            if (g.R(0) != 0) {
+                g.SetT(false);
+            } else {
+                g.R(3) = kContinueScene;
+                g.Call(kContinueScene);
+                if (g.R(0) == 0) {
+                    g.SetT(true);
+                } else {
+                    g.SetT(false);
+                    g.R(3) = 6;
+                    g.R(1) = kGameStep;
+                    g.R(2) = 0;
+                    g.R(0) = kGameSub;
+                    g.Write16(kGameStep, 6);
+                    g.Write16(kGameSub, 0);
+                }
+            }
+        }
+        g.Return(40);
+        return true;
+    }
+
     const Lift kLifts[] = {
         {"CountWin", 0x060999B0, 0x1A6, 0xEA669C61DDBA99EAull, CountWin, true, 0x10079},
         {"WinMark", 0x06099B56, 0x116, 0x66E3D4704978B717ull, WinMark, true, 0x100FF},
@@ -1414,6 +2158,18 @@ namespace {
         {"MatchEndStart", 0x0609A4E0, 0xAC, 0x5C48D49D1F3D41EDull, MatchEndStart, true, 0x10078},
         {"MatchEndBonuses", 0x0609A58C, 0x2E, 0x29E7C39E6CA191FAull, MatchEndBonuses, true, 0x10078},
         {"MatchEndOver", 0x0609A8B2, 0x2C, 0x159DF94C827992FAull, PerfectOver, true, 0x10078},
+        {"BonusesShown", 0x0609A5F8, 0x12C, 0x6479C6DB344A0C34ull, BonusesShown, true, 0x10078},
+        {"BonusesCounted", 0x0609A724, 0x1A, 0xDE67A9C56595054Dull, BonusesCounted, true, 0x10078},
+        {"BonusesAdded", 0x0609A798, 0x54, 0xB39AA6B9928BAF50ull, BonusesAdded, true, 0x10078},
+        {"BonusesOver", 0x0609A7EC, 0x20, 0x8AFF5D7672273A74ull, BonusesOver, true, 0x10078},
+        {"MatchEndTextCleared", 0x0609A80C, 0xA6, 0xC82EA702652379F8ull, MatchEndTextCleared, true, 0x10078},
+        {"AfterRound", 0x0609AAD0, 0xF8, 0xED43B55D5CF2ED44ull, AfterRound, true, 0x10079},
+        {"MatchWon", 0x0609ABC8, 0x188, 0xBFBA55B33E036C2Cull, MatchWon, true, 0x10079},
+        {"ChallengerWaits", 0x0609ADC8, 0xF8, 0x53BC8C9285C36BC0ull, ChallengerWaits, true, 0x10079},
+        {"ManageTwelfth", 0x0609AF52, 0x46, 0x4B818FBBC1BCF07Full, ManageTwelfth, true, 0x10079},
+        {"NextOpponent", 0x06095750, 0xE0, 0xBFE98B69588D6DDDull, NextOpponent, true, 0},
+        {"FightGame", 0x06095A16, 0x40, 0xD729F7165020BE1Eull, FightGame, true, 0},
+        {"ContinueScreen", 0x06096CB4, 0x30, 0x636F27E0A428A1B0ull, ContinueScreen, true, 0},
     };
 } // namespace
 
