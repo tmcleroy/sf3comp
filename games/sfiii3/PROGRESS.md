@@ -117,8 +117,11 @@ modelling the CPS-3 board in its default build. The game's drawing and sound cod
 interface its frames (objects, tilemap lines, scrolls, palettes, the text layer) and its voices, instead of
 writing the video and sound chips' registers and memories. The board model (machine/, video/renderer.cpp,
 sound/pcm.cpp) stays only as the reference. Checks run the two side by side: the same interface decoded from the
-board's memories against the one the rewrites hand over, every frame, then pixels and samples. Plan and inventory:
-docs/NATIVE.md. Wanted features this makes possible, both asked for by the user: GPU rendering (SDL_GPU drawing
+board's memories against the one the rewrites hand over, every frame, then pixels and samples. The interface and
+the checks: cps3recomp/docs/NATIVE.md; this game's routines, read-backs, timing and plan: games/sfiii3/NATIVE.md.
+Done: the palette (src/video_palette.cpp: the palette DMA's request and start and the text layer's colours hand their
+transfers and colours to video/native.h; checknative.sh: all the same over attract mode, a one-player game, a versus
+game and a training session, 12000 frames each). Next: the frame registers, then the object lists and the textures. Wanted features this makes possible, both asked for by the user: GPU rendering (SDL_GPU drawing
 the interface's objects and layers, not a software renderer's picture handed over), and the guest stages drawn as
 layers through the same interface (DEFINITIVE.md item 10). The readable work below stops at the move code and boxes that are done; the rest waits.
 
