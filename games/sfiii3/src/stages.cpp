@@ -30,17 +30,24 @@ namespace {
         uint32_t rightAt, leftAt;    // the stage's ends, if the game keeps them (else right, left)
         int right, left;
         uint32_t clock[2], life[6], stage;
-        uint32_t players[2]; // the players' records (the place across the stage at +0x64, as in 3rd Strike)
+        uint32_t players[2]; // the players' records (the place across the stage at +0x64, up at +0x68, as in 3rd Strike)
+        int32_t upSpeed;     // how far its camera goes up for a line of its higher fighter's height past 88 (16.16)
+        int cameraLayer;     // which of its stage's seven layers is the camera's (the stage's head 0x54 before the first)
     };
+    // (its fighters' layer: the camera's middle across at +0x20 of it, as in 3rd Strike; its place up at +0x1C shown and
+    // +0x24, its top at +0x6E: stage_camera.cpp)
+    constexpr uint32_t kSpeedUp = 0x14, kShownUp = 0x1C, kUp = 0x24, kHomeUp = 0x4A, kTopEnd = 0x6E;
+    constexpr uint32_t kSteps = 0x04;   // (a layer's step, 0 not begun)
+    constexpr uint32_t kMovedUp = 0x14; // (of the stage's head, 0x54 before its layers: how far up the camera's layer is from its start)
     const StageGame kNewGeneration = {"sfiiin", {0x0201BE7C, 0x0201BE84, 0x0201BE94}, {0x0201BE6E, 0x0201BEF0}, 0x0201BEC8, 0x0201BECC, 680, 320,
                                       {0x0200EB33, 0x0201DB15}, {0x0200D22B, 0x0200D22D, 0x0201DAF1, 0x0200D603, 0x0200D605, 0x0201DB09},
-                                      0x02012CA3, {0x0200D18C, 0x0200D564}};
+                                      0x02012CA3, {0x0200D18C, 0x0200D564}, 0x12000, 0};
     const StageGame kSecondImpact = {"sfiii2n", {0x020221CC, 0x020221D4, 0x020221E4}, {0, 0}, 0x02022218, 0x0202221C, 0, 0,
                                      {0x02010167, 0x02023EF5}, {0x0200E5A3, 0x0200E5A5, 0x0200E9AF, 0x0200E9B1, 0, 0}, 0x020142E7,
-                                     {0x0200E504, 0x0200E910}};
+                                     {0x0200E504, 0x0200E910}, 0x12000, 0};
     // 3rd Strike's own, as a stage board behind its fighters (the modes' shuffled and scrolling stages: battle.cpp)
     const StageGame kThirdStrike = {GAME_ROM_SET, {0x02026CA8, 0x02026CB0, 0x02026CC0}, {0, 0}, 0x02026CF4, 0x02026CF8, 748, 272,
-                                    {0x02011377, 0x02028679}, {0x02068D0B, 0x020691A3, 0, 0, 0, 0}, 0x020154F5, {0x02068C6C, 0x02069104}};
+                                    {0x02011377, 0x02028679}, {0x02068D0B, 0x020691A3, 0, 0, 0, 0}, 0x020154F5, {0x02068C6C, 0x02069104}, 0x1C000, 1};
     // (a choice's stage: the one fought on in 3rd Strike, as that game has it: both number their stages as 3rd Strike
     // numbers its characters (Gill 0, Alex 1...: seen in their own one-player games, the opponent's stage number and
     // name), New Generation's 0-12 and 2nd Impact's 0-14; the characters they have not, 3rd Strike's own stage)
@@ -428,6 +435,53 @@ namespace {
                     placed[p] = theirs + (p ? 40 : -40);
                     SetWord(ram, game.players[p] + 0x64, placed[p] - g.offset);
                 }
+            }
+            // Up as 3rd Strike's camera is (its fighters' layer's place up, a line for a line: Oro's entrance on his stage,
+            // which starts in the sky, a jump): its game makes that from its fighters too (the higher one's height past 88,
+            // times its speed up, as far as its camera's layer's top), so its fighters, unseen, are put as high as that
+            // needs; and its layers' places up are given too, for the frames its game holds its camera (its own round's
+            // start, as 3rd Strike's intros play)
+            const int up = g_cameraWanted == kFollow ? std::max(0, static_cast<int>(static_cast<int16_t>(Ram16(sfiii3::kCameraY)))) : 0;
+            const int top = static_cast<int16_t>(Word(ram, game.camera[1] - 0x20 + kTopEnd));
+            const int wantedUp = std::clamp(up, 0, std::max(top, 0));
+            const int height = wantedUp > 0 ? 88 + static_cast<int>((static_cast<int64_t>(wantedUp) * 65536 + game.upSpeed - 1) / game.upSpeed) : 0;
+            for (int p = 0; p < 2; p++) {
+                SetWord(ram, game.players[p] + 0x68, height);
+            }
+            const uint32_t fighters = game.camera[1] - 0x20;
+            for (const uint32_t at : {fighters + kShownUp, fighters + kUp}) {
+                SetWord(ram, at, wantedUp);
+                SetWord(ram, at + 2, 0);
+            }
+            // (and how far up it is for its other layers, and their places up from that, as its game makes them each
+            // frame (stage_camera.cpp's LayerUp), which it does not while its camera is held; the layers in use have
+            // begun their steps)
+            const uint32_t head = fighters - 0x54 - static_cast<uint32_t>(game.cameraLayer) * 0x90;
+            const int moved = wantedUp - static_cast<int16_t>(Word(ram, fighters + kHomeUp));
+            SetWord(ram, head + kMovedUp, moved);
+            for (int n = 0; n < 7; n++) {
+                const uint32_t layer = head + 0x54 + static_cast<uint32_t>(n) * 0x90;
+                if (layer == fighters || Word(ram, layer + kSteps) == 0) {
+                    continue;
+                }
+                const uint32_t speed = (static_cast<uint32_t>(Word(ram, layer + kSpeedUp)) << 16) | Word(ram, layer + kSpeedUp + 2);
+                uint32_t place = speed * static_cast<uint32_t>(moved);
+                const int topEnd = static_cast<int16_t>(Word(ram, layer + kTopEnd));
+                if (topEnd < static_cast<int16_t>(place >> 16)) {
+                    place = static_cast<uint32_t>(topEnd) << 16;
+                }
+                place = (((place >> 16) + Word(ram, layer + kHomeUp)) << 16) | (place & 0xFFFF);
+                for (const uint32_t at : {layer + kShownUp, layer + kUp}) {
+                    SetWord(ram, at, static_cast<int>(place >> 16));
+                    SetWord(ram, at + 2, static_cast<int>(place & 0xFFFF));
+                }
+            }
+            // (debugging aid, SFIII3_STAGE_UP=1: 3rd Strike's camera up, and its)
+            static const bool upLog = getenv("SFIII3_STAGE_UP") != nullptr;
+            if (upLog && (up > 0 || g.frames % 60 == 0)) {
+                fprintf(stderr, "stage up: frame %u, 3rd Strike %d, its %d (wanted %d, its top %d), its fighters' %d %d\n", g.frames, up,
+                        static_cast<int16_t>(Word(ram, game.camera[1] + 4)), wantedUp, top, static_cast<int16_t>(Word(ram, game.players[0] + 0x62)),
+                        static_cast<int16_t>(Word(ram, game.players[1] + 0x62)));
             }
             g_theirLeft = theirLeft;
             g_theirRight = theirRight;
