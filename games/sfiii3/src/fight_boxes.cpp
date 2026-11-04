@@ -368,7 +368,7 @@ namespace {
     // as check_cgd_patdat but with no frame copied, no step, no effect and no sound asked for (the sound's word taken
     // apart, one of a list picked all the same), and the overlap taken for every record. Leaves every register as the
     // game's code.
-    bool NewFrame2(Guest &g) {
+    [[maybe_unused]] bool NewFrame2(Guest &g) {
         const uint32_t record = g.R(4);
         {
             Frame frame(g, 16); // (r14, r8, pr and the long it works in)
@@ -743,7 +743,7 @@ namespace {
     // 060892B8 (exset_char_move_init): another animation (r5, r6) taken over at the frame the record is at, as it is: its
     // frame's longs copied in but the frames left of the one shown kept; cmoa noted; the frame taken up
     // (check_cgd_patdat2, jumped to). Leaves every register as the game's code.
-    bool SetMoveData(Guest &g) {
+    [[maybe_unused]] bool SetMoveData(Guest &g) {
         const uint32_t record = g.R(4);
         g.Write16(record + kRoutine, static_cast<uint16_t>(g.R(5)));
         g.Write16(record + kIndex, static_cast<uint16_t>(g.R(6)));
@@ -827,7 +827,7 @@ namespace {
 
     // 06089812 (char_move_cmhs): as a hit's stop ends with hsjp_ok, where the animation was is noted (setup_comm_back)
     // and the one cmhs names begun at its frame (set_char_move_init2)
-    bool CharMoveAfterHitStop(Guest &g) {
+    [[maybe_unused]] bool CharMoveAfterHitStop(Guest &g) {
         const uint32_t record = g.R(4);
         {
             Frame frame(g, 8); // (r14, pr)
@@ -896,17 +896,17 @@ namespace {
     const Lift kLifts[] = {
         {"CharMove", 0x06089848, 0x74, 0x6888F6634000EDB3ull, CharMove, true},
         {"NewFrame", 0x0608BD6A, 0x46, 0xE6F2A9C9FC873B84ull, NewFrame, true},
-        {"NewFrame2", 0x0608C0DC, 0x7C, 0xD99D10BF70A53419ull, NewFrame2, true},
+        // {"NewFrame2", 0x0608C0DC, 0x7C, 0xD99D10BF70A53419ull, NewFrame2, true}, (not reached by any check yet: left to the game\'s code)
         {"SoundFilter", 0x0608C028, 0x8A, 0x3C999D32713112F1ull, SoundFilter, true},
         {"NewAttack", 0x0608C2CC, 0x178, 0x045204C5324D8A4Bull, NewAttack, true, 0x1003F},
         {"SetBoxes", 0x0608C4A4, 0x88, 0x2D56E9A28BD3133Eull, SetBoxes, true},
         {"SetMove", 0x060890E0, 0xE0, 0x6107DEBD33FB159Eull, SetMove, true},
         {"SetMoveAt", 0x060891E4, 0xD4, 0x96253040DBFA2E16ull, SetMoveAt, true},
-        {"SetMoveData", 0x060892B8, 0x72, 0x5CA395A56B0CDA53ull, SetMoveData, true},
+        // {"SetMoveData", 0x060892B8, 0x72, 0x5CA395A56B0CDA53ull, SetMoveData, true}, (not reached by any check yet: left to the game\'s code)
         {"CharMoveZ", 0x06089350, 0x1A, 0x769F41A893845161ull, CharMoveZ, true},
         {"CharMoveWca", 0x06089378, 0x2A, 0xDFA5346F3D7E85D4ull, CharMoveWca, true},
         {"CharMoveIndex", 0x060893D8, 0x26, 0x71AEEDA3C4BBE442ull, CharMoveIndex, true},
-        {"CharMoveAfterHitStop", 0x06089812, 0x36, 0xFDD2DC45AFE5B91Dull, CharMoveAfterHitStop, true},
+        // {"CharMoveAfterHitStop", 0x06089812, 0x36, 0xFDD2DC45AFE5B91Dull, CharMoveAfterHitStop, true}, (not reached by any check yet: left to the game\'s code)
         {"ComeBack", 0x0608BCF6, 0x30, 0xB61202223C7144FFull, ComeBack, true},
         {"ComeBack3", 0x0608BD40, 0x2A, 0xEFD3B0D3D1821A3Full, ComeBack3, true},
     };
