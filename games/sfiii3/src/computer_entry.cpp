@@ -18,11 +18,11 @@
 //    4  following up (the character's follow-up routine)
 //    5  before answering: waits, ready to guard; then 6
 //    6  answering the other (the character's answer)
-//    7  guarding, 8 against a projectile, 9 guarding one, 10 hit, 11 in the air after a hit, 12 recovering (a tech
-//       roll or the like), 13 caught in a throw: not here (computer_tactics.cpp)
+//    7  guarding, 8 against a projectile, 9 guarding one, 10 hit, 11 in the air after a hit, 12 parrying (Flip:
+//       3rd Strike's blocking, the lever forward as the attack hits), 13 caught in a throw: not here (computer_tactics.cpp)
 //   14  lying down: waits to get up
 //   15  throwing: mashes the throw, as a player would
-// Every mode but 0 first looks at what has happened to the fighter (CheckHit, CheckCaught, CheckRecovery, CheckGuard):
+// Every mode but 0 first looks at what has happened to the fighter (CheckHit, CheckCaught, CheckParry, CheckGuard):
 // hit, thrown, knocked down or attacked, it changes mode at once, and the frame is the new mode's (the main step runs
 // the mode once more when kRunAgain says so).
 //
@@ -90,13 +90,13 @@ namespace {
     constexpr uint32_t kProjectiles = 0x02016ADC; // byte (Bullet_No)
     constexpr uint32_t kProjectileCount = 0x02016ADE; // byte: 3 or 4 (Bullet_Counter)
     constexpr uint32_t kLastPattern = 0x02016AD8; // word: kPattern the frame before (Last_Pattern_Index)
-    constexpr uint32_t kRecoveries = 0x02016B85;  // byte: 0xFF: it does not recover (Flip_Counter)
+    constexpr uint32_t kParries = 0x02016B85;     // byte: parries in a row (Flip_Counter); 0xFF: no more now
     constexpr uint32_t kForgetAttacks = 0x02016DA8; // byte: frames with no attack until kAttackKinds is forgotten (Reset_Timer)
 
     // Cleared whenever the computer changes what it does (ClearFlags): bytes, but kLastEffect, a word, and
     // kJumpTimers, four bytes a side
     constexpr uint32_t kAnswering = 0x0201561C;   // (Passive_Flag)
-    constexpr uint32_t kRecovering = 0x0201561E;  // (Flip_Flag)
+    constexpr uint32_t kParryFlag = 0x0201561E;   // (Flip_Flag): a parry under way
     constexpr uint32_t kLimited = 0x0201562D;     // (Limited_Flag)
     constexpr uint32_t kShellIgnore = 0x0201562F; // (Shell_Ignore_Timer)
     constexpr uint32_t kGuarding = 0x0201563B;    // (Guard_Flag)
@@ -136,7 +136,7 @@ namespace {
     constexpr uint32_t kWidths = 0x06177422;         // a byte a character: kWidth (PL_Body_Width_Data)
     constexpr uint32_t kStandTimes = 0x06176EDC;     // bytes: [character, 18 the boss][range][8 at random] (Standing_Time_Data)
     constexpr uint32_t kCrouchTimes = 0x0617717C;    // bytes: [level of 8][8 at random] (Squat_Time_Data)
-    constexpr uint32_t kRecoverable = 0x0617735E;    // bytes, by kDoingHow: not 0 where a recovery may be done (PL_Damage_Data)
+    constexpr uint32_t kCanParry = 0x0617735E;       // bytes, by kDoingHow: not 0 in a parry's action (PL_Damage_Data)
     constexpr uint32_t kReachByClass = 0x061773DE;   // words, by kAttackReach: an attack's reach (Hit_Range_Data)
     constexpr uint32_t kGuardChoices = 0x06175EBA;   // bytes: [character, 18 the boss: 0xB0][level: 16][16 at random]:
                                                      // the guard to do, 3 none (Guard_Data)
@@ -157,8 +157,8 @@ namespace {
     constexpr uint32_t kChoosePlan = 0x060104B4; // Select_Active (r4): the plan for mode 2
     constexpr uint32_t kPlanCheck = 0x06008BF0;  // Pattern_Insurance (r4, r5 which, r6 the plan): a plan past the
                                                  // character's last of that kind is put back to r6 (computer_tactics.cpp)
-    constexpr uint32_t kRecoveryPossible = 0x0601111A; // Check_Flip_Term (r4, r5): it may recover now
-    constexpr uint32_t kStartRecovery = 0x06011324;    // Next_Be_Flip (r4, r5 0)
+    constexpr uint32_t kParryPossible = 0x0601111A;    // Check_Flip_Term (r4, r5): it may parry now
+    constexpr uint32_t kStartParry = 0x06011324;       // Next_Be_Flip (r4, r5 0)
     constexpr uint32_t kStartGuard = 0x06011248;       // Next_Be_Guard (r4, r5 the other, r6 the guard)
     constexpr uint32_t kKnockedDown = 0x060138E0;      // Check_Blow_Off (r4, r5 the other, r6 0): still lying down
     constexpr uint32_t kAfterHit = 0x0600775A;         // Exit_Damage_Sub (r4): what next, once up again
@@ -167,7 +167,7 @@ namespace {
     // The modes
     enum Mode : int16_t {
         kStarting = 0, kFree = 1, kActive = 2, kBeforeFollowUp = 3, kFollowingUp = 4, kBeforeAnswer = 5, kAnswer = 6,
-        kGuardMode = 7, kVsProjectile = 8, kGuardProjectile = 9, kHit = 10, kInAir = 11, kRecovery = 12, kCaught = 13,
+        kGuardMode = 7, kVsProjectile = 8, kGuardProjectile = 9, kHit = 10, kInAir = 11, kParry = 12, kCaught = 13,
         kLyingDown = 14, kThrowing = 15,
     };
     // kDoing
@@ -338,7 +338,7 @@ namespace {
 
     // 060087E4 (Clear_Com_Flag): what the computer was in the middle of, cleared
     void ClearFlags(Side &s) {
-        for (const uint32_t flag : {kAnswering, kRecovering, kCounter, kLimited, kGuarding, kBeforeJump, kShellIgnore, kPierce,
+        for (const uint32_t flag : {kAnswering, kParryFlag, kCounter, kLimited, kGuarding, kBeforeJump, kShellIgnore, kPierce,
                                     kContinue, kStanding, kBeforeLook, kAttackCounted, kTurnOver}) {
             s.SetByte(flag, 0);
         }
@@ -403,17 +403,17 @@ namespace {
         return false;
     }
 
-    // 06007F64 (Check_Flip): in an action that can be recovered from (a knock-down, its kDoingHow in kRecoverable),
-    // when it is not recovering already and may: mode 12, waiting 15 frames; its step 1 in the air, else 3 when the
+    // 06007F64 (Check_Flip): a parry begun (the fighter free, in a parry's action: its kDoingHow in kCanParry), when
+    // one is not under way already (kParryFlag) and parries are not stopped (kParries): mode 12, waiting 15 frames; its step 1 in the air, else 3 when the
     // reload timer is 8, else 2
-    bool CheckRecovery(Side &s) {
-        if (s.Byte(kRecovering) != 0 || s.Field(kDoing) != kDoingFree) {
+    bool CheckParry(Side &s) {
+        if (s.Byte(kParryFlag) != 0 || s.Field(kDoing) != kDoingFree) {
             return false;
         }
-        if (s.g.Read8(kRecoverable + static_cast<uint32_t>(s.Field(kDoingHow))) == 0 || s.Byte(kRecoveries) == 0xFF) {
+        if (s.g.Read8(kCanParry + static_cast<uint32_t>(s.Field(kDoingHow))) == 0 || s.Byte(kParries) == 0xFF) {
             return false;
         }
-        s.SetModeWord(0, kRecovery);
+        s.SetModeWord(0, kParry);
         s.SetModeWord(2, 0);
         s.SetModeWord(3, 0);
         s.SetWord(kTimer, 15);
@@ -427,7 +427,7 @@ namespace {
     // 06010F4C (Check_Guard): the other's attack, new (not one already let through) and near enough to reach (its
     // reach and the computer's width): the computer's level of guarding (of ten, by the play time; 2 for the weak side
     // outside a demo; plus the bonus; 10 when a challenger broke in) and a dice say the guard to do, 3 none (the
-    // attack is then let through). With a guard, it recovers instead if it can.
+    // attack is then let through). With a guard, it parries instead if it may.
     bool CheckGuard(Side &s) {
         Guest &g = s.g;
         const uint32_t other = s.Other();
@@ -454,9 +454,9 @@ namespace {
             s.SetWord(kGuardedAttack, s.Word(kAttacksSeen)); // (let through: not looked at again)
             return false;
         }
-        CallWith(g, kRecoveryPossible, s.me, s.me);
+        CallWith(g, kParryPossible, s.me, s.me);
         if (g.R(0) != 0) {
-            CallWith(g, kStartRecovery, s.me, 0);
+            CallWith(g, kStartParry, s.me, 0);
         } else {
             const int16_t dice = Dice(g, kDice32);
             const int8_t guard = static_cast<int8_t>(g.Read8(choices + static_cast<uint32_t>(dice)));
@@ -483,7 +483,7 @@ namespace {
         s.SetWord(kGuardedAttack, -1);
         s.SetByte(kTurnTimer, 1);
         s.SetByte(kAttackKindPlace, 0);
-        s.SetByte(kRecoveries, 0);
+        s.SetByte(kParries, 0);
         // (the character's three limits a table: its row an offset in bytes, cut to a signed byte, as the code has it)
         const int8_t character = static_cast<int8_t>(g.Read8(s.me + kCharacter + 1));
         const uint32_t row = static_cast<uint32_t>(static_cast<int8_t>(character * 6));
@@ -537,7 +537,7 @@ namespace {
     // knocked down; then the follow-up is chosen and it is mode 4
     void BeforeFollowUp(Side &s) {
         s.SetWord(kLever, s.Word(kLeverNow));
-        if (CheckHit(s) || CheckCaught(s) || CheckGuard(s) || CheckRecovery(s)) {
+        if (CheckHit(s) || CheckCaught(s) || CheckGuard(s) || CheckParry(s)) {
             return;
         }
         s.SetWord(kTimer, s.Word(kTimer) - 1);
@@ -553,7 +553,7 @@ namespace {
     // 06006610 (Com_Before_Passive), mode 5: as mode 3, but guarding only when not limited or countering; then mode 6
     void BeforeAnswer(Side &s) {
         s.SetWord(kLever, s.Word(kLeverNow));
-        if (CheckHit(s) || CheckCaught(s) || CheckRecovery(s)) {
+        if (CheckHit(s) || CheckCaught(s) || CheckParry(s)) {
             return;
         }
         if (s.Byte(kLimited) == 0 && s.Byte(kCounter) == 0 && CheckGuard(s)) {
@@ -570,7 +570,7 @@ namespace {
     // 06006C72 (Com_Follow) and 06006CE0 (Com_Passive), modes 4 and 6: unless hit, thrown or knocked down, the plan is
     // checked (Pattern_Insurance, with which kind and the plan to fall back on) and the character's own routine plays
     void ByCharacter(Side &s, uint32_t routines, int which, int fallBack) {
-        if (CheckHit(s) || CheckCaught(s) || CheckRecovery(s)) {
+        if (CheckHit(s) || CheckCaught(s) || CheckParry(s)) {
             return;
         }
         CallWith(s.g, kPlanCheck, s.me, static_cast<uint32_t>(which), static_cast<uint32_t>(fallBack));
@@ -776,7 +776,7 @@ namespace {
         {"ComputerFollowsUp", 0x06006C72, 0x6E, 0x2B1B10E89C46E475ull, Lifted<FollowUp>, true, kNoResult},
         {"ComputerAnswers", 0x06006CE0, 0x50, 0x823E6BE537B648C9ull, Lifted<Answer>, true, kNoResult},
         {"ComputerCheckHit", 0x0600777C, 0x9C, 0x3DD4B64815422E80ull, LiftedCheck<CheckHit>, true, kResult},
-        {"ComputerCheckRecovery", 0x06007F64, 0xE4, 0x1D4F93BB379514B8ull, LiftedCheck<CheckRecovery>, true, kResult},
+        {"ComputerCheckParry", 0x06007F64, 0xE4, 0x1D4F93BB379514B8ull, LiftedCheck<CheckParry>, true, kResult},
         {"ComputerMash", 0x060082D6, 0x44, 0xF23972205E033DE3ull, MashLift, true, kResult},
         {"ComputerCheckCaught", 0x0600831A, 0x52, 0xDDE9BCCC833DA774ull, LiftedCheck<CheckCaught>, true, kResult},
         {"ComputerThrowing", 0x060083A0, 0xCA, 0x64975B7D43812AC1ull, Lifted<Throwing>, true, kNoResult},

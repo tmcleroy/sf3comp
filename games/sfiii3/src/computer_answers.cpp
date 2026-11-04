@@ -383,6 +383,26 @@ namespace {
         return s.Choose(answer);
     }
 
+    // 06013404 (r5 the other, r6 a pose, r7 an attack's kind): the other in that pose (kPose) with an attack of that
+    // kind (kAttackKind). Leaves r2, r3, r6, r7 and T as the routine does.
+    bool PoseAndKindLift(Guest &g) {
+        const uint32_t other = g.R(5);
+        g.R(0) = 0x20E;
+        g.R(6) &= 0xFF;
+        g.R(3) = g.Read8(other + 0x20E);
+        bool yes = g.R(3) == g.R(6);
+        if (yes) {
+            g.R(0) = 0x20F;
+            g.R(7) = static_cast<uint32_t>(static_cast<int32_t>(static_cast<int8_t>(g.R(7))));
+            g.R(2) = g.Read8(other + 0x20F);
+            yes = g.R(2) == g.R(7);
+        }
+        g.SetT(yes);
+        g.R(0) = yes ? 1 : 0;
+        g.Return(12);
+        return true;
+    }
+
     // 06013A18 (Check_F_Cross_Chop): the other's attack, new, a jumping normal attack of kind 4 (poses 20, 22, 26,
     // 28): kCounter set. Leaves r5 and r7 as the routine does.
     bool CrossChop(Side &s, int32_t answer) {
@@ -964,7 +984,12 @@ namespace {
     bool RunList(Guest &g) {
         const uint32_t other = g.Read32(g.R(4) + kOpponent);
         const int32_t character = static_cast<int16_t>(g.Read16(other + kCharacter));
-        g.Call(g.Read32(kTable + static_cast<uint32_t>(character * 4)));
+        // (the registers as the jump leaves them: a list with no test returns at once, r0 still the table)
+        g.R(0) = kTable;
+        g.R(1) = static_cast<uint32_t>(character * 4);
+        g.R(2) = other;
+        g.R(3) = g.Read32(kTable + static_cast<uint32_t>(character * 4));
+        g.Call(g.R(3));
         g.Return(10);
         return true;
     }
@@ -1036,14 +1061,13 @@ namespace {
 
     // (free: r1-r4 and T; r0 and r5-r7 are left as the game's code leaves them, for 0x06012588's callers)
     constexpr uint32_t kFree = 0x1001E;
-    // (The entries commented out are rewrites the check has not met, so not registered: the chain against Gill and
-    // Gill's lists, met only when the computer plays against a Gill, which no run's made-up player nor attract mode's
-    // fights in 120000 frames came to. The 41 lists with no test, which return at once, are left the game's: nothing to write.)
+    // (The chain against Gill and Gill's lists are met in checklifts.sh's training runs, Gill chosen. The 41 lists with
+    // no test, which return at once, are left the game's: nothing to write.)
     const Lift kLifts[] = {
         {"ComputerChooseAnswer", 0x06012588, 0x2C, 0x0CD11B638A690A29ull, ChooseAnswer, true, kFree},
         {"ComputerAnswerAgainstMost", 0x060125B4, 0x346, 0x3FE1C2387D578A74ull, Listed<AgainstMost>, true, kFree},
         {"ComputerAnswerAgainstHugo", 0x060128FA, 0x284, 0x988BB936ED299AE0ull, Listed<AgainstHugo>, true, kFree},
-        // {"ComputerAnswerAgainstGill", 0x06012BA4, 0x2E0, 0x7D573D6ED690610Full, Listed<AgainstGill>, true, kFree},
+        {"ComputerAnswerAgainstGill", 0x06012BA4, 0x2E0, 0x7D573D6ED690610Full, Listed<AgainstGill>, true, kFree},
         {"ComputerCloseList", 0x06013A86, 0x16, 0xF6644E14F2A8C105ull, RunList<kCloseLists>, true, kFree},
         {"ComputerCloseAttackingList", 0x0601412C, 0x16, 0xA9F6D97D952C5355ull, RunList<kCloseAttackingLists>, true, kFree},
         {"ComputerMiddleList", 0x06014994, 0x16, 0x2A17665803B96930ull, RunList<kMiddleLists>, true, kFree},
@@ -1063,14 +1087,15 @@ namespace {
         {"ComputerAnswerStanding", 0x06013460, 0x6C, 0xF1C4D60EE0D1335Bull, TestLift1<Standing>, true, kFree},
         {"ComputerAnswerCrouching", 0x060135DE, 0xC6, 0x7BBF8CA940A06872ull, CrouchingLift, true, kFree},
         {"ComputerAnswerAfterAttack", 0x06013930, 0xCE, 0x386FAB4EAB21FF60ull, TestLift1<AfterAttack>, true, kFree},
+        {"ComputerPoseAndKind", 0x06013404, 0x22, 0x747598DABD9BAAFCull, PoseAndKindLift, true},
         {"ComputerAnswerCrossChop", 0x06013A18, 0x6E, 0x4FDDFF81F2D7DE4Eull, TestLift1<CrossChop>, true, kFree},
         // the lists, against each character
-        // {"ComputerVsGillClose", 0x06013A9C, 0x52, 0xC05138F6A44A5425ull, Listed<VsGillClose>, true, kFree},
-        // {"ComputerVsGillCloseAttacking", 0x06014142, 0x98, 0xFEA30A70C6B1285Dull, Listed<VsGillCloseAttacking>, true, kFree},
-        // {"ComputerVsGillMiddle", 0x060149AA, 0x56, 0x49E7C254868FA9EBull, Listed<VsGillMiddle>, true, kFree},
-        // {"ComputerVsGillMiddleAttacking", 0x060151AC, 0x98, 0x1C8F466ADA04AE64ull, Listed<VsGillMiddleAttacking>, true, kFree},
-        // {"ComputerVsGillFar", 0x06015B8A, 0x56, 0x213881D9E012A6C1ull, Listed<VsGillFar>, true, kFree},
-        // {"ComputerVsGillFarAttacking", 0x060162DC, 0x98, 0x8776A6BE11383D84ull, Listed<VsGillFarAttacking>, true, kFree},
+        {"ComputerVsGillClose", 0x06013A9C, 0x52, 0xC05138F6A44A5425ull, Listed<VsGillClose>, true, kFree},
+        {"ComputerVsGillCloseAttacking", 0x06014142, 0x98, 0xFEA30A70C6B1285Dull, Listed<VsGillCloseAttacking>, true, kFree},
+        {"ComputerVsGillMiddle", 0x060149AA, 0x56, 0x49E7C254868FA9EBull, Listed<VsGillMiddle>, true, kFree},
+        {"ComputerVsGillMiddleAttacking", 0x060151AC, 0x98, 0x1C8F466ADA04AE64ull, Listed<VsGillMiddleAttacking>, true, kFree},
+        {"ComputerVsGillFar", 0x06015B8A, 0x56, 0x213881D9E012A6C1ull, Listed<VsGillFar>, true, kFree},
+        {"ComputerVsGillFarAttacking", 0x060162DC, 0x98, 0x8776A6BE11383D84ull, Listed<VsGillFarAttacking>, true, kFree},
         {"ComputerVsAlexClose", 0x06013AEE, 0x9C, 0xB5FF81D15DD24499ull, Listed<VsAlexClose>, true, kFree},
         {"ComputerVsAlexCloseAttacking", 0x060141DA, 0xD2, 0xFC2F34021EB58DEAull, Listed<VsAlexCloseAttacking>, true, kFree},
         {"ComputerVsAlexMiddle", 0x06014A00, 0x84, 0x38200ED2168500ACull, Listed<VsAlexMiddle>, true, kFree},

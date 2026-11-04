@@ -14,7 +14,9 @@
 //                         0x0600FC6A), and 0x0600899A, 0x06008A08 after it
 //   computer_tactics.cpp  the modes 2 and 7-13 (0x06006C22, 0x060066E8 ... 0x06008126) and their steps, the plan's
 //                         choice (0x060104B4), the answer's (0x06010DEA) and the reaction's (0x060109AC), the levels,
-//                         and steps of the plans the moves left (0x06009100-0x0600B6F6: EM_Term, SA_Term, Jump ...)
+//                         steps of the plans the moves left (0x06008DC2-0x0600B93C: EM_Term, SA_Term, Jump, Hi_Jump,
+//                         Ryu's Denjin ...), Command_Attack_SP (0x060084EC), and the tests of the fight (0x06011C10,
+//                         its table's routines 0x06011D5E-0x06012464, ETC_Term 0x060121D4)
 //   computer_answers.cpp  0x06012588 (Ck_Passive_Term) and what it calls: the answers to the other (the three chains,
 //                         eight dispatchers, twelve tests, per-character lists)
 //   computer_moves.cpp    0x06006C22's 0x06066874 and what it calls
