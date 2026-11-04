@@ -118,7 +118,9 @@ interface its frames (objects, tilemap lines, scrolls, palettes, the text layer)
 writing the video and sound chips' registers and memories. The board model (machine/, video/renderer.cpp,
 sound/pcm.cpp) stays only as the reference. Checks run the two side by side: the same interface decoded from the
 board's memories against the one the rewrites hand over, every frame, then pixels and samples. Plan and inventory:
-docs/NATIVE.md. The readable work below stops at the move code and boxes that are done; the rest waits.
+docs/NATIVE.md. Wanted features this makes possible, both asked for by the user: GPU rendering (SDL_GPU drawing
+the interface's objects and layers, not a software renderer's picture handed over), and the guest stages drawn as
+layers through the same interface (DEFINITIVE.md item 10). The readable work below stops at the move code and boxes that are done; the rest waits.
 
 ## Readable code: what gets rewritten
 

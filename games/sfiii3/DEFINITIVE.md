@@ -137,3 +137,9 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
    and after: New Generation's Gill 1.64 to 0.44, Necro 5.77 to 0.49, Ken 2.73 to 0.49; 2nd Impact's Alex 2.35 to
    1.38, Necro 5.77 to 1.68, Ken 2.96 to 1.46; the other 22 the same as before (0-0.5; 2nd Impact's Dudley 1.32). The
    pictures (frame 3600, both Necro stages) show the stage some 5 columns further left of the fighters before.
+10. Wanted (the user, 2026-11-04: "this is huge"): the guest stage through the native video interface
+   (docs/NATIVE.md). Today the stage board's picture is drawn by a second board model and laid into 3rd Strike's.
+   Once both games hand their frames to the native interface, the guest stage's layers, scrolls and palettes go
+   into 3rd Strike's frame as layers of their own: no second picture to blend, no colour ranges to tell apart, the
+   camera and widescreen taken from the layers themselves, and the second board kept only as the guest game's code
+   and RAM (no video chip model for it). The interface is to be designed with this in mind from the start.
