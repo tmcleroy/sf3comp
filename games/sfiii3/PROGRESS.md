@@ -129,11 +129,25 @@ starts taken from direct calls).
 Done: the computer player, the round, the match and its end, damage, the hit tests and decisions, input and the
 command reader, the score and the clock, the stage camera, zoom, per-stage code and stage choice, the bonus games.
 
+Done 2026-11-04 (items 1 and 2 of the order below): the characters' move code down to the shared layer
+(fight_moves.cpp: player_mv_4000 0x06119A6C, check_hit_stop, select_hit_stop, look_after_timers, check_lever_data,
+process_attack and check_cg_cancel_data (the cancels: where a move's recovery may end), process_catch, Player_normal
+and its flags, Player_attack (the dispatch: below 16 the shared normal moves, plpat_lv_00; from 16 the character's own
+specials, super arts and command throws, plxx_extra_attack_table), Attack_00000 and Attack_01000), and the animations
+and boxes (fight_boxes.cpp: char_move 0x06089848, check_cgd_patdat and check_cgd_patdat2, set_new_attnum (the frame's
+attack), set_jugde_area 0x0608C4A4 (each box pointer: the character's table of that kind plus the frame's box set's
+index), set_char_move_init, set_char_move_init2, exset_char_move_init, char_move_z, _wca, _index, _cmhs,
+setup_comm_back, setup_comm_abbak, the sound's filter). sfiii3.h names the record's fields they set (routines, hit
+stop, animation, frame's cancels, box set, box pointers, attack). Not written again: the characters' own steps
+(Normal_*, Player_damage's reactions, the plxx tables' specials), the animations' 125 commands (decode_chcmd, run as
+the game's code), Attack_02000 on. Not met in the checks' runs: exset_char_move_init, check_cgd_patdat2,
+char_move_cmhs (their callers: a hurt step 0x0612388A, jumping_cg_type_check 0x0611BFA2, a hit stop's end with
+hsjp_ok).
+
 Still to rewrite, in this order (each because a feature reads or changes it):
 
-1. The characters' move code: the step routines of normals, specials, supers and throws, where frame data
-   (startup, active, recovery, advantage) and the training dummy's choices come from.
-2. Hit boxes and hurt boxes: where each frame's boxes are read and placed (the overlay and the dummy's guard from the boxes).
+1. (done, above) The characters' move code.
+2. (done, above) Hit boxes and hurt boxes.
 3. Projectiles and the effects that hit (they share the hit tests; frame data for fireballs).
 4. The parts of drawing and the screens that the modes change: the HUD, the select screen, the versus and win screens.
 

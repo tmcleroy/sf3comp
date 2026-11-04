@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Readable code: the fighters' moves (the step in a fight, the hit stop, where a move may be cancelled, the dispatch
+  into normal moves, specials, super arts and throws) and the animations' frames and boxes are written again as C++,
+  each checked against the game's own code on every call.
 - Bonus games: straight from character select to the bonus stage, as the game itself goes there after a won match
   ("BONUS STAGE", the versus screen, the stage), with no match fought unseen first.
 - Guest stages: the camera follows 3rd Strike's across and up on every stage (it followed on some only as the fighters
