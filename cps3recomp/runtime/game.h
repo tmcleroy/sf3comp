@@ -58,6 +58,9 @@ struct Command {
     const char *description;
     void (*run)(Machine &machine);
     unsigned key = 0;        // kKeyNone, or the key that does it while playing
+    // Set: the in-game menu stays open on its page after it, saying this (a command that only changes the page's
+    // choices); not set: the menu closes and the game goes on
+    const char *note = nullptr;
 };
 enum : unsigned {
     kKeyNone,

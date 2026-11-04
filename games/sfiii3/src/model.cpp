@@ -858,10 +858,17 @@ namespace {
 } // namespace
 
 namespace {
-    // The menu's "Reset options": every choice of the viewer's page back to what it is when nothing is chosen
+    // The menu's "Reset options": every choice of the viewer's page back to what it is when nothing is chosen, the menu
+    // left open on the page (Command::note). While viewing, the character and the stage are what is being viewed and
+    // stay as they are (another of either would start the round again); the rest is applied as it is shown (the size,
+    // standing, full speed, the stage in front).
     void ResetChoices(Machine &) {
+        const bool viewing = ModelViewerOn();
         for (const char *choice : {"model_character", "model_background", "model_foreground", "model_size", "model_animation", "model_speed",
                                    "model_repeat", "model_all"}) {
+            if (viewing && (!strcmp(choice, "model_character") || !strcmp(choice, "model_background"))) {
+                continue;
+            }
             SetFeatureValue(choice, 0);
         }
     }
@@ -873,8 +880,10 @@ void RegisterModel(Game &game) {
                              "Shows the character chosen below alone, moved with player 1's controls (every move works), on a stage or "
                              "plain white or black, at the size chosen. Reset ends it.",
                              Start});
-    game.commands.push_back({"model_reset", kPage, "Reset options", "Every choice on this page back to what it is when nothing is chosen.",
-                             ResetChoices});
+    game.commands.push_back({"model_reset", kPage, "Reset options",
+                             "Every choice on this page back to what it is when nothing is chosen (while viewing, the character and "
+                             "stage stay), shown at once; the menu stays open.",
+                             ResetChoices, kKeyNone, "The viewer's options are back as they first were."});
     game.features.push_back({"model_character", kPage, "Character", "Who is shown. Changing it while viewing goes to the new one.", kFeatureMenuChoices,
                              {std::begin(kCharacters), std::end(kCharacters)}});
     static std::vector<std::string> names;

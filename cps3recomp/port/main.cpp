@@ -434,10 +434,16 @@ void Port::MenuAct(Menu::Action action) {
         quit = true;
         menu.Close();
         return;
-    case Menu::Action::Command:
+    case Menu::Action::Command: {
         RunCommand(menu.Command());
+        const auto &commands = TheGame().commands;
+        if (menu.Command() < commands.size() && commands[menu.Command()].note) {
+            menu.Note(commands[menu.Command()].note); // (the menu stays open on its page)
+            return;
+        }
         menu.Close();
         return;
+    }
     case Menu::Action::Save:
         if (SaveState(path, error)) {
             menu.Close();

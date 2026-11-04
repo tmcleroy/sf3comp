@@ -10,10 +10,13 @@
 // meet when each one's span across and up overlaps the other's; the tests take one unsigned comparison for each (the
 // gap between the near edges, as an unsigned number, below the two sizes together).
 #include "fight_core.h"
+#include "sfiii3.h"
 
 #include <iterator>
 
 namespace cps3recomp {
+
+bool ModelViewerOn(); // model.cpp
 
 namespace fighting {
 
@@ -23,6 +26,14 @@ namespace {
 
     uint32_t Extended(int32_t value) {
         return Signed(static_cast<int16_t>(value));
+    }
+
+    // Records the port has meet nothing. While the model viewer is on, player 2's fighter, kept unseen beside the
+    // character, is hit by none of the character's attacks or projectiles and grabbed by none of its throws: every test
+    // with its record says the boxes are apart (those called from 0x0611DBD8 and 0x0608E83E, the character's and its
+    // projectiles' attacks, and from 0x0608E55E, a throw's catch: Hugo's 360 seen). Otherwise none: the game's own test.
+    bool Unmet(uint32_t one, uint32_t two) {
+        return (one == sfiii3::kPlayer[1] || two == sfiii3::kPlayer[1]) && ModelViewerOn();
     }
 
     // 0608E908 (hit_check_subroutine): whether the box at r6 of the record r4 meets the box at r7 of the record r5;
@@ -56,7 +67,8 @@ namespace {
         g.R(2) = Extended(widths);
         g.R(4) = one;
         g.R(5) = two;
-        if (Extended(across) >= Extended(widths)) {
+        // (the model viewer's unseen player 2 is met by nothing: the boxes said to be apart across, as any two are)
+        if (Extended(across) >= Extended(widths) || Unmet(one, two)) {
             g.SetT(true);
             g.R(0) = 0;
             g.Return(30);
