@@ -122,4 +122,9 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
    camera was held (it stayed put when sent either way: 2nd Impact's Elena stage cut to 510-513 for the match) is
    forgotten. 2nd Impact's Elena stage's sea, bright with the moon's glints as a round starts and darker later, is 2nd
    Impact's own (its own game, made-up play, the same: frames 2300 and 3200); half of it had lost its glints for good,
-   its camera held (that was ours).
+   its camera held (that was ours). Looked at too (made-up play, pictures and the sound log): a versus game on a
+   chosen stage, training sessions (the computer the dummy, and watched), the training's stage viewer (in widescreen
+   too), widescreen on all 28 (no strip at either side), a one-player game's second round, knock-outs, the round's and
+   the match's ends (the score's tally over the stage, as 3rd Strike's own has it) and the next fight's stage, the
+   stage's music in fights and training. Not looked at: the continue screen (not a stage: 3rd Strike's own screen,
+   nothing composed), a third round.
