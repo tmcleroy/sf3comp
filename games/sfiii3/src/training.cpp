@@ -155,7 +155,7 @@ namespace {
         int16_t index = static_cast<int16_t>(Ram16(0x02068A96 + 3 * 2));
         for (int n = 0; n < 30 && index >= 0; n++) {
             const uint32_t base = 0x02028990u + (static_cast<uint32_t>(index) << 11);
-            if (Ram32(base + 0x2A0) != 0) {
+            if (Ram32(base + sfiii3::kHurtBoxes) != 0) {
                 list.push_back(base);
             }
             index = static_cast<int16_t>(Ram16(base + 0x1C));
@@ -331,14 +331,14 @@ namespace {
             view.frozen = Ram8(base + sfiii3::kFreeze) != 0;
             view.attacking = Ram8(base + sfiii3::kAttacking) != 0;
             view.jumping = Signed16(base + sfiii3::kY) > 0;
-            view.attackOut = AnyBox(p, 0x2C8, 4);
+            view.attackOut = AnyBox(p, sfiii3::kAttackBoxes, 4);
             (void)landed;
             // (debugging aid, SFIII3_STEPS=1: what is read of each player, each frame)
             static const bool printSteps = getenv("SFIII3_STEPS") != nullptr;
             static const int stepsOf = printSteps ? atoi(getenv("SFIII3_STEPS")) - 1 : 0; // (1: player 1's, 2: player 2's)
             if (printSteps && p == std::max(stepsOf, 0)) {
                 fprintf(stderr, "step: control %d canAct %d frozen %d attacking %d jumping %d attackOut %d anim %04X -> %d\n", view.control,
-                        view.canAct, view.frozen, view.attacking, view.jumping, view.attackOut, Ram16(base + 0x202), static_cast<int>(session::Now(p)));
+                        view.canAct, view.frozen, view.attacking, view.jumping, view.attackOut, Ram16(base + sfiii3::kAnimation + 2), static_cast<int>(session::Now(p)));
             }
             const fight::Doing before = session::Now(p);
             session::Step(p, view);
@@ -346,7 +346,7 @@ namespace {
             // debugging aid, SFIII3_MOVES=1, prints each move's character, animation, startup, active and recovery as
             // measured, for tools/framecheck.py to compare with the training script's recorded animations)
             if (before == fight::Doing::Free && session::Now(p) != fight::Doing::Free) {
-                g.moveAnim[p] = Ram16(base + 0x202);
+                g.moveAnim[p] = Ram16(base + sfiii3::kAnimation + 2);
                 g.moveFrom[p] = g.frame;
                 const Machine *m = TheMachine();
                 g.moveLow[p] = m && (m->players[p] & kDown) && Signed16(base + sfiii3::kY) <= 0;
@@ -354,7 +354,7 @@ namespace {
             // (by animation: each of player 1's animations' frames until its attack box comes out, learned the first
             // time it does; so chained and cancelled moves are known too)
             if (p == 0) {
-                const uint16_t anim = Ram16(base + 0x202);
+                const uint16_t anim = Ram16(base + sfiii3::kAnimation + 2);
                 if (anim != g.anim) {
                     g.anim = anim;
                     g.animFrom = g.frame;
@@ -481,7 +481,7 @@ void TrainingBeforeFrame(Machine &m) {
         // closing speed, past the boxes' reach of about 60)
         int nearest = 1 << 20;
         for (const uint32_t base : Projectiles()) {
-            if (Ram8(base + 2) == 0 && Ram32(base + 0x2C8) != 0) {
+            if (Ram8(base + 2) == 0 && Ram32(base + sfiii3::kAttackBoxes) != 0) {
                 nearest = std::min(nearest, std::abs(Signed16(base + sfiii3::kX) - Signed16(Player(1) + sfiii3::kX)));
             }
         }
@@ -614,7 +614,7 @@ void RegisterTraining(Game &game) {
         const Machine *m = TheMachine();
         start.input = fight::Notation(m ? m->players[p] : 0, Ram8(base + sfiii3::kFacing) == 0);
         start.air = Signed16(base + sfiii3::kY) > 0;
-        start.id = Ram16(base + 0x202);
+        start.id = Ram16(base + sfiii3::kAnimation + 2);
         return start;
     };
     d.ownAids = {"hit_boxes", "dummy_parry", "dummy_stun_mash", "dummy_computer", "training_watch", "stage_viewer", "parry_readout", "stun_readout", "gauge_refill"};
@@ -627,7 +627,7 @@ void RegisterTraining(Game &game) {
         inRange = (one == fight::Doing::Startup || one == fight::Doing::Active) && dx < 280;
         // (or a projectile of player 1's, its attack out, near: guarded standing or crouching as the dummy likes)
         for (const uint32_t base : Projectiles()) {
-            if (Ram8(base + 2) == 0 && Ram32(base + 0x2C8) != 0 &&
+            if (Ram8(base + 2) == 0 && Ram32(base + sfiii3::kAttackBoxes) != 0 &&
                 std::abs(Signed16(base + sfiii3::kX) - Signed16(Player(1) + sfiii3::kX)) < 160) {
                 inRange = true;
             }

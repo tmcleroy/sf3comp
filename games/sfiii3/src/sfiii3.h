@@ -35,19 +35,54 @@ constexpr uint32_t kCameraRight[2] = {0x02026CF4, 0x02026CF6};
 constexpr uint32_t kCameraLeft[2] = {0x02026CF8, 0x02026CFA};
 // The players' records (checked: life and position change as the fight's pictures do)
 constexpr uint32_t kPlayer[2] = {0x02068C6C, 0x02069104};
-// ... and in them
-constexpr uint32_t kFacing = 0x0A;          // byte: 0 facing left (the sprites' own way), else right
-constexpr uint32_t kFreeze = 0x45;          // byte: frames of hit freeze left
+// ... and in them (the game's own names, as the PlayStation 2 version's decompilation has them, in brackets: the
+// routines that set them are written again in fight_moves.cpp and fight_boxes.cpp)
+constexpr uint32_t kFacing = 0x0A;          // byte: 0 facing left (the sprites' own way), else right (rl_flag)
+constexpr uint32_t kFreeze = 0x45;          // byte: frames of hit freeze left (the low byte of kHitStop)
 constexpr uint32_t kKnockedOut = 0x3FD;     // byte: knocked out (the round's knock-out routine, 0x06117D28, reads it)
-constexpr uint32_t kX = 0x64, kY = 0x68;    // signed words: in the stage, y up from the floor
-constexpr uint32_t kLife = 0x9F;            // byte: 160 full
-constexpr uint32_t kBusy = 0x3D1;           // word: low byte not 0 while busy
-constexpr uint32_t kBlocking = 0x3D3;       // byte: 1-4 while guarding
-constexpr uint32_t kAttacking = 0x428;      // byte: not 0 while attacking
-constexpr uint32_t kThrown = 0x3CF;         // byte: not 0 while being thrown
-constexpr uint32_t kInputCapacity = 0x46C;  // word: 0 while the player's input is not taken
+constexpr uint32_t kX = 0x64, kY = 0x68;    // signed words: in the stage, y up from the floor (xyz[0], xyz[1])
+constexpr uint32_t kLife = 0x9F;            // byte: 160 full (the low byte of vital_new)
+constexpr uint32_t kBusy = 0x3D1;           // word: low byte not 0 while busy (old_gdflag, guard_flag)
+constexpr uint32_t kBlocking = 0x3D3;       // byte: 1-4 while guarding (guard_chuu)
+constexpr uint32_t kAttacking = 0x428;      // byte: not 0 while attacking (caution_flag: set at an attack's first step,
+                                            // cleared by the normal steps)
+constexpr uint32_t kThrown = 0x3CF;         // byte: not 0 while being thrown (tsukamare_f)
+constexpr uint32_t kInputCapacity = 0x46C;  // word: 0 while the player's input is not taken (permited_koa)
 constexpr uint32_t kRecoveryTime = 0x187;   // byte
-constexpr uint32_t kHitCount = 0x33E;       // word: hits taken, all told
+constexpr uint32_t kHitCount = 0x33E;       // word: hits taken, all told (dm_count_up)
+// What it is doing (routine_no[1]: 0 normal steps, 1 hurt, 2 throwing, 3 thrown, 4 attacking), which (routine_no[2]: in
+// an attack below 16 a normal move, from 16 the character's own specials and super arts) and its step in that
+// (routine_no[3]: 0 as it begins)
+constexpr uint32_t kDoing = 0x26, kWhich = 0x28, kStep = 0x2A; // words
+constexpr uint32_t kHitStop = 0x44;         // word: frames held still by a hit, given or taken (hit_stop: below 0 the
+                                            // animation runs on)
+constexpr uint32_t kHurtStop = 0x32E;       // word: the hit stop its being hit gives it (dm_stop: 0xFFF1, -15, a parry's)
+constexpr uint32_t kConnection = kHurtStop;
+// The animation: its address (set_char_ad), the frame in it (cg_ix, in longs), the list and index it is from (now_koc:
+// 4 the normal moves, 5 the specials...; char_index), the longs a frame (cgd_type, 4 or 6)
+constexpr uint32_t kAnimation = 0x200, kAnimationFrame = 0x204, kAnimationList = 0x206, kAnimationIndex = 0x208;
+// ... the frame's own (copied in as each is taken up): the frames it is shown (cg_ctr, counted down), its type (cg_type:
+// 20 a move's end, 1 its moving part), its cancels (cg_cancel: 0x40 a super art, 0x20 a special move, 0x10 a repeated
+// press, 8 a chain, 4 a normal move, 2 a dash, 1 a high jump; the special and super cancels need kCancelHit)
+constexpr uint32_t kFrameHold = 0x214, kFrameType = 0x215, kFrameCancels = 0x221; // bytes
+constexpr uint32_t kCancelHit = 0x2FF;      // byte: its attack has hit or been guarded (meoshi_hit_flag)
+constexpr uint32_t kCancelTimer = 0x3E5;    // byte: frames any special or super art may still be done over a move's start
+                                            // (cancel_timer)
+// The frame's box set (cg_ja: eight words, each an index into the character's table of that kind of box: the hurt
+// boxes, the second hurt boxes' two, a third, the throw's, the caught one's, the attack's, the push box's); set_jugde_area
+// (0x0608C4A4) turns them into the pointers below, each the table (the word before it) plus the index
+constexpr uint32_t kBoxSet = 0x28C;
+constexpr uint32_t kHurtBoxes = 0x2A0;      // long: four boxes (h_bod)
+constexpr uint32_t kHurtBoxes2 = 0x2A8;     // long: four (h_han: the hands', by bhix + haix)
+constexpr uint32_t kThrowBox = 0x2B8;       // long: one (h_cat)
+constexpr uint32_t kThrowableBox = 0x2C0;   // long: one (h_cau)
+constexpr uint32_t kAttackBoxes = 0x2C8;    // long: four (h_att)
+constexpr uint32_t kPushBox = 0x2D4;        // long: one (h_hos)
+// The frame's attack (att: 16 bytes from the character's table of them by the frame's cg_att_ix, set_new_attnum
+// 0x0608C2CC): +0 the reaction, +1 the level (0-7), +5 how it is guarded and parried, +6 its direction, +8 its power,
+// +10 the stun, +11 the throw's kind, +12 and +13 the hit stops for the attacker and the one hit
+constexpr uint32_t kAttack = 0x2DC;
+constexpr uint32_t kAttackLive = 0x2FE;     // byte: the attack may still hit (att_hit_ok)
 // The boxes: pointers to lists of boxes of 8 bytes (left, width, bottom, height: signed words, from the player's
 // place, x turned with the facing)
 struct BoxList {
@@ -56,12 +91,12 @@ struct BoxList {
     int kind; // fight::BoxKind
 };
 constexpr BoxList kBoxes[] = {
-    {0x2D4, 1, 2}, // push
-    {0x2A0, 4, 0}, // hurt
-    {0x2A8, 4, 0}, // hurt (extended)
-    {0x2C8, 4, 1}, // attack
-    {0x2B8, 1, 3}, // throw
-    {0x2C0, 1, 4}, // throwable
+    {kPushBox, 1, 2},      // push
+    {kHurtBoxes, 4, 0},    // hurt
+    {kHurtBoxes2, 4, 0},   // hurt (extended)
+    {kAttackBoxes, 4, 1},  // attack
+    {kThrowBox, 1, 3},     // throw
+    {kThrowableBox, 1, 4}, // throwable
 };
 constexpr int kFullLife = 160;
 // The super art meter: the gauge's fill, and the count of full bars (the second is the one the game keeps; the first
@@ -76,10 +111,10 @@ constexpr uint32_t kMeterUpdate[2] = {0x020157C8, 0x020157C9};
 // (the high byte of the long six bytes on)
 constexpr uint32_t kStunMost[2] = {0x020695F7, 0x0206960B};
 // Parrying: each player's four windows (forward, down, in the air, anti-air), each a byte counting the frames it stays
-// open (player 2's 0x406 on); the "connection" word of the record reads 0xFFF1 the frame a parry lands
+// open (player 2's 0x406 on); the "connection" word of the record (kHurtStop, above) reads 0xFFF1 the frame a parry
+// lands
 constexpr uint32_t kParryWindow[4] = {0x02026335, 0x02026337, 0x02026339, 0x02026347};
 constexpr uint32_t kParryWindowPlayer2 = 0x406;
-constexpr uint32_t kConnection = 0x32E;
 
 // The stage of the next fight (a byte): a character's number, its stage (written before the fight's stage is set up, it
 // is the stage fought on: Elena's 8, from the training script's notes; all 21 seen in pictures, Gill 0 to Remy 20)
