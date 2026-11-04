@@ -127,7 +127,8 @@ if [ -n "$SFIII3_CHECK_VERSUS" ]; then
     POKES=("" "" "" "")
     # Training sessions started again every 800 frames (each fought from about 250 frames after its start), each on the
     # next stage (training_stage: 3rd Strike's stage numbers plus one), seven to nine a run: every stage's routines met.
-    # In the second, player 1 is Oro (kChosen), for his entrance from the sky on his stage.
+    # In the second, player 1 is Oro (kChosen), for his entrance from the sky on his stage, and at frame 700 his win's
+    # pan up begun by hand (0x02068C6A, win_sp_flag, 2: it comes only with Oro winning on his stage).
     stages() {
         local s=$1 f out=""
         for ((f = 30; f < FRAMES - 600; f += 800)); do
@@ -140,7 +141,7 @@ if [ -n "$SFIII3_CHECK_VERSUS" ]; then
     ARGS+=("--features dummy_computer --auto 3:300:1 --keys $(stages 1)"
            "--features dummy_computer --auto 5:300:1 --poke 2011387=09 --keys $(stages 10)"
            "--features training_watch --auto 13:300:1 --keys $(stages 19)")
-    POKES+=("" "" "")
+    POKES+=("" "700:2068C6A:200" "")
 fi
 
 # Every rewrite registered: the names in the sources' lift tables ({"Name", 0x...}, not in a remark), unless

@@ -548,6 +548,216 @@ namespace {
     void IbukiNearMove(Guest &g) {
         CallAll(g, {Plain(kMoveAcross), Plain(kMoveUp), With(0x060B9498, 0)});
     }
+    // --- Elena's stage ---
+    // 060BD464: the nearer layer: set up; layer number 0's sets its stage's things going (0x060EBC5E)
+    void ElenaNear(Guest &g) {
+        SetUp(g, 0x200, kHeldLong, {});
+        if (Word(g, LayerNow(g) + kFamily) == 0) {
+            g.Call(0x060EBC5E);
+        }
+    }
+    void ElenaFighters(Guest &g) { // 060BD504
+        SetUp(g, 0x200, kHeldLong, {With(kLoad, 0xD880, 1), Plain(0x060DD486), Plain(0x060DD612), With(0x060EB982, 0), With(0x060E513A, 0)});
+    }
+    // 060BD58C: the far layers (2, 5, 6: the sky, the sea, the hills?), each its speeds by its number; its objects with it
+    void ElenaFar(Guest &g) {
+        const uint32_t layer = LayerNow(g);
+        Home(g, layer, 0x200, kHeldLong);
+        g.Write32(layer + kWide, 0);
+        SetWord(g, layer + kTopEnd, 0xF0);
+        SetWord(g, layer + kTop, 0xF0);
+        SetWord(g, layer + kHomeUp, 0);
+        SetWord(g, layer + kShownUp, 0);
+        switch (Word(g, layer + kFamily)) {
+        case 2:
+            g.Write32(layer + kSpeedAcross, 0xC000);
+            g.Write32(layer + kSpeedUp, 0xFC00);
+            break;
+        case 5:
+            g.Write32(layer + kSpeedAcross, 0xB000);
+            g.Write32(layer + kSpeedUp, 0xFC00);
+            break;
+        case 6:
+            g.Write32(layer + kSpeedAcross, 0x7000);
+            g.Write32(layer + kSpeedUp, 0xF100);
+            break;
+        }
+        CallAll(g, {With(kWithLayer, Word(g, LayerNow(g) + kFamily))});
+    }
+    void ElenaFarMove(Guest &g) { // 060BD624
+        CallAll(g, {Plain(kMoveAcross), Plain(kMoveUp)});
+        CallAll(g, {With(kWithLayer, Word(g, LayerNow(g) + kFamily))});
+    }
+
+
+    // --- Oro's stage: his entrance from the sky (the camera starts 192 lines up and comes down), his win's (up) ---
+    constexpr uint32_t kRunning = 0x0200EECC;   // word: not 0, the game's own work paused (EXE_flag)
+    constexpr uint32_t kPaused = 0x0201136E;    // word (Game_pause)
+    constexpr uint32_t kOroWin = 0x02068C6A;    // byte: Oro's win's pan up: 2 going up, 3 done (win_sp_flag)
+    constexpr uint32_t kEntranceFree = 0x0202819C; // bytes by side: its entrance has let the camera go (Appear_free)
+    constexpr uint32_t kEntranceWhich = 0x0202819E; // byte: both Oro: whose entrance it follows (Appear_hv)
+    constexpr uint32_t kEntrancesOver = 0x02028194; // word: 2, both entrances over (Appear_end)
+    constexpr uint32_t kPlayerTwo = 0x02069104;     // (plw[1])
+    constexpr int kOro = 9;
+    bool Paused(Guest &g) {
+        return g.Read16(kRunning) != 0 || g.Read16(kPaused) != 0;
+    }
+    // A layer's place up, shown and real (16.16), moved by `by`
+    void MoveUp(Guest &g, uint32_t layer, uint32_t by) {
+        g.Write32(layer + kShownUp, g.Read32(layer + kShownUp) + by);
+        g.Write32(layer + kAcross + 4, g.Read32(layer + kAcross + 4) + by);
+    }
+    // 060BD91E (bg090_demo_check): with Oro fighting in a fight's own part, the entrance's steps (step 1) from 192 lines
+    // up (times the layer's speed up); else the layer's moves (step 2)
+    void OroEntranceCheck(Guest &g) {
+        const uint32_t layer = LayerNow(g);
+        const bool oro = Word(g, kPlayerOne + 0x3C0) == kOro || Word(g, kPlayerTwo + 0x3C0) == kOro;
+        if (!oro || g.Read8(kArea) != 0) {
+            SetWord(g, layer + kStep, 2);
+            return;
+        }
+        SetWord(g, layer + kStep, 1);
+        const uint32_t up = g.Read32(LayerNow(g) + kSpeedUp) * 0xC0;
+        g.Write32(LayerNow(g) + kAcross + 4, up);
+        g.Write32(layer + kShownUp, up);
+    }
+    // 060BD964 (demo90_base): the entrance's steps: wait until the entrance followed (the Oro's: player 2's, or with
+    // both Oro the one Appear_hv names) lets the camera go; then down 10 lines a frame (times the layer's speed up) to
+    // 0; then wait for both entrances to be over, and the layer's moves begun
+    void OroEntrance(Guest &g) {
+        if (Paused(g)) {
+            return;
+        }
+        const uint32_t layer = LayerNow(g);
+        switch (Word(g, layer + kTurn)) {
+        case 0: {
+            int side = 0;
+            const bool one = Word(g, kPlayerOne + 0x3C0) == kOro, two = Word(g, kPlayerTwo + 0x3C0) == kOro;
+            if (one && two) {
+                side = g.Read8(kEntranceWhich) != 0 ? 1 : 0;
+            } else if (two) {
+                side = 1;
+            }
+            if (g.Read8(kEntranceFree + static_cast<uint32_t>(side)) != 0) {
+                StepOn(g, layer, kTurn);
+            }
+            break;
+        }
+        case 1:
+            g.Write32(layer + kShownUp, g.Read32(layer + kShownUp) - g.Read32(layer + kSpeedUp) * 10);
+            g.Write32(LayerNow(g) + kAcross + 4, g.Read32(LayerNow(g) + kAcross + 4) - g.Read32(LayerNow(g) + kSpeedUp) * 10);
+            if (Word(g, LayerNow(g) + kShownUp) <= 0) {
+                StepOn(g, LayerNow(g), kTurn);
+                g.Write32(LayerNow(g) + kShownUp, 0);
+                g.Write32(LayerNow(g) + kAcross + 4, 0);
+            }
+            break;
+        case 2:
+            if (Word(g, kEntrancesOver) == 2) {
+                StepOn(g, layer);
+                SetWord(g, LayerNow(g) + kTurn, 0);
+                g.Write32(LayerNow(g) + kShownUp, 0);
+                g.Write32(LayerNow(g) + kAcross + 4, 0);
+            }
+            break;
+        }
+    }
+    // 060BDA52 (jijii_win_bg): Oro's win: the fighters' layer up 10 lines a frame until past 176, then the pan done
+    void OroWinUp(Guest &g) {
+        if (Paused(g)) {
+            return;
+        }
+        const uint32_t layer = LayerNow(g);
+        if (Word(g, layer + kTurn) != 0 || g.Read8(kOroWin) != 2) {
+            return;
+        }
+        MoveUp(g, layer, 0xA0000);
+        if (Word(g, LayerNow(g) + kShownUp) > 0xB0) {
+            StepOn(g, LayerNow(g), kTurn);
+            g.Write8(kOroWin, 3);
+        }
+    }
+    // 060BDAA8 (jijii_win_bg2): ... another layer up with it, 10 lines a frame times its speed up, while the fighters'
+    // layer's goes up
+    void OroWinUpWith(Guest &g) {
+        if (Paused(g)) {
+            return;
+        }
+        if (Word(g, Layer(1) + kTurn) != 0 || g.Read8(kOroWin) != 2) {
+            return;
+        }
+        const uint32_t by = g.Read32(LayerNow(g) + kSpeedUp) * 10;
+        MoveUp(g, LayerNow(g), by);
+    }
+    // 060BD718 (bg0901_init00), 060BD7B0 (bg0902_init00): the nearer and the fighters' layers' first step: home, then
+    // the entrance's check; the fighters' sets the stage's things going
+    void OroNear(Guest &g) {
+        const uint32_t layer = LayerNow(g);
+        SetWord(g, layer + kHomeAcross, 0x200);
+        SetWord(g, layer + kShownAcross, 0x200);
+        SetWord(g, layer + kWasAcross, 0x200);
+        g.Write32(layer + kAcross, g.Read32(layer + kShownAcross));
+        g.Write32(layer + kHeld, g.Read32(layer + kShownAcross));
+        g.Write32(layer + kWide, 0);
+        OroEntranceCheck(g);
+    }
+    void OroFighters(Guest &g) {
+        OroNear(g);
+        CallAll(g, {With(kLoad, 0xDEE0, 1), Plain(0x060DD486), Plain(0x060DD612), Plain(0x060F057E)});
+    }
+    // 060BD6DC (bg0901), 060BD74A (bg0902): the nearer and the fighters' layers: in Oro's win, up with it; else their
+    // step from the stage's tables
+    void OroNearLayer(Guest &g) {
+        if (g.Read8(kOroWin) != 0) {
+            g.Call(0x060BDAA8);
+            return;
+        }
+        g.Call(g.Read32(0x0619E468 + static_cast<uint32_t>(Word(g, LayerNow(g) + kStep) * 4)));
+    }
+    void OroFightersLayer(Guest &g) {
+        if (g.Read8(kOroWin) != 0) {
+            g.Call(0x060BDA52);
+            return;
+        }
+        g.Call(g.Read32(0x0619E474 + static_cast<uint32_t>(Word(g, LayerNow(g) + kStep) * 4)));
+    }
+    // 060BD800 (bg_fam0900): the far layers (2, 6, 5): in Oro's win up with it; else set up (speeds by its number, its
+    // top 240), the entrance's steps, then moved; their objects with them
+    void OroFar(Guest &g) {
+        const uint32_t layer = LayerNow(g);
+        if (g.Read8(kOroWin) != 0) {
+            g.Call(0x060BDAA8);
+            CallAll(g, {With(kWithLayer, Word(g, LayerNow(g) + kFamily))});
+            return;
+        }
+        switch (Word(g, layer + kStep)) {
+        case 0: {
+            Home(g, layer, 0x200, kHeldLong);
+            SetWord(g, layer + kHomeUp, 0);
+            SetWord(g, layer + kShownUp, 0);
+            const int family = Word(g, layer + kFamily);
+            g.Write32(layer + kSpeedAcross, family == 2 ? 0xC000 : family == 6 ? 0x9000 : 0x12000);
+            g.Write32(layer + kSpeedUp, 0x10000);
+            SetWord(g, layer + kShownUp + 2, 0);
+            SetWord(g, layer + kShownAcross + 2, 0);
+            SetWord(g, layer + kTopEnd, 0xF0);
+            SetWord(g, layer + kTop, 0xF0);
+            g.Call(0x060BD91E);
+            break;
+        }
+        case 1:
+            g.Call(0x060BD964);
+            break;
+        case 2:
+            CallAll(g, {Plain(kMoveAcross), Plain(kMoveUp)});
+            break;
+        default:
+            return;
+        }
+        CallAll(g, {With(kWithLayer, Word(g, LayerNow(g) + kFamily))});
+    }
+
+
     void IbukiFighters(Guest &g) { // 060BD240
         SetUp(g, 0x200, kHeldLong, {With(kLoad, 0xDCA0, 1), Plain(0x060DD612), With(0x060F6FF8, 3), Plain(0x0610E076)});
     }
@@ -618,6 +828,19 @@ namespace {
         {"StageIbukiNearMove", 0x060BD1AE, 0x16, 0xAE66E314D3E18697ull, Lifted<IbukiNearMove>, true, kFree},
         {"StageIbukiFighters", 0x060BD240, 0x54, 0x704382DBBC13FE98ull, Lifted<IbukiFighters>, true, kFree},
         {"StageIbukiFar", 0x060BD294, 0x9C, 0xC188C29CA1C4F73Full, Lifted<FarLayer<kIbukiFar>>, true, kFree},
+        {"StageElenaNear", 0x060BD464, 0x48, 0x080BDB3944E7C605ull, Lifted<ElenaNear>, true, kFree},
+        {"StageElenaFighters", 0x060BD504, 0x60, 0x19AA26236AA33D63ull, Lifted<ElenaFighters>, true, kFree},
+        {"StageElenaFar", 0x060BD58C, 0x98, 0x2CC05BCA2016D5EDull, Lifted<ElenaFar>, true, kFree},
+        {"StageElenaFarMove", 0x060BD624, 0x1C, 0xE10DFD6566D91F2Aull, Lifted<ElenaFarMove>, true, kFree},
+        {"StageOroEntranceCheck", 0x060BD91E, 0x46, 0x8E13DA08CDC34C12ull, Lifted<OroEntranceCheck>, true, kFree},
+        {"StageOroEntrance", 0x060BD964, 0xEE, 0xC9E51D9703A797A4ull, Lifted<OroEntrance>, true, kFree},
+        {"StageOroWinUp", 0x060BDA52, 0x56, 0x35C84C61C145ABB7ull, Lifted<OroWinUp>, true, kFree},
+        {"StageOroWinUpWith", 0x060BDAA8, 0x4C, 0xEA70C56CB49412E3ull, Lifted<OroWinUpWith>, true, kFree},
+        {"StageOroNearLayer", 0x060BD6DC, 0x3C, 0x6658C91AB2DE4105ull, Lifted<OroNearLayer>, true, kFree},
+        {"StageOroFightersLayer", 0x060BD74A, 0x3C, 0x274D7840C06D06FBull, Lifted<OroFightersLayer>, true, kFree},
+        {"StageOroFar", 0x060BD800, 0x11E, 0x8FE92B0B772457FEull, Lifted<OroFar>, true, kFree},
+        {"StageOroNear", 0x060BD718, 0x32, 0x02631853A4FEA820ull, Lifted<OroNear>, true, kFree},
+        {"StageOroFighters", 0x060BD7B0, 0x50, 0x7F867BF370806035ull, Lifted<OroFighters>, true, kFree},
     };
 } // namespace
 
