@@ -13,10 +13,9 @@
 # guard and red parry, to guard with both players' health held low (chip knock-outs, a guard failing), to guard at
 # random and break throws (dummy_tech: throws broken, throws met), and Gill against Ryu watched (projectiles meeting,
 # effects hitting fighters, counter hits and trades as they come); and a one-player game with only the computer's health
-# held low (the made-up play's wins perfects: their message, fight_match.cpp's Game_Manage_7_4-7_6, the bonuses, the next
-# opponents); one with the person's health held low (the matches lost: the continue's screen, continued, then not and
-# the game over); one with the computer's held low and ten opponents beaten (0x02015507, VS_Index: the ending); and one
-# with a challenger always waiting (Battle_Q, 0x02016D7F: Game_Manage_11th). As
+# held low (the made-up play's wins perfects: their message, fight_match.cpp's Game_Manage_7_4-7_6, the bonuses); one
+# with the person's health held low (the matches lost: the continue, continued, then not and the game over); and one
+# with the computer's held low and ten opponents beaten (0x02015507, VS_Index: the ending). As
 # checklifts.sh: every rewrite run beside the game's own code on every call and compared, in layers
 # (SFIII3_LIFTS_ONLY), until each was compared or a round reaches none of those left. Exit 0 when every one matched on
 # every call.
@@ -27,7 +26,7 @@ BUILD=${2:-build/sfiii3}
 FRAMES=${3:-12000}
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=$(mktemp -d)
-NAMES=(timeover lowhealth double draw two twolow recorded parry red chip tech projectiles perfect lose ending challenge)
+NAMES=(timeover lowhealth double draw two twolow recorded parry red chip tech projectiles perfect lose ending)
 TRAINING="--keys 30:ctraining_start"
 # (0x02011377: the clock's seconds, a byte; 0x02068D0B and 0x020691A3: the players' health, the low byte of the word
 # at +0x9E of each record; 0x020113C1: the low byte of Conclusion_Type; 0x02017020 and 0x02017024: the recordings' places, 0x0617AF14 and 0x1C20 bytes on)
@@ -39,9 +38,8 @@ ARGS=("--auto 11:300:1 --poke 2011377=01" "--auto 23:300:1 --poke 2068D0B=02,206
     "$TRAINING --features dummy_guard=1,gauge_refill --auto 9:300:1 --poke 2068D0B=02,20691A3=02"
     "$TRAINING --features dummy_tech=1,dummy_guard=3 --auto 17:300:1 --poke 2011387=06,2011388=02"
     "$TRAINING --features training_watch,gauge_refill --auto 50:300:1 --poke 2011387=00,2011388=02"
-    "--auto 7:300:1 --poke 20691A3=01" "--auto 23:300:1 --poke 2068D0B=01" "--auto 7:300:1 --poke 20691A3=01,2015507=0A"
-    "--auto 7:300:1 --poke 20691A3=01,2016D7F=01")
-POKES=("" "" "" "" "" "" "1:2017020:0617,1:2017022:AF14,1:2017024:0617,1:2017026:CB34" "" "" "" "" "" "" "" "" "")
+    "--auto 7:300:1 --poke 20691A3=01" "--auto 23:300:1 --poke 2068D0B=01" "--auto 7:300:1 --poke 20691A3=01,2015507=0A")
+POKES=("" "" "" "" "" "" "1:2017020:0617,1:2017022:AF14,1:2017024:0617,1:2017026:CB34" "" "" "" "" "" "" "" "")
 
 left=$(grep -h '^ *{"[A-Za-z0-9_]*", 0x' "$HERE"/src/fight_*.cpp | sed 's/^ *{"\([A-Za-z0-9_]*\)".*/\1/' | sort -u)
 status=0
