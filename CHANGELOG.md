@@ -1,7 +1,14 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-beta.2
 
+- Guest stages (New Generation's and 2nd Impact's): ROUND 1 and FIGHT! shown over them (they were hidden), the
+  opponent's stage there from the round's first frame with "load ahead" off (3rd Strike's own stage showed first), no
+  camera pan at a round's start. Tag team battle: the incoming fighter's score is shown at once (it read 00 until the
+  next points).
+- Readable code: the computer player (how it chooses a plan, answers, guards, parries, gets up, and plays its plans),
+  the stage's camera and the versus stage choice, and the fight's score, clock, round end and hit test are written
+  again as C++, each checked against the game's own code on every call (checklifts.sh).
 - Bonus games (Alternative modes): Crush the Car or Parry the Ball, straight from the menu with the character chosen at
   character select; the menu again when it is over.
 - The alternative modes made as the CPS-2 ports have them. Ring out: a fighter knocked about at an open end goes over
