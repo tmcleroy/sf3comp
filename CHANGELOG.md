@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Bonus games: straight from character select to the bonus stage, as the game itself goes there after a won match
+  ("BONUS STAGE", the versus screen, the stage), with no match fought unseen first.
+
 ## 0.1.0-beta.2
 
 - Guest stages (New Generation's and 2nd Impact's): ROUND 1 and FIGHT! shown over them (they were hidden), the

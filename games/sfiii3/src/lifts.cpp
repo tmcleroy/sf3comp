@@ -370,6 +370,8 @@ void RegisterFightScore();
 void RegisterFightRound();
 void RegisterFightInput();
 void RegisterFightHits();
+// The bonus games' (bonus.cpp): character select's step out and the bonus check
+void RegisterBonusLifts();
 
 void RegisterLifts3rdStrike() {
     RegisterGameLifts(kLifts, std::size(kLifts));
@@ -383,6 +385,7 @@ void RegisterLifts3rdStrike() {
     RegisterFightRound();
     RegisterFightInput();
     RegisterFightHits();
+    RegisterBonusLifts();
     AddHook("VerticalBlank", 0x06000528, 8, 0xF41697FE6C5AEE4Dull, VerticalBlank);
 }
 
