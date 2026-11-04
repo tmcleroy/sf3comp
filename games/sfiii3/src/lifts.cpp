@@ -368,6 +368,7 @@ void RegisterStageSelect();
 // The fight's (fight_core.h)
 void RegisterFightScore();
 void RegisterFightRound();
+void RegisterFightMatch();
 void RegisterFightInput();
 void RegisterFightHits();
 // The bonus games' (bonus.cpp): character select's step out and the bonus check
@@ -383,6 +384,7 @@ void RegisterLifts3rdStrike() {
     RegisterStageSelect();
     RegisterFightScore();
     RegisterFightRound();
+    RegisterFightMatch();
     RegisterFightInput();
     RegisterFightHits();
     RegisterBonusLifts();
