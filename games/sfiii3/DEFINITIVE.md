@@ -104,3 +104,13 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
    stage's end. The stage games' fighters are made players' (record byte 3) so that a computer opponent does not fight
    on behind 3rd Strike's. 3rd Strike's
    shadows over another stage darken it now (they were black).
+7. Every stage of both games looked at through a one-player game's first fight (made-up play, frames from its round's
+   start to 4800, the stage chosen and the opponent's; 2026-11-03). Found and put right: "ROUND 1" and "FIGHT!"
+   (palettes 0x1ED and 0x1E0) were taken for 3rd Strike's stage and left out (its stages' objects use 0x80-0xFC and
+   0x1FF, every one of the 21 in an endless battle); the opponent's stage without "load ahead" came some 200 frames
+   into the round's start, 3rd Strike's own shown first (the board's trip from its reset, ~1600 of its frames: now from
+   its start-up passed, kept once a game); before a round 3rd Strike's camera ends are not its stage's (1 and 95), and
+   the stage board's camera went to its right end, panned back over the round's start and learned that place as its
+   end (now held at its middle between rounds, ends learned only in a round). Not yet: 3rd Strike's intros that pan
+   the camera up (Oro's, from the sky) are not followed up on the other stage (its camera follows across only);
+   2nd Impact's Elena stage's sea is bright as its round starts and dark later (not compared with 2nd Impact's own).

@@ -96,6 +96,12 @@ if [ "$CHECKLIFTS_RUNS" = all ]; then
         POKES+=("")
     done
 fi
+# (SFIII3_CHECK_VERSUS=1: versus games of made-up play instead, two players: checkstages.sh)
+if [ -n "$SFIII3_CHECK_VERSUS" ]; then
+    NAMES=(vs7 vs11 vs23 vs37)
+    ARGS=("--auto 7:300" "--auto 11:300" "--auto 23:300" "--auto 37:300")
+    POKES=("" "" "" "")
+fi
 
 # Every rewrite registered: the names in the sources' lift tables ({"Name", 0x...}, not in a remark), unless
 # SFIII3_LIFTS_ONLY names some
