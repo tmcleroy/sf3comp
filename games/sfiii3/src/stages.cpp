@@ -26,7 +26,8 @@ namespace {
     // Where a stage game keeps what is held (found in RAM traces: DEFINITIVE.md)
     struct StageGame {
         const char *set;
-        uint32_t camera[3], edge[2]; // the camera's middle (and copies), its left edge (none: 0)
+        uint32_t camera[3], edge[2]; // the camera's middle (and copies: its fighters' layer's place across, the second of its
+                                     // stage's seven layers), its left edge (none: 0)
         uint32_t rightAt, leftAt;    // the stage's ends, if the game keeps them (else right, left)
         int right, left;
         uint32_t clock[2], life[6], stage;
@@ -39,12 +40,12 @@ namespace {
     constexpr uint32_t kSpeedUp = 0x14, kShownUp = 0x1C, kUp = 0x24, kHomeUp = 0x4A, kTopEnd = 0x6E;
     constexpr uint32_t kSteps = 0x04;   // (a layer's step, 0 not begun)
     constexpr uint32_t kMovedUp = 0x14; // (of the stage's head, 0x54 before its layers: how far up the camera's layer is from its start)
-    const StageGame kNewGeneration = {"sfiiin", {0x0201BE7C, 0x0201BE84, 0x0201BE94}, {0x0201BE6E, 0x0201BEF0}, 0x0201BEC8, 0x0201BECC, 680, 320,
+    const StageGame kNewGeneration = {"sfiiin", {0x0201BF0C, 0x0201BF14, 0x0201BF24}, {0x0201BEFE, 0x0201BF80}, 0x0201BF58, 0x0201BF5C, 680, 320,
                                       {0x0200EB33, 0x0201DB15}, {0x0200D22B, 0x0200D22D, 0x0201DAF1, 0x0200D603, 0x0200D605, 0x0201DB09},
-                                      0x02012CA3, {0x0200D18C, 0x0200D564}, 0x12000, 0};
-    const StageGame kSecondImpact = {"sfiii2n", {0x020221CC, 0x020221D4, 0x020221E4}, {0, 0}, 0x02022218, 0x0202221C, 0, 0,
+                                      0x02012CA3, {0x0200D18C, 0x0200D564}, 0x1C000, 1};
+    const StageGame kSecondImpact = {"sfiii2n", {0x0202225C, 0x02022264, 0x02022274}, {0x0202224E, 0x020222D0}, 0x020222A8, 0x020222AC, 0, 0,
                                      {0x02010167, 0x02023EF5}, {0x0200E5A3, 0x0200E5A5, 0x0200E9AF, 0x0200E9B1, 0, 0}, 0x020142E7,
-                                     {0x0200E504, 0x0200E910}, 0x12000, 0};
+                                     {0x0200E504, 0x0200E910}, 0x1C000, 1};
     // 3rd Strike's own, as a stage board behind its fighters (the modes' shuffled and scrolling stages: battle.cpp)
     const StageGame kThirdStrike = {GAME_ROM_SET, {0x02026CA8, 0x02026CB0, 0x02026CC0}, {0, 0}, 0x02026CF4, 0x02026CF8, 748, 272,
                                     {0x02011377, 0x02028679}, {0x02068D0B, 0x020691A3, 0, 0, 0, 0}, 0x020154F5, {0x02068C6C, 0x02069104}, 0x1C000, 1};
@@ -97,6 +98,7 @@ namespace {
         // (the ends its camera really keeps, where they are nearer than its ends words say: learned when it stays put
         // short of where it was sent; 0 not known)
         int realLeft = 0, realRight = 0, stuck = 0, stuckAt = 0;
+        int heldAt = -1;     // (a place its camera stayed put at when sent either way: held there, not an end; -1 none)
         int ownRight = 0, ownLeft = 0, madeRight = 0, madeLeft = 0; // its stage's ends as its game set them, and as made
         int stage = -1;      // (the opponent's: the stage its board is on its way to, or in; -1 none)
         bool offsetKnown = false;
@@ -343,6 +345,20 @@ namespace {
                 fprintf(stderr, "stage fight: camera %d, fighters %d %d: offset %d\n", static_cast<int16_t>(Word(ram, game.camera[1])), one, two, g.offset);
             }
         }
+        // (debugging aid, SFIII3_STAGE_LAYERS=1: its stage's layers, every 300 frames)
+        static const bool layerLog = getenv("SFIII3_STAGE_LAYERS") != nullptr;
+        if (layerLog && g.frames % 300 == 0) {
+            const uint32_t head = game.camera[1] - 0x20 - 0x54 - static_cast<uint32_t>(game.cameraLayer) * 0x90;
+            fprintf(stderr, "stage layers: frame %u, moved %d, up %d\n", g.frames, static_cast<int16_t>(Word(ram, head + 0x12)), static_cast<int16_t>(Word(ram, head + 0x14)));
+            for (int n = 0; n < 7; n++) {
+                const uint32_t l = head + 0x54 + static_cast<uint32_t>(n) * 0x90;
+                fprintf(stderr, "  layer %d: family %d step %d across %d up %d home %d %d speed %08X %08X ends %d-%d top %d\n", n,
+                        static_cast<int16_t>(Word(ram, l + 2)), static_cast<int16_t>(Word(ram, l + 4)), static_cast<int16_t>(Word(ram, l + 0x20)),
+                        static_cast<int16_t>(Word(ram, l + 0x1C)), static_cast<int16_t>(Word(ram, l + 0x48)), static_cast<int16_t>(Word(ram, l + 0x4A)),
+                        (Word(ram, l + 0x10) << 16) | Word(ram, l + 0x12), (Word(ram, l + 0x14) << 16) | Word(ram, l + 0x16),
+                        static_cast<int16_t>(Word(ram, l + 0x6A)), static_cast<int16_t>(Word(ram, l + 0x66)), static_cast<int16_t>(Word(ram, l + 0x6E)));
+            }
+        }
         // (debugging aid, SFIII3_STAGE_CAMERA=1: the stage game's camera block, every 300 frames)
         static const bool cameraLog = getenv("SFIII3_STAGE_CAMERA") != nullptr;
         if (cameraLog && g.frames % 300 == 0) {
@@ -377,10 +393,10 @@ namespace {
                 g.ownRight = right;
                 g.ownLeft = left;
             }
-            // (in its camera's coordinates, or on a stage whose fighters' are another's, in theirs: the rainy London
-            // stage's -240 and 240; see `offset`)
+            // (in its camera's coordinates, or on a stage whose fighters' are another's, in theirs; see `offset`. A stage
+            // may have its middle at 0: 2nd Impact's Ryu stage's ends are -202 and 203)
             ownCoordinates = g.ownLeft <= 100 && g.offset != 0;
-            kept = g.ownLeft + (ownCoordinates ? g.offset : 0) > 100 && g.ownRight - g.ownLeft > 2 * margin + 64;
+            kept = g.ownRight - g.ownLeft > 2 * margin + 64;
         }
         if (kept) {
             g.madeRight = g.ownRight - margin;
@@ -487,9 +503,22 @@ namespace {
             g_theirRight = theirRight;
             // (its camera held short of where it was sent, frame after frame: that is its end)
             const int had = g.lastCamera;
+            // (but one it stays put at when sent the other way too is not an end: its game holds its camera there, or
+            // moves it only as its fighters come near its picture's edges; an end learned there, the stage cut short to
+            // nothing and its camera kept there the rest of the match, is forgotten, and none is learned there again
+            // until its camera has moved away)
+            if (g.heldAt >= 0 && std::abs(had - g.heldAt) > 16) {
+                g.heldAt = -1;
+            }
             if (std::abs(theirs - had) > 8 && had == g.stuckAt && (ownEnds || g_cameraWanted != kFollow)) {
                 if (++g.stuck > 30) {
-                    (theirs < had ? g.realLeft : g.realRight) = had;
+                    int &end = theirs < had ? g.realLeft : g.realRight, &other = theirs < had ? g.realRight : g.realLeft;
+                    if (other && std::abs(other - had) <= 8) {
+                        other = 0;
+                        g.heldAt = had;
+                    } else if (g.heldAt < 0) {
+                        end = had;
+                    }
                     g.stuck = 0;
                 }
             } else {
@@ -502,9 +531,10 @@ namespace {
             }
             // (debugging aid, SFIII3_STAGE_CAMERA=1: the camera given, and what its frame before left)
             static const bool log = getenv("SFIII3_STAGE_CAMERA") != nullptr;
-            if (log && g.frames % 60 == 0) {
-                fprintf(stderr, "stage camera: 3rd Strike %d (%d-%d), given %d (%d-%d), it had %d\n", camera, left, right, theirs, theirLeft,
-                        theirRight, g.lastCamera);
+            static const bool everyFrame = getenv("SFIII3_STAGE_CAMERA_ALL") != nullptr;
+            if (log && (g.frames % 60 == 0 || everyFrame)) {
+                fprintf(stderr, "stage camera: 3rd Strike %d (%d-%d), given %d (%d-%d), it had %d (in its fight %u, ends learned %d %d)\n", camera, left,
+                        right, theirs, theirLeft, theirRight, g.lastCamera, g.inFight, g.realLeft, g.realRight);
             }
             for (const uint32_t at : game.edge) {
                 if (at) {

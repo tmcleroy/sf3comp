@@ -12,10 +12,16 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
 
 ## Facts it stands on
 
-- The three games share their engine's layout. The camera: 3rd Strike 0x02026CB0 (copies 0x02026CA8, 0x02026CC0),
-  2nd Impact 0x020221D4 (copies 0x020221CC, 0x020221E4); the ends it keeps it between at +0x44 (right, twice) and
-  +0x48 (left, twice): 3rd Strike 0x02026CF4/CF8, 2nd Impact 0x02022218/221C. Other layers' cameras follow (blocks
-  nearby).
+- The three games share their engine's layout: a stage's head (0x54 bytes) and seven layers of 0x90 after it
+  (stage_camera.cpp), the camera the fighters' layer's place (layer 1, speed 1.0): 3rd Strike 0x02026CB0 (copies
+  0x02026CA8, 0x02026CC0; head 0x02026BAC), 2nd Impact 0x02022264 (copies 0x0202225C, 0x02022274; head 0x02022160),
+  New Generation 0x0201BF14 (copies 0x0201BF0C, 0x0201BF24; head 0x0201BE10); the ends it keeps it between at +0x44
+  (right, twice) and +0x48 (left, twice): 3rd Strike 0x02026CF4/CF8, 2nd Impact 0x020222A8/22AC, New Generation
+  0x0201BF58/BF5C; its place up at +0x04 (shown: -0x04), its top at +0x4E. Some stages' fighters' layers have their middle at 0
+  (New Generation's rainy London and Ryu stages, 2nd Impact's Ryu stage: ends -240 and 240, -202 and 203). (Until
+  2026-11-04 the stage board's camera was taken for layer 0's place, a far layer that moves by a sixteenth to three
+  quarters of it: its camera then followed 3rd Strike's only roughly, not at all on 2nd Impact's Elena stage, and its
+  fighters seemed to stand 512 off on the stages above.)
 - Which objects are which (games/sfiii3/src/stages.cpp): on 3rd Strike's board its stage is its tilemaps and its
   objects with palettes 0x80 and up; on the stage board its fighters are the objects of 6 bits a pixel with a palette
   below 0x40 (New Generation 0x08 and 0x10, 2nd Impact 0x00 and 0x18) and their shadows (palette 0, blending), and
@@ -36,9 +42,7 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
   Copies of the number the game makes from it: 0x02010178, 0x0200EC69, 0x020142F6, 0x020155D1, 0x02022164,
   0x020221AB (setting those alone does not choose it).
 
-- New Generation's: the camera 0x0201BE84 (copies 0x0201BE7C, 0x0201BE94), its left edge 0x0201BE6E (copy
-  0x0201BEF0); its stage's ends are beside it as in the later two (+0x44 and +0x48; on the rainy London stage in
-  its fighters' coordinates: below). The clock 0x0200EB33 (copy 0x0201DB15, 54 frames a second), the players' health
+- New Generation's: the camera above; its stage's ends beside it as in the later two. The clock 0x0200EB33 (copy 0x0201DB15, 54 frames a second), the players' health
   0x0200D22B and 0x0200D603 (copies at +2, and the HUD's 0x0201DAF1 and 0x0201DB09; the records 0x0200D18C and
   0x0200D564, 0x3D8 apart). Its stage number: 0x02012CA3 (as 2nd Impact's:
   copies at +0x0F and next to the clock at +0x11): numbered as 3rd Strike numbers its characters (below).
@@ -59,12 +63,13 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
   +95/+96) and the chip's voice registers (r13): who owns each record is the next thing to find. A debugging aid
   probes them (games/sfiii3/src/sound_probe.cpp: SFIII3_SOUND_PROBE, SFIII3_SOUND_SKIP).
 
-- The stage board's camera: its game makes its camera from its fighters every frame (writing its camera words does
-  nothing), so its fighters, unseen, are put where 3rd Strike's are (their place across the stage, mapped from one
-  stage's ends to the other's), and its camera follows them with its own smoothing. In widescreen 2nd Impact's ends
-  (which its game keeps) are narrowed by the margin, so its picture fills the wide screen; New Generation's stage
-  fills only a little more than its 384 columns (its tilemaps are filled ahead of its camera, it seems): a black strip
-  at the right in widescreen. New Generation's ends are beside its camera as 2nd Impact's are (camera +0x44 and +0x48: 0x0201BEC8, 0x0201BECC); on the rainy London stage they read 240 and -240 (that stage takes 320-680), and its fighters stand in coordinates 512 left of its camera's: the difference is measured as its fight begins and its fighters placed with it, so its camera follows and widescreen fills.
+- The stage board's camera: its camera words are given 3rd Strike's place mapped from one stage's ends to the
+  other's, and its fighters, unseen, are put where 3rd Strike's are (mapped the same way), so its game's own camera
+  step leaves it about there (over all 28 stages in a one-player game: within 0.2-1.6 columns on average, 6 on the
+  two widest, 2nd Impact's Necro and New Generation's beer festival). In widescreen the ends its game keeps are
+  narrowed by the margin, so its picture fills the wide screen (both games). Up: its fighters raised so that its
+  camera goes up as 3rd Strike's (the higher one's height past 88 times 1.75, as in 3rd Strike), and its layers'
+  places up given too, for the frames its game holds its camera (its own round's start).
 
 - The music: 3rd Strike's sound driver keeps a record for each of its music's 16 voices (0x02078D0C on, 0x74 each)
   and for each of 8 sound effects' (0x020797EC on), which take voices 8-15 from the music while they play (found by
@@ -111,6 +116,10 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
    into the round's start, 3rd Strike's own shown first (the board's trip from its reset, ~1600 of its frames: now from
    its start-up passed, kept once a game); before a round 3rd Strike's camera ends are not its stage's (1 and 95), and
    the stage board's camera went to its right end, panned back over the round's start and learned that place as its
-   end (now held at its middle between rounds, ends learned only in a round). Not yet: 3rd Strike's intros that pan
-   the camera up (Oro's, from the sky) are not followed up on the other stage (its camera follows across only);
-   2nd Impact's Elena stage's sea is bright as its round starts and dark later (not compared with 2nd Impact's own).
+   end (now held at its middle between rounds, ends learned only in a round).
+8. 2026-11-04: the camera's layer put right (above: it was a far layer's), so the stage board's camera follows 3rd
+   Strike's across on every stage; up too (Oro's entrance from the sky on his stage, jumps); an end learned where its
+   camera was held (it stayed put when sent either way: 2nd Impact's Elena stage cut to 510-513 for the match) is
+   forgotten. 2nd Impact's Elena stage's sea, bright with the moon's glints as a round starts and darker later, is 2nd
+   Impact's own (its own game, made-up play, the same: frames 2300 and 3200); half of it had lost its glints for good,
+   its camera held (that was ours).
