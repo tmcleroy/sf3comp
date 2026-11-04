@@ -110,6 +110,27 @@ as a playlist through everything. Songs named from pictures at their starts and 
 Not listened to by a person: checked by the sound's loudness only (the music's voices silent under a file, the effects
 heard, the file's tone in --soundtrack-dump).
 
+## Readable code: what gets rewritten
+
+The user's decision (2026-11-04): rewrite what features need, not the whole program for its own sake. About 645
+routines are readable (about a quarter of the code seen running; measured from the block database with routine
+starts taken from direct calls).
+
+Done: the computer player, the round, the match and its end, damage, the hit tests and decisions, input and the
+command reader, the score and the clock, the stage camera, zoom, per-stage code and stage choice, the bonus games.
+
+Still to rewrite, in this order (each because a feature reads or changes it):
+
+1. The characters' move code: the step routines of normals, specials, supers and throws, where frame data
+   (startup, active, recovery, advantage) and the training dummy's choices come from.
+2. Hit boxes and hurt boxes: where each frame's boxes are read and placed (the overlay and the dummy's guard from the boxes).
+3. Projectiles and the effects that hit (they share the hit tests; frame data for fireballs).
+4. The parts of drawing and the screens that the modes change: the HUD, the select screen, the versus and win screens.
+
+Left as translated code on purpose, unless a feature comes to need it: the sound driver's side in the game,
+boot, the board test and service screens, decompression and loading, the attract demo's own steps, the
+endings and the staff roll, and the drawing routines no mode touches.
+
 ## Next
 
 1. Frame data: recovery and advantage against published data (startups agree with the recorded animations; active
