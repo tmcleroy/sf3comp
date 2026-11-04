@@ -110,6 +110,16 @@ as a playlist through everything. Songs named from pictures at their starts and 
 Not listened to by a person: checked by the sound's loudness only (the music's voices silent under a file, the effects
 heard, the file's tone in --soundtrack-dump).
 
+## Priority: native video and sound (2026-11-04)
+
+The user's decision: going native at the edges comes before more readable CPU code. The port should stop
+modelling the CPS-3 board in its default build. The game's drawing and sound code is rewritten to hand a native
+interface its frames (objects, tilemap lines, scrolls, palettes, the text layer) and its voices, instead of
+writing the video and sound chips' registers and memories. The board model (machine/, video/renderer.cpp,
+sound/pcm.cpp) stays only as the reference. Checks run the two side by side: the same interface decoded from the
+board's memories against the one the rewrites hand over, every frame, then pixels and samples. Plan and inventory:
+docs/NATIVE.md. The readable work below stops at the move code and boxes that are done; the rest waits.
+
 ## Readable code: what gets rewritten
 
 The user's decision (2026-11-04): rewrite what features need, not the whole program for its own sake. About 645
