@@ -15,8 +15,9 @@
 #   games/sfiii3/checklifts.sh ROM [BUILD] [FRAMES]     (BUILD: build/sfiii3; FRAMES: 12000 a run)
 #
 # CHECKLIFTS_RUNS=first: only the first four runs (attract mode and the one-player games), as before the training ones
-# CHECKLIFTS_RUNS=all: nine more, every character as the computer and against it (pairs watched): the per-character
-#   routines and lists the others' characters miss (17 runs a round: about twice as long)
+# CHECKLIFTS_RUNS=all: thirteen more, every character as the computer and against it (pairs watched), the computer
+#   against made-up play by four characters, Oro and Ibuki set by hand: the per-character routines and lists the
+#   others' characters miss (21 runs a round: about twice as long)
 #
 # In layers: while a rewrite is compared, what it calls runs as the game's own code, so a rewrite called only from
 # inside another rewrite is not met while that one is registered. So the runs are made again with only the rewrites
@@ -42,10 +43,10 @@ if [ "$CHECKLIFTS_RUNS" != first ]; then
     DUMMY="--features dummy_computer,gauge_refill --keys 30:ctraining_start"
     WATCH="--features training_watch,gauge_refill --keys 30:ctraining_start"
     # A side's computer set by hand (CPS3RECOMP_POKE: frame:address:word) every EVERY frames from frame 2000, one
-    # state after another: "mode step word word [kDoing kDoingHow [plan]]": its mode words (0x02015572, 8 a side),
-    # its record's kDoing and kDoingHow (+0x26, +0x28; - to leave them), the plan or answer (kPattern 0x020155A2, its
-    # script from the start: kPlanPlace 0x02015582, 16 a side). (Player 2's, set by hand, are met only with it the
-    # dummy: watched, they were not.)
+    # state after another: "mode step word word [kDoing kDoingHow [plan [its step]]]": its mode words (0x02015572, 8
+    # a side), its record's kDoing and kDoingHow (+0x26, +0x28; - to leave them), the plan or answer (kPattern
+    # 0x020155A2, its script from the start, or from the step given: kPlanPlace 0x02015582, 16 a side). (Player 2's,
+    # set by hand, are met only with it the dummy: watched, they were not.)
     cycle() {
         local side=$1 every=$2 k=0 f n w out=""
         shift 2
@@ -61,7 +62,8 @@ if [ "$CHECKLIFTS_RUNS" != first ]; then
             fi
             if [ -n "${w[6]}" ]; then
                 out+="$f:$(printf %X $((0x020155A2 + side * 2))):$(printf %X "${w[6]}"),"
-                out+="$f:$(printf %X $((0x02015582 + side * 16))):0,$f:$(printf %X $((0x02015584 + side * 16))):0,"
+                out+="$f:$(printf %X $((0x02015582 + side * 16))):$(printf %X "${w[7]:-0}"),"
+                out+="$f:$(printf %X $((0x02015584 + side * 16))):0,"
             fi
             k=$((k + 1))
         done
@@ -74,14 +76,18 @@ if [ "$CHECKLIFTS_RUNS" != first ]; then
            "$DUMMY --auto 17:300:1 --poke 2011387=06,2011388=0B")
     # Ryu (player 2) against Gill: in the air (mode 11, each step); getting up with move 46 (mode 10, step 4, each
     # phase); a parry's steps 1-4 (12; 3 in a parry's action, 31); guarding as it is hit in the air (7, hit 8: so
-    # Next_Be_Float); the Denjin's plans 55-60 (mode 2); answers 63, 67, 68 and 71 (mode 6)
+    # Next_Be_Float); the Denjin's plans 55-60 (mode 2); answers 63, 67, 68 and 71 (mode 6); answer 71's step 2 (the
+    # test of the second art) and 3 (Check_SA), answer 78's step 2 (Check_EX); plans 47 and 50 (a high jump with a
+    # special move, Hi_Jump_Attack)
     forced=$(cycle 1 150 "11 0 0 0" "11 1 0 0" "11 2 0 0" "11 3 0 0" "10 4 0 0" "10 4 1 0" "10 4 2 0" "12 1 0 0" \
         "12 3 0 0 0 31" "12 4 0 0" "12 2 0 0" "7 0 0 0 1 8" "2 0 0 0 - - 55" "2 0 0 0 - - 57" "2 0 0 0 - - 58" \
-        "2 0 0 0 - - 59" "2 0 0 0 - - 60" "6 0 0 0 - - 63" "6 0 0 0 - - 67" "6 0 0 0 - - 68" "6 0 0 0 - - 71")
+        "2 0 0 0 - - 59" "2 0 0 0 - - 60" "6 0 0 0 - - 63" "6 0 0 0 - - 67" "6 0 0 0 - - 68" "6 0 0 0 - - 71" \
+        "6 0 0 0 - - 71 2" "6 0 0 0 - - 71 3" "6 0 0 0 - - 78 2" "2 0 0 0 - - 47" "2 0 0 0 - - 50")
     # Shin Akuma (player 2): a parry done (Flip_2nd), his own way of parrying again
     shin=$(cycle 1 50 "12 2 0 0")
-    # Urien (player 1, watched, against Akuma): answers 10 and 104 (Short_Range_Attack, Hi_Jump)
-    urien=$(cycle 0 300 "6 0 0 0 - - 10" "6 0 0 0 - - 104")
+    # Urien (player 1, watched, against Akuma): answers 10 and 104 (Short_Range_Attack, Hi_Jump); answer 87's step 4
+    # (the test of low health), 136 and 152 (the tests of the third and second arts)
+    urien=$(cycle 0 300 "6 0 0 0 - - 10" "6 0 0 0 - - 104" "6 0 0 0 - - 87 4" "6 0 0 0 - - 136" "6 0 0 0 - - 152")
     # Ken (player 2): answers 165, 245, 248 and 249 (Normal_Attack_SP, Lever_Attack_SP)
     ken=$(cycle 1 300 "6 0 0 0 - - 165" "6 0 0 0 - - 245" "6 0 0 0 - - 248" "6 0 0 0 - - 249")
     POKES+=("$forced" "$shin" "$urien" "$ken")
@@ -94,6 +100,23 @@ if [ "$CHECKLIFTS_RUNS" = all ]; then
         NAMES+=("pair${c[0]}${c[1]}")
         ARGS+=("$WATCH --auto $((0x${c[0]} + 31)):300:1 --poke 2011387=${c[0]},2011388=${c[1]}${c[2]:+,20695C9=${c[2]}}")
         POKES+=("")
+    done
+    # The computer (player 2, the dummy) against made-up play by Ken, Necro, Yun and Urien: its answers to their
+    # attacks close and far (the lists by the other's character); Oro (his second art) set to his jumps that jump again
+    # (plans 95-98, answers 112-114) and a plan with SA_Term (62: his YAGYOU_Check); Ibuki to answer 212's and plan
+    # 70's step 1 (EM_Term with the test of landing, 8)
+    NAMES+=(oro ibuki yun urien2)
+    ARGS+=("$DUMMY --auto 40:300:1 --poke 2011387=0B,2011388=09,20695C9=01"
+           "$DUMMY --auto 41:300:1 --poke 2011387=05,2011388=07"
+           "$DUMMY --auto 42:300:1 --poke 2011387=03,2011388=04"
+           "$DUMMY --auto 43:300:1 --poke 2011387=0D,2011388=14")
+    POKES+=("$(cycle 1 150 "2 0 0 0 - - 95" "2 0 0 0 - - 96" "2 0 0 0 - - 97" "2 0 0 0 - - 98" "6 0 0 0 - - 112" \
+                 "6 0 0 0 - - 113" "6 0 0 0 - - 114" "2 0 0 0 - - 62")"
+            "$(cycle 1 300 "6 0 0 0 - - 212 1" "2 0 0 0 - - 70 1")" "" "")
+    # In the last one-player game, the round's clock (0x02011376) set to 32 seconds now and then near the end: its
+    # flash under 30
+    for ((f = FRAMES - 3000; f < FRAMES; f += 600)); do
+        [ $f -gt 0 ] && POKES[3]+="$f:2011376:20,"
     done
 fi
 # (SFIII3_CHECK_VERSUS=1: versus games of made-up play instead, two players: checkstages.sh)

@@ -132,6 +132,7 @@ namespace {
     constexpr int kNecro = 5;
 
     // --- tables in the program ---
+    constexpr uint32_t kMoveId = 0x213;          // in a fighter's record, a byte: the move under way (sp_tech_id)
     constexpr uint32_t kCommands = 0x020062E4;   // longs in RAM, a character each: its commands (player_cmd), a long each
     constexpr uint32_t kPowerLevers = 0x06178ECE; // words: the lever held through a move of power 8-11 (Power_Lv_Data)
     constexpr uint32_t kDashTimes = 0x06178D7C;  // bytes: [character][2]: frames of a dash (Dash_Time_Data)
@@ -198,6 +199,8 @@ namespace {
     constexpr uint32_t kClearHighJump = 0x060B5CD6; // hi_jump_flag_clear (r4 the side)
     constexpr uint32_t kStartJump = 0x0600F1DC;  // Jump_Init (r4, r5 the way)
     constexpr uint32_t kAirGuard = 0x0600B974;   // Check_Air_Guard (r4)
+    constexpr uint32_t kHighJumpBusy = 0x0600B93C; // Check_Start_Hi_Jump (r4): not 0 while a high jump may not start
+    constexpr uint32_t kHeldTime = 0x0600F6EE;   // Setup_Command_01 (r4): kTimer the frames the lever has been held
     constexpr uint32_t kVsAirAttack = 0x0600C196; // Check_VS_Air_Attack (r4, r5 Range_JX, r6 Range_JY, r7 the lever)
     constexpr uint32_t kAttackTime = 0x0600CABC; // Check_Term_ABS_Distance (r4)
     constexpr uint32_t kMeetsLimit = 0x0600B4AC; // Check_Term_Sub (r4, r5 a value, r6 its limit)
@@ -293,14 +296,16 @@ namespace {
 
     // --- dice and small tables ---
 
-    // 0611E106 (random_32_ex_com): the next of a table of 32, from a counter that goes round it. The counter's place
-    // and the table's are the routine's literals. Leaves r0 the number, r1 the table, r3 the counter plus one before it
-    // was wrapped, r4 the counter's place, T clear.
-    bool Dice32(Guest &g) {
-        const uint32_t counter = g.Read32(0x0611E1BC), table = g.Read32(0x0611E1C0);
+    // 0611E0D6 (random_32_com: 128 entries), 0611E106 (random_32_ex_com: 32), 0611E11E (random_16_ex_com: 16): the
+    // next of a table of dice, from a counter that goes round it. The counter's place and the table's are the
+    // routine's literals (at `literals`). Leaves r0 the number, r1 the table, r3 the counter plus one before it was
+    // wrapped, r4 the counter's place, T clear.
+    template <uint32_t literals, uint16_t entries>
+    bool Dice(Guest &g) {
+        const uint32_t counter = g.Read32(literals), table = g.Read32(literals + 4);
         const uint32_t next = SignedWord(g, counter) + 1;
         g.Write16(counter, static_cast<uint16_t>(next));
-        g.Write16(counter, static_cast<uint16_t>(g.Read16(counter) & 31));
+        g.Write16(counter, static_cast<uint16_t>(g.Read16(counter) & (entries - 1)));
         g.R(0) = SignedWord(g, table + (SignedWord(g, counter) << 1));
         g.R(1) = table;
         g.R(3) = next;
@@ -2293,6 +2298,1148 @@ namespace {
         return true;
     }
 
+    // --- the jumps and their attacks (Jump_Attack ... Hi_Jump_Command_Attack_Term) ---
+    //
+    // Each is a little machine on the step routine's phase (the second of kPlanPlace), as Jump_Attack_Term above: the
+    // jump is got ready (the frames of kComboSpeed waited, once the fighter's last attack lets it), made (Jump_Init),
+    // waited off the floor, then in the air an attack is put in (a lever and buttons, or a special move's command)
+    // when it is time, and the landing waited (Check_Landed: the plan's reaction). The routines call each other and
+    // the game's through its calls, with their arguments in r4-r7 as the game's code puts them (what a call does not
+    // set is left as the routine before it left it); the stack pointer the callees see is the game's (Frame).
+
+    // A routine called with the computer's record in r4: true when it returns not 0 (T as tst r0,r0 leaves it)
+    bool Asks(Side &s, uint32_t routine) {
+        s.g.R(4) = s.me;
+        s.g.Call(routine);
+        return Nonzero(s.g);
+    }
+    // A routine called with r4 the record and r5 a value (r6 and r7 left as they are)
+    bool AsksWith(Side &s, uint32_t routine, uint32_t r5) {
+        s.g.R(4) = s.me;
+        s.g.R(5) = r5;
+        s.g.Call(routine);
+        return Nonzero(s.g);
+    }
+    // Check_Landed (r5 the reaction): the jump over (not 0)
+    bool HasLanded(Side &s, uint32_t reaction) {
+        return AsksWith(s, kLanded, reaction);
+    }
+    // Check_VS_Air_Attack (r5 Range_JX, r6 Range_JY, r7 the attack's lever): an attack at the other in the air begun
+    bool AttacksInAir(Side &s, uint32_t rangeX, uint32_t rangeY, uint32_t lever) {
+        Guest &g = s.g;
+        g.R(7) = lever;
+        g.R(6) = rangeY;
+        return AsksWith(s, kVsAirAttack, rangeX);
+    }
+    // Check_Com_Add_Y: the computer's height meets the limit
+    bool HighEnough(Side &s, uint32_t limit) {
+        s.g.R(6) = limit;
+        return AsksWith(s, kHeightMeetsLimit, Signed(s.Field(kY)));
+    }
+    // The gap meets Range_X, and the height Range_Y (Check_Term_Sub, Check_Com_Add_Y, Check_Term_Sub again on the
+    // height): time for the attack
+    bool InRanges(Side &s, uint32_t rangeX, uint32_t rangeY) {
+        Guest &g = s.g;
+        g.R(6) = rangeX;
+        if (!AsksWith(s, kMeetsLimit, Signed(s.Word(kGap)))) {
+            return false;
+        }
+        if (!HighEnough(s, rangeY)) {
+            return false;
+        }
+        g.R(6) = rangeY;
+        return AsksWith(s, kMeetsLimit, Signed(s.Field(kY)));
+    }
+    // The step routine's phase on by `n`
+    void PhaseOn(Side &s, int n = 1) {
+        s.SetPlace(1, s.Place(1) + n);
+    }
+    // In an attack (kDoing 4) not yet at its end (kMoveKind 0x40): the jump waits
+    bool AttackNotDone(Side &s) {
+        return s.Field(kDoing) == 4 && s.g.Read8(s.me + kMoveKind) != 0x40;
+    }
+    // The fighter's kHitBy kept in kHitStock when it is not 0, or always
+    void KeepHit(Side &s, bool always = false) {
+        const uint8_t hit = s.g.Read8(s.me + kHitBy);
+        if (always || hit != 0) {
+            s.SetByte(kHitStock, hit);
+        }
+    }
+    // kTechAddress: the character's command `move` (its commands' list, a long each)
+    void CommandAt(Side &s, uint32_t move) {
+        Guest &g = s.g;
+        const uint32_t commands = g.Read32(kCommands + (Signed(s.Field(kCharacter)) << 2));
+        g.Write32(s.At(kTechAddress, 4), g.Read32(commands + move * 4));
+    }
+    // kComboSpeed counted down, of the side `which` (the high jumps' commands count the other side's: the game's own
+    // slip, `!side`); its value after
+    int8_t CountComboSpeed(Side &s, int32_t which) {
+        Guest &g = s.g;
+        const uint32_t at = kComboSpeed + static_cast<uint32_t>(which);
+        g.Write8(at, static_cast<uint8_t>(g.Read8(at) - 1));
+        return static_cast<int8_t>(g.Read8(at));
+    }
+    // kTimer counted down: true when it runs out
+    bool TimerDone(Side &s) {
+        s.SetWord(kTimer, s.Word(kTimer) - 1);
+        return s.Word(kTimer) == 0;
+    }
+    // Once the routine's phase is at `from` or more, the lever holds kLeverNow too; r0 as the routines leave it (the
+    // phase, or kLeverNow's place)
+    void HoldLeverNowFrom(Side &s, int from) {
+        Guest &g = s.g;
+        if (s.Place(1) >= from) {
+            s.SetWord(kLever, s.Word(kLever) | s.Word(kLeverNow));
+            g.R(0) = kLeverNow;
+        } else {
+            g.R(0) = Signed(s.Place(1));
+        }
+    }
+    // A word argument on the stack: the nth long's low word, from where the routine was called
+    int16_t StackWord(Guest &g, const Frame &frame, int n) {
+        return static_cast<int16_t>(g.Read16(frame.entry + static_cast<uint32_t>(n * 4 + 2)));
+    }
+
+    // 0600BC46 (Jump_Attack, r5 the reaction, r6 frames, r7 the attack's lever and buttons; on the stack the way of the
+    // jump): a jump, and its attack r6 frames after it leaves the floor. Once the fighter's attack lets it, the frames
+    // of kComboSpeed are waited (an answer may break it off) and the jump made, unless a projectile comes from above
+    // (then Next_Be_Free); in the air, guarding if it must (Check_Air_Guard), the attack when the frames have passed
+    // (Check_SP_Jump_Attack), then the landing (Check_Landed). From then on the lever holds kLeverNow too.
+    bool TimedJumpAttack(Guest &g) {
+        Side s(g, g.R(4));
+        Frame frame(g, 32);
+        const uint32_t reaction = Signed(static_cast<int16_t>(g.R(5)));
+        const int16_t frames = static_cast<int16_t>(g.R(6));
+        const uint32_t attack = g.R(7) & 0xFFFF;
+        const uint32_t way = Signed(StackWord(g, frame, 0));
+        switch (s.Place(1)) {
+        case 0:
+            g.R(6) = reaction & 0xF000;
+            AsksWith(s, kSetLeverNow, Signed(s.side));
+            if (Asks(s, kCheckAnswer) || AttackNotDone(s)) {
+                break;
+            }
+            PhaseOn(s);
+            s.SetWord(kTimer, frames);
+            s.SetByte(kContinue, 0);
+            g.Write8(s.me + kHitBy, 0);
+            g.R(4) = Signed(s.side);
+            g.Call(kClearHighJump);
+            Asks(s, kFirstMenu);
+            [[fallthrough]];
+        case 1:
+            if (Asks(s, kCheckAnswer) || CountComboSpeed(s, s.side) != 0) {
+                break;
+            }
+            s.SetWord(kTimer, frames);
+            PhaseOn(s);
+            g.R(4) = Signed(s.side);
+            g.Call(kClearDash);
+            AsksWith(s, kStartJump, way);
+            if (Asks(s, kShellAbove)) {
+                BeFree(g, s.me);
+            }
+            break;
+        case 2:
+            if (s.Field(kY) > 0) {
+                PhaseOn(s);
+            } else {
+                s.SetWord(kLever, s.Word(kJumpLever));
+            }
+            break;
+        case 3:
+            Asks(s, kAirGuard);
+            if (!TimerDone(s)) {
+                break;
+            }
+            AsksWith(s, kJumpAttackLever, attack);
+            s.SetWord(kLever, static_cast<int32_t>(g.R(0)));
+            PhaseOn(s);
+            break;
+        default:
+            Asks(s, kAirGuard);
+            KeepHit(s);
+            HasLanded(s, reaction & 0xFFF);
+            break;
+        }
+        HoldLeverNowFrom(s, 3);
+        g.Return(100);
+        return true;
+    }
+
+    // 0600C324 (Hi_Jump_Attack, r5 the reaction, r6 frames, r7 the attack's lever and buttons; on the stack the way of
+    // the jump): a high jump (the character's command 2, put in a lever a frame by Command_Type_00), and its attack r6
+    // frames after it leaves the floor. As Jump_Attack, but waiting for the fighter to be free to high jump
+    // (Check_Start_Hi_Jump), and with the reaction's bit 0x80 the attack's end is waited for in the air: until the
+    // other's attack is over (kOtherAttacking), the attack's command (the record's 0x230) put in when it hit and may be
+    // cancelled with a lever attack (kCancel 8). From phase 4 the lever holds kLeverNow too.
+    bool TimedHighJumpAttack(Guest &g) {
+        Side s(g, g.R(4));
+        Frame frame(g, 40);
+        const uint32_t reaction = Signed(static_cast<int16_t>(g.R(5)));
+        const int16_t frames = static_cast<int16_t>(g.R(6));
+        const uint32_t attack = Signed(static_cast<int16_t>(g.R(7)));
+        const uint32_t way = Signed(StackWord(g, frame, 0));
+        switch (s.Place(1)) {
+        case 0:
+            g.R(6) = reaction & 0xF000;
+            AsksWith(s, kSetLeverNow, Signed(s.side));
+            if (Asks(s, kCheckAnswer) || Asks(s, kHighJumpBusy)) {
+                break;
+            }
+            s.SetByte(kContinue, 0);
+            g.Write8(s.me + kHitBy, 0);
+            PhaseOn(s);
+            CommandAt(s, 2);
+            s.SetWord(kTimer, frames);
+            Asks(s, kFirstMenu);
+            break;
+        case 1:
+            if (Asks(s, kCheckAnswer) || CountComboSpeed(s, s.side) != 0) {
+                break;
+            }
+            PhaseOn(s);
+            s.SetWord(kTechIndex, 12);
+            g.R(4) = Signed(s.side);
+            g.Call(kClearDash);
+            AsksWith(s, kStartJump, way);
+            s.SetWord(kJumpLever, s.Word(kJumpLever) & 12);
+            s.SetWord(kLever, 0);
+            Asks(s, kAirGuard);
+            if (Asks(s, kShellAbove)) {
+                BeFree(g, s.me);
+            }
+            break;
+        case 2:
+            if (Asks(s, kCheckAnswer)) {
+                break;
+            }
+            g.R(7) = 0xFFFFFFFF;
+            g.R(6) = 0xFFFFFFFF;
+            AsksWith(s, kCommand0, 8);
+            if (g.R(0) == 0xFFFFFFFF) {
+                PhaseOn(s);
+            } else if (s.Word(kLever) & 2) {
+                // (the command's step holds down: kLeverNow not added)
+                g.R(0) = g.Read16(s.At(kLever, 2));
+                g.Return(100);
+                return true;
+            }
+            s.SetWord(kLever, s.Word(kLever) | s.Word(kJumpLever));
+            break;
+        case 3:
+            if (s.Field(kY) > 0) {
+                PhaseOn(s);
+            } else {
+                s.SetWord(kLever, s.Word(kJumpLever) | 1);
+            }
+            break;
+        case 4:
+            Asks(s, kAirGuard);
+            if (!TimerDone(s)) {
+                break;
+            }
+            AsksWith(s, kJumpAttackLever, attack);
+            s.SetWord(kLever, static_cast<int32_t>(g.R(0)));
+            PhaseOn(s, 2);
+            if (reaction & 0x80) {
+                PhaseOn(s);
+            }
+            break;
+        case 6:
+            Asks(s, kAirGuard);
+            if (s.Byte(kOtherAttacking) != 0) {
+                break;
+            }
+            PhaseOn(s);
+            if (g.Read8(s.me + kHitBy) != 0 && (g.Read8(s.me + kCancel) & 8)) {
+                Asks(s, kCommandLever);
+                s.SetWord(kLever, static_cast<int32_t>(g.R(0)));
+            }
+            break;
+        default:
+            KeepHit(s);
+            HasLanded(s, reaction & 0xFFF);
+            break;
+        }
+        HoldLeverNowFrom(s, 4);
+        g.Return(100);
+        return true;
+    }
+
+    // 0600C67C (Hi_Jump_Attack_Term, r5 Range_X, r6 Range_Y, r7 the reaction; on the stack the attack's lever and
+    // buttons, the way of the jump, Range_JX, Range_JY and the lever of an attack against one in the air): a high
+    // jump and its attack when the gap and the height meet the ranges, as Jump_Attack_Term does for a jump: the high
+    // jump's command put in as Hi_Jump_Attack does; in the air the landing (Check_Landed) or an attack at the other in
+    // the air (Check_VS_Air_Attack) ends the wait. With the reaction's bit 0x80 the attack's end is waited for in the
+    // air (phase 8), its command put in when it hit and may be cancelled with a lever attack. From phase 4 the lever
+    // holds kLeverNow too.
+    bool HighJumpAttack(Guest &g) {
+        Side s(g, g.R(4));
+        Frame frame(g, 40);
+        const uint32_t rangeX = Signed(static_cast<int16_t>(g.R(5))), rangeY = Signed(static_cast<int16_t>(g.R(6)));
+        const uint32_t reaction = Signed(static_cast<int16_t>(g.R(7)));
+        const auto arg = [&](int n) { return Signed(StackWord(g, frame, n)); };
+        const uint32_t attack = arg(0), way = arg(1), rangeJX = arg(2), rangeJY = arg(3), airLever = arg(4);
+        switch (s.Place(1)) {
+        case 0:
+            g.R(6) = reaction & 0xF000;
+            AsksWith(s, kSetLeverNow, Signed(s.side));
+            if (Asks(s, kCheckAnswer) || Asks(s, kHighJumpBusy)) {
+                break;
+            }
+            s.SetByte(kContinue, 0);
+            g.Write8(s.me + kHitBy, 0);
+            PhaseOn(s);
+            CommandAt(s, 2);
+            Asks(s, kFirstMenu);
+            break;
+        case 1:
+            if (Asks(s, kCheckAnswer) || CountComboSpeed(s, s.side) != 0) {
+                break;
+            }
+            PhaseOn(s);
+            s.SetWord(kTechIndex, 12);
+            g.R(4) = Signed(s.side);
+            g.Call(kClearDash);
+            AsksWith(s, kStartJump, way);
+            s.SetWord(kJumpLever, s.Word(kJumpLever) & 12);
+            s.SetWord(kLever, 0);
+            if (Asks(s, kShellAbove)) {
+                BeFree(g, s.me);
+            }
+            break;
+        case 2:
+            if (Asks(s, kCheckAnswer)) {
+                break;
+            }
+            g.R(6) = 0xFFFFFFFF; // (r7 as Check_Passive left it)
+            AsksWith(s, kCommand0, 8);
+            if (g.R(0) == 0xFFFFFFFF) {
+                PhaseOn(s);
+            } else if (s.Word(kLever) & 2) {
+                g.R(0) = g.Read16(s.At(kLever, 2));
+                g.Return(100);
+                return true;
+            }
+            s.SetWord(kLever, s.Word(kLever) | s.Word(kJumpLever));
+            break;
+        case 3:
+            if (s.Field(kY) > 0) {
+                PhaseOn(s);
+            } else {
+                s.SetWord(kLever, s.Word(kJumpLever) | 1);
+            }
+            break;
+        case 4:
+            Asks(s, kAirGuard);
+            if (HasLanded(s, reaction) || AttacksInAir(s, rangeJX, rangeJY, airLever) || !InRanges(s, rangeX, rangeY)) {
+                break;
+            }
+            AsksWith(s, kJumpAttackLever, attack);
+            s.SetWord(kLever, static_cast<int32_t>(g.R(0)));
+            PhaseOn(s);
+            if (reaction & 0x80) {
+                s.SetPlace(1, 8);
+            }
+            break;
+        case 5:
+            KeepHit(s);
+            HasLanded(s, reaction & 0xFFF);
+            break;
+        case 6:
+            if (HasLanded(s, reaction)) {
+                break;
+            }
+            g.R(5) = 0xFFFFFFFF; // (r6 and r7 as Check_Landed left them)
+            Asks(s, kCommand0);
+            s.SetPlace(1, 99);
+            break;
+        case 7:
+            if (CountComboSpeed(s, s.side) != 0) {
+                break;
+            }
+            s.SetWord(kLever, static_cast<int16_t>(g.Read16(g.Read32(s.At(kTechAddress, 4)) + 16)));
+            PhaseOn(s);
+            break;
+        case 8:
+            KeepHit(s, true);
+            HasLanded(s, reaction & 0xFFF);
+            break;
+        default:
+            if (s.Byte(kOtherAttacking) != 0) {
+                break;
+            }
+            s.SetPlace(1, 8);
+            if (g.Read8(s.me + kHitBy) != 0 && (g.Read8(s.me + kCancel) & 8)) {
+                g.R(15) -= 4; // (the game's code keeps kLever's place on the stack over the call)
+                Asks(s, kCommandLever);
+                g.R(15) += 4;
+                s.SetWord(kLever, static_cast<int32_t>(g.R(0)));
+            }
+            break;
+        }
+        HoldLeverNowFrom(s, 4);
+        g.Return(100);
+        return true;
+    }
+
+    // 0600CB8E (ORO_JA_Term, r5 the reaction, r6 the way of the jump, r7 the height (JY); on the stack the way of a
+    // second jump, Range_X, Range_Y, the attack's lever and buttons, Range_JX, Range_JY and the lever of an attack
+    // against one in the air): Oro's jump that jumps again in the air (his Tengu Walking): a jump as Jump_Attack's, then
+    // in the air, once high enough (Check_Com_Add_Y), the second jump (Jump_Init again) two frames later; then, with
+    // an attack (its lever not 0xFFFF), the attack when the gap and the height meet the ranges; then the landing. The
+    // landing or an attack at the other in the air ends the waits. From phase 3 the lever holds kLeverNow too.
+    bool OroJumpAttack(Guest &g) {
+        Side s(g, g.R(4));
+        Frame frame(g, 40);
+        const uint32_t reaction = Signed(static_cast<int16_t>(g.R(5)));
+        const uint32_t way = Signed(static_cast<int16_t>(g.R(6))), height = Signed(static_cast<int16_t>(g.R(7)));
+        const auto arg = [&](int n) { return Signed(StackWord(g, frame, n)); };
+        const uint32_t way2 = arg(0), rangeX = arg(1), rangeY = arg(2), attack = arg(3);
+        const uint32_t rangeJX = arg(4), rangeJY = arg(5), airLever = arg(6);
+        switch (s.Place(1)) {
+        case 0:
+            g.R(6) = reaction & 0xF000;
+            AsksWith(s, kSetLeverNow, Signed(s.side));
+            if (AttackNotDone(s)) {
+                break;
+            }
+            g.R(4) = Signed(s.side);
+            g.Call(kClearHighJump);
+            s.SetByte(kContinue, 0);
+            g.Write8(s.me + kHitBy, 0);
+            PhaseOn(s);
+            Asks(s, kFirstMenu);
+            [[fallthrough]];
+        case 1:
+            if (Asks(s, kCheckAnswer) || CountComboSpeed(s, s.side) != 0) {
+                break;
+            }
+            PhaseOn(s);
+            g.R(4) = Signed(s.side);
+            g.Call(kClearDash);
+            AsksWith(s, kStartJump, way);
+            Asks(s, kAirGuard);
+            if (Asks(s, kShellAbove)) {
+                BeFree(g, s.me);
+            }
+            break;
+        case 2:
+            if (s.Field(kY) > 0) {
+                PhaseOn(s);
+            } else {
+                s.SetWord(kLever, s.Word(kJumpLever));
+                s.SetWord(kTimer, 2);
+            }
+            break;
+        case 3:
+            Asks(s, kAirGuard);
+            if (HasLanded(s, reaction) || AttacksInAir(s, rangeJX, rangeJY, airLever) || !HighEnough(s, height)) {
+                break;
+            }
+            AsksWith(s, kStartJump, way2);
+            if (!TimerDone(s)) {
+                break;
+            }
+            PhaseOn(s, (attack & 0xFFFF) == 0xFFFF ? 2 : 1);
+            break;
+        case 4:
+            Asks(s, kAirGuard);
+            if (HasLanded(s, reaction) || AttacksInAir(s, rangeJX, rangeJY, airLever) || !InRanges(s, rangeX, rangeY)) {
+                break;
+            }
+            s.SetWord(kLever, static_cast<int32_t>(attack));
+            PhaseOn(s);
+            s.SetByte(kHitStock, 0);
+            break;
+        case 5:
+            KeepHit(s);
+            HasLanded(s, reaction & 127);
+            break;
+        case 6:
+            if (HasLanded(s, reaction & 127)) {
+                break;
+            }
+            g.R(7) = 0xFFFFFFFF;
+            g.R(6) = 0xFFFFFFFF;
+            AsksWith(s, kCommand0, 8);
+            if (g.R(0) == 0xFFFFFFFF) {
+                s.SetPlace(1, 99);
+            }
+            break;
+        default:
+            KeepHit(s, true);
+            HasLanded(s, reaction & 0xFFF);
+            break;
+        }
+        HoldLeverNowFrom(s, 3);
+        g.Return(100);
+        return true;
+    }
+
+    // 0600CF54 (ORO_HJA_Term, r5 the reaction, r6 the way of the jump, r7 the height (JY); on the stack as ORO_JA_Term):
+    // Oro's high jump that jumps again in the air: the high jump's command (Hi_Jump_Attack's), then as ORO_JA_Term.
+    // (Its kComboSpeed is the other side's, the game's slip: it waits while that is not yet 0.) From phase 3 the
+    // lever holds kLeverNow too.
+    bool OroHighJumpAttack(Guest &g) {
+        Side s(g, g.R(4));
+        Frame frame(g, 44);
+        const uint32_t reaction = Signed(static_cast<int16_t>(g.R(5)));
+        const uint32_t way = Signed(static_cast<int16_t>(g.R(6))), height = Signed(static_cast<int16_t>(g.R(7)));
+        const auto arg = [&](int n) { return Signed(StackWord(g, frame, n)); };
+        const uint32_t way2 = arg(0), rangeX = arg(1), rangeY = arg(2), attack = arg(3);
+        const uint32_t rangeJX = arg(4), rangeJY = arg(5), airLever = arg(6);
+        switch (s.Place(1)) {
+        case 0:
+            s.SetWord(kLever, s.Word(kLeverNow));
+            if (Asks(s, kCheckAnswer) || Asks(s, kHighJumpBusy)) {
+                break;
+            }
+            s.SetByte(kContinue, 0);
+            PhaseOn(s);
+            CommandAt(s, 2);
+            Asks(s, kFirstMenu);
+            break;
+        case 1:
+            if (Asks(s, kCheckAnswer) || CountComboSpeed(s, s.side == 0 ? 1 : 0) == 0) {
+                break;
+            }
+            PhaseOn(s);
+            s.SetWord(kTechIndex, 12);
+            AsksWith(s, kStartJump, way);
+            s.SetWord(kJumpLever, s.Word(kJumpLever) & 12);
+            s.SetWord(kLever, 0);
+            Asks(s, kAirGuard);
+            if (Asks(s, kShellAbove)) {
+                BeFree(g, s.me);
+            }
+            break;
+        case 2:
+            if (Asks(s, kCheckAnswer)) {
+                break;
+            }
+            PhaseOn(s);
+            s.SetWord(kLever, 2);
+            s.SetWord(kJumpLever, s.Word(kJumpLever) | 1);
+            break;
+        case 3:
+            if (s.Field(kY) > 0) {
+                PhaseOn(s);
+            } else {
+                s.SetWord(kLever, s.Word(kJumpLever));
+                s.SetWord(kTimer, 2);
+            }
+            break;
+        case 4:
+            Asks(s, kAirGuard);
+            if (HasLanded(s, reaction) || AttacksInAir(s, rangeJX, rangeJY, airLever) || !HighEnough(s, height)) {
+                break;
+            }
+            AsksWith(s, kStartJump, way2);
+            if (!TimerDone(s)) {
+                break;
+            }
+            PhaseOn(s, (attack & 0xFFFF) == 0xFFFF ? 2 : 1);
+            break;
+        case 5:
+            Asks(s, kAirGuard);
+            if (HasLanded(s, reaction) || AttacksInAir(s, rangeJX, rangeJY, airLever) || !InRanges(s, rangeX, rangeY)) {
+                break;
+            }
+            s.SetWord(kLever, static_cast<int32_t>(attack));
+            PhaseOn(s);
+            s.SetByte(kHitStock, 0);
+            break;
+        case 6:
+            KeepHit(s);
+            HasLanded(s, reaction & 127);
+            break;
+        case 7:
+            if (HasLanded(s, reaction & 127)) {
+                break;
+            }
+            g.R(7) = 0xFFFFFFFF;
+            g.R(6) = 0xFFFFFFFF;
+            AsksWith(s, kCommand0, 8);
+            if (g.R(0) == 0xFFFFFFFF) {
+                s.SetPlace(1, 99);
+            }
+            break;
+        default:
+            KeepHit(s, true);
+            HasLanded(s, reaction & 0xFFF);
+            break;
+        }
+        HoldLeverNowFrom(s, 3);
+        g.Return(100);
+        return true;
+    }
+
+    // --- the jumps with a special move in the air (Jump_Command_Attack_Term ... ORO_HJCA_Term) ---
+    //
+    // These return what the last thing they did left in r0 (they have no common end), so each way out says it.
+
+    // 0600E93E (Jump_Command_Attack_Term, r5 the reaction, r6 the move, r7 the power; on the stack Ex_Shot, Range_X,
+    // Range_Y, the way of the jump, Range_JX, Range_JY and the lever of an attack against one in the air): a jump
+    // and a special move in it: the move's command chosen (Tech_Address), the frames of kComboSpeed waited once the
+    // fighter's attack lets it, the jump made and the move's mash set up (Check_Rapid), unless a projectile comes from
+    // above (Next_Be_Free); in the air, when the gap and the height meet the ranges, the command put in (Command_Type_00)
+    // from the frame it lands; otherwise the landing (Check_Landed) or an attack at the other in the air
+    // (Check_VS_Air_Attack) ends it. Its button mashed after (Rapid_Sub) until it lands.
+    bool JumpCommand(Guest &g) {
+        Side s(g, g.R(4));
+        Frame frame(g, 40);
+        const uint32_t reaction = Signed(static_cast<int16_t>(g.R(5)));
+        const uint32_t move = g.R(6) & 0xFFFF;
+        const int16_t power = static_cast<int16_t>(g.R(7));
+        const auto arg = [&](int n) { return Signed(StackWord(g, frame, n)); };
+        const uint32_t exShot = arg(0), rangeX = arg(1), rangeY = arg(2), way = arg(3);
+        const uint32_t rangeJX = arg(4), rangeJY = arg(5), airLever = arg(6);
+        const auto done = [&]() {
+            g.Return(100);
+            return true;
+        };
+        const auto exit = [&](uint32_t r0) {
+            g.R(0) = r0;
+            return done();
+        };
+        // (a routine the game's code jumps to as it leaves)
+        const auto andThen = [&](uint32_t routine, uint32_t r5) {
+            frame.Pop();
+            AsksWith(s, routine, r5);
+            return done();
+        };
+        switch (s.Place(1)) {
+        case 0:
+            if (Asks(s, kCheckAnswer)) {
+                return done();
+            }
+            s.SetWord(kLever, s.Word(kLeverNow));
+            if (AttackNotDone(s)) {
+                return exit(g.Read8(s.me + kMoveKind));
+            }
+            s.SetByte(kContinue, 0);
+            PhaseOn(s);
+            CommandAt(s, move & 0xFF);
+            frame.Pop();
+            Asks(s, kFirstMenu);
+            return done();
+        case 1:
+            if (Asks(s, kCheckAnswer)) {
+                return done();
+            }
+            if (CountComboSpeed(s, s.side) != 0) {
+                return exit(Signed(s.side));
+            }
+            PhaseOn(s);
+            s.SetWord(kTechIndex, 12);
+            AsksWith(s, kStartJump, way);
+            AsksWith(s, kCheckRapid, Signed(static_cast<int16_t>(move)));
+            if (Asks(s, kShellAbove)) {
+                frame.Pop();
+                BeFree(g, s.me);
+            }
+            return done();
+        case 2:
+            s.SetWord(kLever, s.Word(kJumpLever));
+            if (s.Field(kY) <= 0) {
+                return exit(kY);
+            }
+            PhaseOn(s);
+            return exit(Signed(s.Place(1)));
+        case 3:
+            Asks(s, kAirGuard);
+            KeepHit(s, true);
+            if (HasLanded(s, reaction) || AttacksInAir(s, rangeJX, rangeJY, airLever) || !InRanges(s, rangeX, rangeY)) {
+                return done();
+            }
+            PhaseOn(s, 2);
+            return exit(Signed(s.Place(1)));
+        case 4:
+            KeepHit(s);
+            return andThen(kLanded, reaction & 0xFFF);
+        case 5:
+            s.SetWord(kLever, s.Word(kLeverNow));
+            if (HasLanded(s, reaction)) {
+                return done();
+            }
+            g.R(7) = exShot;
+            g.R(6) = move;
+            AsksWith(s, kCommand0, Signed(power & 15));
+            if (g.R(0) == 0xFFFFFFFF) {
+                s.SetPlace(1, 99);
+                return exit(99);
+            }
+            return done();
+        default:
+            KeepHit(s, true);
+            Asks(s, kMashSub);
+            return andThen(kLanded, reaction & 0xFFF);
+        }
+    }
+
+    // 0600EC72 (Hi_Jump_Command_Attack_Term, r5 the reaction, r6 the move, r7 the power; on the stack as
+    // Jump_Command_Attack_Term): a high jump (its command put in as Hi_Jump_Attack does) and a special move in it, as
+    // Jump_Command_Attack_Term. (Its kComboSpeed is the other side's, the game's slip: the jump goes at once unless
+    // that count comes to 0.)
+    bool HighJumpCommand(Guest &g) {
+        Side s(g, g.R(4));
+        Frame frame(g, 36);
+        const uint32_t reaction = Signed(static_cast<int16_t>(g.R(5)));
+        const uint32_t move = g.R(6) & 0xFFFF;
+        const int16_t power = static_cast<int16_t>(g.R(7));
+        const auto arg = [&](int n) { return Signed(StackWord(g, frame, n)); };
+        const uint32_t exShot = arg(0), rangeX = arg(1), rangeY = arg(2), way = arg(3);
+        const uint32_t rangeJX = arg(4), rangeJY = arg(5), airLever = arg(6);
+        const auto done = [&]() {
+            g.Return(100);
+            return true;
+        };
+        const auto exit = [&](uint32_t r0) {
+            g.R(0) = r0;
+            return done();
+        };
+        const auto andThen = [&](uint32_t routine, uint32_t r5) {
+            frame.Pop();
+            AsksWith(s, routine, r5);
+            return done();
+        };
+        switch (s.Place(1)) {
+        case 0:
+            s.SetWord(kLever, s.Word(kLeverNow));
+            if (Asks(s, kCheckAnswer) || Asks(s, kHighJumpBusy)) {
+                return done();
+            }
+            s.SetByte(kContinue, 0);
+            PhaseOn(s);
+            CommandAt(s, move & 0x7FFF);
+            frame.Pop();
+            Asks(s, kFirstMenu);
+            return done();
+        case 1: {
+            if (Asks(s, kCheckAnswer)) {
+                return done();
+            }
+            const int32_t other = s.side == 0 ? 1 : 0;
+            if (CountComboSpeed(s, other) == 0) {
+                return exit(Signed(other));
+            }
+            PhaseOn(s);
+            s.SetWord(kTechIndex, 12);
+            AsksWith(s, kStartJump, way);
+            s.SetWord(kJumpLever, s.Word(kJumpLever) & 12);
+            s.SetWord(kLever, 0);
+            Asks(s, kAirGuard);
+            if (Asks(s, kShellAbove)) {
+                frame.Pop();
+                BeFree(g, s.me);
+            }
+            return done();
+        }
+        case 2:
+            if (Asks(s, kCheckAnswer)) {
+                return done();
+            }
+            PhaseOn(s);
+            s.SetWord(kLever, 2);
+            s.SetWord(kJumpLever, s.Word(kJumpLever) | 1);
+            return exit(Signed(s.side * 2));
+        case 3:
+            s.SetWord(kLever, s.Word(kJumpLever) | 1);
+            if (s.Field(kY) <= 0) {
+                return exit(kY);
+            }
+            PhaseOn(s);
+            return exit(Signed(s.Place(1)));
+        case 4:
+            Asks(s, kAirGuard);
+            if (HasLanded(s, reaction) || AttacksInAir(s, rangeJX, rangeJY, airLever) || !InRanges(s, rangeX, rangeY)) {
+                return done();
+            }
+            PhaseOn(s, 2);
+            return exit(Signed(s.Place(1)));
+        case 5:
+            KeepHit(s);
+            return andThen(kLanded, reaction & 0xFFF);
+        case 6:
+            s.SetWord(kLever, s.Word(kLeverNow));
+            if (HasLanded(s, reaction)) {
+                return done();
+            }
+            g.R(7) = exShot;
+            g.R(6) = move;
+            AsksWith(s, kCommand0, Signed(power & 15));
+            if (g.R(0) == 0xFFFFFFFF) {
+                s.SetPlace(1, 99);
+                return exit(99);
+            }
+            return done();
+        default:
+            KeepHit(s, true);
+            return andThen(kLanded, reaction & 0xFFF);
+        }
+    }
+
+    // 0600E1AA (ORO_JCA_Term, r5 the reaction, r6 the way of the jump, r7 the height (JY); on the stack the way of a
+    // second jump, Range_X, Range_Y, the move, the power, Ex_Shot, Range_JX, Range_JY and the lever of an attack
+    // against one in the air): Oro's jump that jumps again in the air, then a special move: the jump as ORO_JA_Term's,
+    // the second once high enough; then the move's command, as Jump_Command_Attack_Term puts it in.
+    bool OroJumpCommand(Guest &g) {
+        Side s(g, g.R(4));
+        Frame frame(g, 32);
+        const uint32_t reaction = Signed(static_cast<int16_t>(g.R(5)));
+        const uint32_t way = Signed(static_cast<int16_t>(g.R(6))), height = Signed(static_cast<int16_t>(g.R(7)));
+        const auto arg = [&](int n) { return Signed(StackWord(g, frame, n)); };
+        const uint32_t way2 = arg(0), rangeX = arg(1), rangeY = arg(2), move = arg(3) & 0xFFFF, power = arg(4);
+        const uint32_t exShot = arg(5), rangeJX = arg(6), rangeJY = arg(7), airLever = arg(8);
+        const auto done = [&]() {
+            g.Return(100);
+            return true;
+        };
+        const auto exit = [&](uint32_t r0) {
+            g.R(0) = r0;
+            return done();
+        };
+        const auto andThen = [&](uint32_t routine, uint32_t r5) {
+            frame.Pop();
+            AsksWith(s, routine, r5);
+            return done();
+        };
+        switch (s.Place(1)) {
+        case 0:
+            if (Asks(s, kCheckAnswer)) {
+                return done();
+            }
+            s.SetWord(kLever, s.Word(kLeverNow));
+            if (AttackNotDone(s)) {
+                return exit(g.Read8(s.me + kMoveKind));
+            }
+            s.SetByte(kContinue, 0);
+            PhaseOn(s);
+            CommandAt(s, move & 0xFF);
+            frame.Pop();
+            Asks(s, kFirstMenu);
+            return done();
+        case 1:
+            if (Asks(s, kCheckAnswer)) {
+                return done();
+            }
+            if (CountComboSpeed(s, s.side) != 0) {
+                return exit(Signed(s.side));
+            }
+            PhaseOn(s);
+            s.SetWord(kTechIndex, 12);
+            g.R(4) = Signed(s.side);
+            g.Call(kClearDash);
+            AsksWith(s, kStartJump, way);
+            Asks(s, kAirGuard);
+            if (Asks(s, kShellAbove)) {
+                frame.Pop();
+                BeFree(g, s.me);
+            }
+            return done();
+        case 2:
+            if (s.Field(kY) > 0) {
+                PhaseOn(s);
+                return exit(Signed(s.Place(1)));
+            }
+            s.SetWord(kLever, s.Word(kJumpLever));
+            s.SetWord(kTimer, 2);
+            return exit(Signed(s.side * 2));
+        case 3:
+            Asks(s, kAirGuard);
+            if (HasLanded(s, reaction) || AttacksInAir(s, rangeJX, rangeJY, airLever) || !HighEnough(s, height)) {
+                return done();
+            }
+            AsksWith(s, kStartJump, way2);
+            if (!TimerDone(s)) {
+                return exit(Signed(s.side * 2));
+            }
+            PhaseOn(s);
+            return exit(Signed(s.Place(1)));
+        case 4:
+            Asks(s, kAirGuard);
+            if (HasLanded(s, reaction) || AttacksInAir(s, rangeJX, rangeJY, airLever) || !InRanges(s, rangeX, rangeY)) {
+                return done();
+            }
+            PhaseOn(s, 2);
+            return exit(Signed(s.Place(1)));
+        case 5:
+            KeepHit(s);
+            HasLanded(s, reaction & 127);
+            return done();
+        case 6:
+            s.SetWord(kLever, s.Word(kLeverNow));
+            if (HasLanded(s, reaction)) {
+                return done();
+            }
+            g.R(7) = exShot;
+            g.R(6) = move;
+            AsksWith(s, kCommand0, power & 15);
+            if (g.R(0) == 0xFFFFFFFF) {
+                s.SetPlace(1, 99);
+                return exit(99);
+            }
+            return done();
+        default:
+            KeepHit(s, true);
+            Asks(s, kMashSub);
+            return andThen(kLanded, reaction & 0xFFF);
+        }
+    }
+
+    // 0600E54A (ORO_HJCA_Term, r5 the reaction, r6 the way of the jump, r7 the height (JY); on the stack as
+    // ORO_JCA_Term): Oro's high jump that jumps again in the air, then a special move: ORO_JCA_Term with the high jump's
+    // command first (and the other side's kComboSpeed counted, as Hi_Jump_Command_Attack_Term's).
+    bool OroHighJumpCommand(Guest &g) {
+        Side s(g, g.R(4));
+        Frame frame(g, 36);
+        const uint32_t reaction = Signed(static_cast<int16_t>(g.R(5)));
+        const uint32_t way = Signed(static_cast<int16_t>(g.R(6))), height = Signed(static_cast<int16_t>(g.R(7)));
+        const auto arg = [&](int n) { return Signed(StackWord(g, frame, n)); };
+        const uint32_t way2 = arg(0), rangeX = arg(1), rangeY = arg(2), move = arg(3) & 0xFFFF, power = arg(4);
+        const uint32_t exShot = arg(5), rangeJX = arg(6), rangeJY = arg(7), airLever = arg(8);
+        const auto done = [&]() {
+            g.Return(100);
+            return true;
+        };
+        const auto exit = [&](uint32_t r0) {
+            g.R(0) = r0;
+            return done();
+        };
+        const auto andThen = [&](uint32_t routine, uint32_t r5) {
+            frame.Pop();
+            AsksWith(s, routine, r5);
+            return done();
+        };
+        switch (s.Place(1)) {
+        case 0:
+            s.SetWord(kLever, s.Word(kLeverNow));
+            if (Asks(s, kCheckAnswer) || Asks(s, kHighJumpBusy)) {
+                return done();
+            }
+            s.SetByte(kContinue, 0);
+            PhaseOn(s);
+            CommandAt(s, move & 0x7FFF);
+            frame.Pop();
+            Asks(s, kFirstMenu);
+            return done();
+        case 1: {
+            if (Asks(s, kCheckAnswer)) {
+                return done();
+            }
+            const int32_t other = s.side == 0 ? 1 : 0;
+            if (CountComboSpeed(s, other) == 0) {
+                return exit(Signed(other));
+            }
+            PhaseOn(s);
+            s.SetWord(kTechIndex, 12);
+            AsksWith(s, kStartJump, way);
+            s.SetWord(kJumpLever, s.Word(kJumpLever) & 12);
+            s.SetWord(kLever, 0);
+            Asks(s, kAirGuard);
+            if (Asks(s, kShellAbove)) {
+                frame.Pop();
+                BeFree(g, s.me);
+            }
+            return done();
+        }
+        case 2:
+            if (Asks(s, kCheckAnswer)) {
+                return done();
+            }
+            PhaseOn(s);
+            s.SetWord(kLever, 2);
+            s.SetWord(kJumpLever, s.Word(kJumpLever) | 1);
+            return exit(Signed(s.side * 2));
+        case 3:
+            if (s.Field(kY) > 0) {
+                PhaseOn(s);
+                return exit(Signed(s.Place(1)));
+            }
+            s.SetWord(kLever, s.Word(kJumpLever));
+            s.SetWord(kTimer, 2);
+            return exit(Signed(s.side * 2));
+        case 4:
+            Asks(s, kAirGuard);
+            if (HasLanded(s, reaction) || AttacksInAir(s, rangeJX, rangeJY, airLever) || !HighEnough(s, height)) {
+                return done();
+            }
+            AsksWith(s, kStartJump, way2);
+            if (!TimerDone(s)) {
+                return exit(Signed(s.side * 2));
+            }
+            PhaseOn(s);
+            return exit(Signed(s.Place(1)));
+        case 5:
+            Asks(s, kAirGuard);
+            if (HasLanded(s, reaction) || AttacksInAir(s, rangeJX, rangeJY, airLever) || !InRanges(s, rangeX, rangeY)) {
+                return done();
+            }
+            PhaseOn(s, 2);
+            return exit(Signed(s.Place(1)));
+        case 6:
+            KeepHit(s);
+            HasLanded(s, reaction & 127);
+            return done();
+        case 7:
+            s.SetWord(kLever, s.Word(kLeverNow));
+            if (HasLanded(s, reaction)) {
+                return done();
+            }
+            g.R(7) = exShot;
+            g.R(6) = move;
+            AsksWith(s, kCommand0, power & 15);
+            if (g.R(0) == 0xFFFFFFFF) {
+                s.SetPlace(1, 99);
+                return exit(99);
+            }
+            return done();
+        default:
+            KeepHit(s, true);
+            Asks(s, kMashSub);
+            return andThen(kLanded, reaction & 0xFFF);
+        }
+    }
+
+    // 0600DB36 (Rapid_Command_Attack, r5 the reaction, r6 the move, r7 the buttons; on the stack frames): a special
+    // move put in by mashing its buttons: the move's command chosen and checked as Command_Attack does
+    // (Check_Start_Command_Attack, Check_Dash_Hit), the frames of kComboSpeed waited, then the buttons pressed and let
+    // go on alternate frames (kRapid's first byte) until the move comes out (the record's kMoveId the move), then for
+    // the frames given or until it ends; then the plan on (Reaction_Exit_Sub) once the attack is over.
+    bool RapidCommandAttack(Guest &g) {
+        Side s(g, g.R(4));
+        Frame frame(g, 36);
+        const uint32_t reaction = Signed(static_cast<int16_t>(g.R(5)));
+        const uint32_t move = g.R(6) & 0xFFFF;
+        const int16_t buttons = static_cast<int16_t>(g.R(7));
+        const int16_t frames = StackWord(g, frame, 0);
+        const auto exit = [&](uint32_t r0) {
+            g.R(0) = r0;
+            g.Return(100);
+            return true;
+        };
+        // The buttons pressed one frame, let go the next
+        const auto mash = [&]() {
+            const uint32_t at = s.At(kRapid, 4);
+            const int8_t pressed = static_cast<int8_t>(g.Read8(at));
+            if (pressed == 0) {
+                g.Write8(at, 1);
+                s.SetWord(kLever, buttons);
+            } else if (pressed == 1) {
+                g.Write8(at, 0);
+                s.SetWord(kLever, 0);
+            }
+        };
+        const auto moveOut = [&]() { return g.Read8(s.me + kMoveId) == move; };
+        switch (s.Place(1)) {
+        case 0:
+            g.R(4) = Signed(s.side);
+            g.Call(kClearDash);
+            CommandAt(s, move & 0xFF);
+            s.SetWord(kTechIndex, 12);
+            s.SetWord(kLever, s.Word(kLeverNow));
+            g.R(6) = move & 0x80FF;
+            if (AsksWith(s, kCanCommand, reaction)) {
+                return exit(g.R(0));
+            }
+            if (AsksWith(s, kDashHit, move & 0x80FF)) {
+                BeFree(g, s.me);
+            }
+            PhaseOn(s);
+            Asks(s, kFirstMenu);
+            s.SetWord(kFreeLever, 0);
+            [[fallthrough]];
+        case 1:
+            if (CountComboSpeed(s, s.side) != 0) {
+                s.SetWord(kLever, s.Word(kLeverNow));
+                return exit(kLeverNow);
+            }
+            PhaseOn(s);
+            g.Write8(s.At(kRapid, 4), 0);
+            g.Write8(s.At(kRapid, 4) + 1, 0);
+            s.SetWord(kTimer, frames);
+            [[fallthrough]];
+        case 2:
+            mash();
+            if (!moveOut()) {
+                return exit(kMoveId);
+            }
+            s.SetPlace(1, 3);
+            return exit(3);
+        case 3:
+            if (TimerDone(s)) {
+                s.SetPlace(1, 4);
+                return exit(4);
+            }
+            mash();
+            if (moveOut()) {
+                return exit(kMoveId);
+            }
+            s.SetPlace(1, 4);
+            return exit(4);
+        case 4:
+            if (moveOut()) {
+                return exit(kMoveId);
+            }
+            if (g.Read8(s.me + kMoveKind) != 0x40 && s.Field(kDoing) != 0) {
+                return exit(kDoing);
+            }
+            frame.Pop();
+            Asks(s, kReactionExit);
+            g.Return(100);
+            return true;
+        default:
+            return exit(Signed(s.Place(1)));
+        }
+    }
+
+    // 0600F574 (Command_Type_01, r5 the power, r6 Ex_Shot: neither used): a command's step of kind 2, a lever held
+    // (a charge): first the frames it is held for (the step's second word, and two more) in kTimer2, its lever (the
+    // fourth) in kJumpLever, turned with the way the moves face, and kTimer from the frames the lever has already been
+    // held (Setup_Command_01); then, from when the fighter may be cancelled into it (kPermitted 2), the lever held
+    // until kTimer reaches kTimer2, and the command on to its next step: 1 when that is its end (28), else 0.
+    bool CommandStep1(Guest &g) {
+        Side s(g, g.R(4));
+        Frame frame(g, 24);
+        const auto step = [&]() {
+            return g.Read32(s.At(kTechAddress, 4)) + (Signed(s.Word(kTechIndex)) << 1);
+        };
+        const auto result = [&](uint32_t r0) {
+            g.R(0) = r0;
+            g.Return(60);
+            return true;
+        };
+        switch (s.Place(2)) {
+        case 0:
+            s.SetPlace(2, s.Place(2) + 1);
+            s.SetWord(kTimer2, static_cast<int16_t>(g.Read16(step() + 2)) + 2);
+            s.SetWord(kJumpLever, static_cast<int16_t>(g.Read16(step() + 6)));
+            Asks(s, kHeldTime);
+            if (g.Read8(s.me + kMovesFaceRight) != 0 && (s.Word(kJumpLever) & 12)) {
+                s.SetWord(kJumpLever, s.Word(kJumpLever) ^ 12);
+            }
+            [[fallthrough]];
+        case 1:
+            if ((g.Read16(s.me + kPermitted) & 2) == 0) {
+                s.SetWord(kLever, s.Word(kJumpLever));
+                s.SetWord(kTimer, s.Word(kTimer) + 1);
+                return result(0);
+            }
+            s.SetPlace(2, s.Place(2) + 1);
+            [[fallthrough]];
+        default:
+            s.SetWord(kTimer, s.Word(kTimer) + 1);
+            s.SetWord(kLever, s.Word(kJumpLever));
+            if (s.Word(kTimer) < s.Word(kTimer2)) {
+                return result(0);
+            }
+            s.SetWord(kTechIndex, s.Word(kTechIndex) + 4);
+            return result(static_cast<int16_t>(g.Read16(step())) == 28 ? 1 : 0);
+        }
+    }
+
     // 06011B76 (Setup_Lever_LR, r5 a side, r6 bits 12-15 of a reaction): kLeverNow from the bits: none, nothing; 0x1000
     // up, else 0x2000 down added; then 0x4000 forward, else 0x8000 back added. Leaves r5 the bits, r7 the side's
     // kLeverNow.
@@ -3160,9 +4307,13 @@ namespace {
     // (free: r1-r7 and T for a routine with a result, r0-r7 and T for one with none, where C callers only call it)
     constexpr uint32_t kResult = 0x100FE, kNoResult = 0x100FF;
     // (ETC_Term_0004 (Ken's), Turn_Over_On (Hugo's and Akuma's), Only_Shot (Akuma's) and the character routines of
-    // Gill, Hugo, Urien, Akuma, Shin Akuma and Q are met in checklifts.sh's training runs, those characters chosen.)
+    // Gill, Hugo, Urien, Akuma, Shin Akuma and Q are met in checklifts.sh's training runs, those characters chosen;
+    // Hi_Jump_Attack and Hi_Jump_Command_Attack_Term in its runs set by hand (Ryu's plans 50 and 47); Oro's
+    // ORO_HJA_Term, ORO_JCA_Term and ORO_HJCA_Term only with CHECKLIFTS_RUNS=all, Oro set by hand to his plans.)
     const Lift kLifts[] = {
-        {"ComputerDice32", 0x0611E106, 24, 0x93BD163910B52512ull, Dice32, true, 0x108FE},
+        {"ComputerDice32", 0x0611E106, 24, 0x93BD163910B52512ull, Dice<0x0611E1BC, 32>, true, 0x108FE},
+        {"ComputerDice128", 0x0611E0D6, 24, 0xD448D766BD5BBB62ull, Dice<0x0611E1AC, 128>, true},
+        {"ComputerDice16", 0x0611E11E, 24, 0x93C50E42BF75B6DAull, Dice<0x0611E1C4, 16>, true},
         {"ComputerTableByLowBits", 0x061210DC, 16, 0x065C5F1E0ADD13DDull, TableByLowBits, true},
         {"ComputerPackCommand", 0x061210EC, 20, 0xA7D2E1B3C10A406Eull, PackCommand, true},
         {"ComputerWellAhead", 0x06012338, 0x32, 0xF05408CEA3803DC1ull, WellAhead, true, kResult},
@@ -3254,6 +4405,17 @@ namespace {
         {"ComputerOtherHeightMeetsLimit", 0x0600B4F0, 0x68, 0xB8E0B8612B503BA3ull, OtherHeightMeetsLimit, true, kResult},
         {"ComputerCommandStep0", 0x0600F254, 0x244, 0xE2267F4FE03BE50Aull, CommandStep0, true, kResult},
         {"ComputerRandomPlan", 0x0600A708, 0x92, 0xD3F8F075B257F2A6ull, RandomPlan, true, kResult},
+        {"ComputerTimedJumpAttack", 0x0600BC46, 0x22A, 0x2C0CCB3E2EFD3927ull, TimedJumpAttack, true, kResult},
+        {"ComputerTimedHighJumpAttack", 0x0600C324, 0x358, 0xD14A2E75D12258D1ull, TimedHighJumpAttack, true, kResult},
+        {"ComputerHighJumpAttack", 0x0600C67C, 0x440, 0xAACA49082DAD9A34ull, HighJumpAttack, true, kResult},
+        {"ComputerOroJumpAttack", 0x0600CB8E, 0x3C6, 0x0EA20623FE587F3Dull, OroJumpAttack, true, kResult},
+        {"ComputerOroHighJumpAttack", 0x0600CF54, 0x43C, 0x238BBA1AC5DC5DDDull, OroHighJumpAttack, true, kResult},
+        {"ComputerRapidCommandAttack", 0x0600DB36, 0x282, 0x5164F59994E2B478ull, RapidCommandAttack, true, kResult},
+        {"ComputerOroJumpCommand", 0x0600E1AA, 0x3A0, 0x8AB0D4462819825Full, OroJumpCommand, true, kResult},
+        {"ComputerOroHighJumpCommand", 0x0600E54A, 0x3F4, 0xC8A79FD1C0A79844ull, OroHighJumpCommand, true, kResult},
+        {"ComputerJumpCommand", 0x0600E93E, 0x334, 0x5E09546C24BD3F61ull, JumpCommand, true, kResult},
+        {"ComputerHighJumpCommand", 0x0600EC72, 0x346, 0x5F7378CBC79F5B3Bull, HighJumpCommand, true, kResult},
+        {"ComputerCommandStep1", 0x0600F574, 0x17A, 0x7A9442EED0A805C1ull, CommandStep1, true, kResult},
     };
 } // namespace
 

@@ -2795,7 +2795,7 @@ namespace {
     }
 
     // 06011FF8 (test 8): the computer back on the floor and not attacking, or 180 frames
-    [[maybe_unused]] bool TestLanded(Guest &g) {
+    bool TestLanded(Guest &g) {
         Side s(g, g.R(4));
         g.R(6) = kTimer;
         g.R(5) = kTermTimer;
@@ -2857,7 +2857,7 @@ namespace {
     }
 
     // 060122F4 (test 11): the computer at 48 health or less
-    [[maybe_unused]] bool TestLowHealth(Guest &g) {
+    bool TestLowHealth(Guest &g) {
         const uint32_t me = g.R(4);
         g.R(3) = kFighterSize;
         g.R(1) = kFighters + kHealth;
@@ -2907,7 +2907,7 @@ namespace {
 
     // 06012410, 0601242C (tests 16, 17): the computer's super art the third (2) or the second (1): that word, else 0
     template <int16_t want>
-    [[maybe_unused]] bool TestArt(Guest &g) {
+    bool TestArt(Guest &g) {
         const int16_t art = static_cast<int16_t>(g.Read16(ArtByTable(g, g.R(4))));
         return art == want ? TermResult(g, Signed(art), true) : TermResult(g, 0, false);
     }
@@ -3772,14 +3772,14 @@ namespace {
     uint32_t SuperArtOf(Side &s) {
         return s.g.Read32(kFighters + kSuperArt + Signed(static_cast<int16_t>(s.side * kFighterSize)));
     }
-    [[maybe_unused]] bool SuperArtReadyLift(Guest &g) {
+    bool SuperArtReadyLift(Guest &g) {
         Frame frame(g, 20);
         Side s(g, g.R(4));
         OnlyWithGauge(s, g.Read8(SuperArtOf(s) + 10) != 0, static_cast<int16_t>(g.R(5)), static_cast<int16_t>(g.R(6)));
         g.Return(30);
         return true;
     }
-    [[maybe_unused]] bool ExReadyLift(Guest &g) {
+    bool ExReadyLift(Guest &g) {
         Frame frame(g, 20);
         Side s(g, g.R(4));
         OnlyWithGauge(s, g.Read8(SuperArtOf(s) + 12) != 0, static_cast<int16_t>(g.R(5)), static_cast<int16_t>(g.R(6)));
@@ -4499,7 +4499,7 @@ namespace {
 
     // 0600A3E2 (YAGYOU_Check, r5 where the plan is kept, r6 a plan or 0): with Oro's second super art (the
     // Yagyou Dama), that plan (or, 0, one of plans 100 and up at random: 0x0613E74C) in its place
-    [[maybe_unused]] bool YagyouLift(Guest &g) {
+    bool YagyouLift(Guest &g) {
         Side s(g, g.R(4));
         const uint32_t place = g.R(5);
         if (static_cast<int16_t>(g.Read16(SuperArtOf(s))) == 1) {
@@ -4527,10 +4527,10 @@ namespace {
     // (free: everything, for the modes and their steps, called through tables by routines that read nothing after;
     // r1-r7 and T for a routine with a result whose callers keep nothing there)
     constexpr uint32_t kAll = 0x17FFF, kResult = 0x100FE;
-    // (The entries commented out are rewrites the check (checklifts.sh, CHECKLIFTS_RUNS=all) does not meet, so not
-    // registered: Check_SA (no character's answer that calls it was met), Check_EX and YAGYOU_Check (met once each
-    // in longer runs, the same, but not in the check's), Check_Squat (Search_Back_Term's branch to it not met), and
-    // the tests 8, 11, 15-18 (no plan met used them).)
+    // (The entries commented out are rewrites nothing in the game calls, so not registered: Check_Squat (no call
+    // anywhere: the "bsr" to it in Search_Back_Term is a literal of its pool), and the tests 15 and 18 (no plan names
+    // them). Check_SA, Check_EX, the tests 11, 16 and 17 are met in checklifts.sh's runs set by hand; YAGYOU_Check
+    // (Oro's) and test 8 (Ibuki's) only with CHECKLIFTS_RUNS=all.)
     const Lift kLifts[] = {
         {"ComputerBossRow", 0x060111AC, 0x14, 0x8D1E57EC6021F127ull, BossRowLift, true, kResult},
         {"ComputerPlanCheck", 0x06008BF0, 0x28, 0x38D66E1E1890153Full, PlanCheckLift, true, 0x13F1F},
@@ -4604,14 +4604,14 @@ namespace {
         {"ComputerTestWait5", 0x06011EB2, 0x60, 0x2FF292907D2C929Cull, TestWaitNotKen<5>, true},
         {"ComputerTestWait60", 0x06011F12, 0x60, 0xAC730B30DA23A703ull, TestWaitNotKen<60>, true},
         {"ComputerTestOtherLands", 0x06011F72, 0x86, 0x84BFEE1C3DE617C9ull, TestOtherLands, true},
-        // {"ComputerTestLanded", 0x06011FF8, 0x6C, 0xA3F774AF6718ED51ull, TestLanded, true},
+        {"ComputerTestLanded", 0x06011FF8, 0x6C, 0xA3F774AF6718ED51ull, TestLanded, true},
         {"ComputerTestOtherCrouching", 0x06012270, 0x22, 0x619082BAA557854Cull, TestOtherCrouching, true},
         {"ComputerTestNotOroReady", 0x06012292, 0x62, 0x995CD62D3A6CA452ull, TestNotOroReady, true},
-        // {"ComputerTestLowHealth", 0x060122F4, 0x22, 0x344F422B0CE1B782ull, TestLowHealth, true},
+        {"ComputerTestLowHealth", 0x060122F4, 0x22, 0x344F422B0CE1B782ull, TestLowHealth, true},
         {"ComputerTestOtherNotLow", 0x06012316, 0x22, 0x149965CAB3EB9488ull, TestOtherNotLow, true},
         // {"ComputerTestWait120", 0x0601238E, 0x82, 0x7A0DA5BD49F960C1ull, TestWait120, true},
-        // {"ComputerTestThirdArt", 0x06012410, 0x1C, 0xAF0B9E442CDED474ull, TestArt<2>, true},
-        // {"ComputerTestSecondArt", 0x0601242C, 0x1C, 0x17AA5DEE69D58586ull, TestArt<1>, true},
+        {"ComputerTestThirdArt", 0x06012410, 0x1C, 0xAF0B9E442CDED474ull, TestArt<2>, true},
+        {"ComputerTestSecondArt", 0x0601242C, 0x1C, 0x17AA5DEE69D58586ull, TestArt<1>, true},
         // {"ComputerTestFirstArt", 0x06012448, 0x1C, 0x3818261862CA9C36ull, TestFirstArt, true},
         {"ComputerComingDownBelow", 0x06012064, 0x20, 0x419CAD5A2A6876FCull, ComingDownBelow, true},
         {"ComputerKenArtReady", 0x06012084, 0x46, 0x3D91BA4FCEC5CDD4ull, KenArtReadyLift, true},
@@ -4631,8 +4631,8 @@ namespace {
         {"ComputerHighJumpBusy", 0x0600B93C, 0x38, 0xC8114A747FC1AD81ull, HighJumpBusyLift, true},
         {"ComputerJump", 0x0600B558, 0x19E, 0xF04361017BF100D9ull, JumpLift, true},
         {"ComputerUntilShell", 0x0600B30E, 0x158, 0x3F6F3E68FD438AA0ull, UntilShellLift, true, kAll},
-        // {"ComputerSuperArtReady", 0x0600A4AE, 0x74, 0xB11B4FA4E20073DFull, SuperArtReadyLift, true, kAll},
-        // {"ComputerExReady", 0x0600A522, 0x74, 0x8116145AF7C9B74Dull, ExReadyLift, true, kAll},
+        {"ComputerSuperArtReady", 0x0600A4AE, 0x74, 0xB11B4FA4E20073DFull, SuperArtReadyLift, true, kAll},
+        {"ComputerExReady", 0x0600A522, 0x74, 0x8116145AF7C9B74Dull, ExReadyLift, true, kAll},
         {"ComputerGaugeFull", 0x0600A5C0, 0x66, 0xAFE4B448B1CC93B3ull, GaugeFullLift, true, kAll},
         {"ComputerWaitByRange", 0x0600A79A, 0xF0, 0x8601B62552597ECBull, WaitByRangeLift, true, kAll},
         {"ComputerWaitGetUp", 0x0600ADA0, 0x102, 0xC63876D237C61896ull, WaitGetUpLift, true},
@@ -4649,7 +4649,7 @@ namespace {
         {"ComputerDenjinLetGo", 0x06008F5C, 0x1A4, 0x6981CCE9000E29D4ull, DenjinLetGoLift, true},
         {"ComputerDenjin", 0x0600A3B0, 0x32, 0xC06062CE4F199EF8ull, DenjinLift, true, 0x1007F},
         {"ComputerBeFreeAgain", 0x06008C2A, 0x6, 0x7E5D0E68E47D42C4ull, BeFreeAgainLift, true},
-        // {"ComputerYagyou", 0x0600A3E2, 0x40, 0x35F0595B67A655F6ull, YagyouLift, true, 0x1007F},
+        {"ComputerYagyou", 0x0600A3E2, 0x40, 0x35F0595B67A655F6ull, YagyouLift, true, 0x1007F},
     };
 } // namespace
 
