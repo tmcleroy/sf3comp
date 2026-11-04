@@ -258,6 +258,19 @@ namespace {
     }
 
 
+    // 060B7D5E (bg_chase_move): a scripted move begun or ended, and moved on while one is under way; not in a bonus game
+    // (the fighters' layer's routine of a few stages, Q's, after its moves across and up)
+    void ChaseOn(Guest &g) {
+        if (g.Read16(kBonusGame) != 0) {
+            return;
+        }
+        g.Call(0x060B7D94);
+        if (g.Read8(kChase) != 0) {
+            g.Call(0x060B7F64);
+        }
+    }
+
+
     // --- the picture's frame ---
 
     // 060B8A34 (zoom_ud_check): the picture's frame drawn in or out a step this frame. Not during a stage's own entrance,
@@ -333,6 +346,7 @@ namespace {
         {"StageChaseSpeedUp", 0x060B70A2, 0xA6, 0x04E56B4673F4C043ull, SpeedUpFor, true, kFree},
         {"StageChaseStart", 0x060B7D94, 0x1D0, 0x62CF16E8E263C269ull, Lifted<ChaseStart>, true, kFree},
         {"StageChaseMove", 0x060B7F64, 0x1B4, 0x605B3B3DFF3863D8ull, Lifted<ChaseMove>, true, kFree},
+        {"StageChaseOn", 0x060B7D5E, 0x20, 0x2EA50B4E16C5ECAAull, Lifted<ChaseOn>, true, kFree},
         {"StageFrameZoom", 0x060B8A34, 0x242, 0x1473AC61A3863BBAull, Lifted<FrameZoom>, true, kFree},
     };
 } // namespace
