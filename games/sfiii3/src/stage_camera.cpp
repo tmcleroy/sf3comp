@@ -17,6 +17,8 @@
 //     scripted moves a super art's zoom asks for (0x060B7D94, 0x060B7F64: the game's, not here)
 //   another layer (bg_x_move_check 0x060B886E, bg_y_move_check 0x060B8926): moved by the camera's move this frame
 //     (the head's +0x40 across and +0x14 up) times its own speed (+0x10, +0x14: 16.16 fixed point)
+//   then every layer's scroll for the board, a shake's offset added (bg_pos_hosei2, 0x060B9A2A), given to the board
+//     with its objects' place (Bg_Family_Set, 0x060B96EE)
 //
 // Across: where the camera would like to be is worked out from where each fighter is in the picture (0x060B8510):
 // each fighter's place (+0x60 of its record) a character's half width (a table by character, 0x065EB304) towards the
@@ -400,6 +402,55 @@ namespace {
     }
 
 
+    // --- the layers to the board ---
+
+    constexpr uint32_t kLayers = 0x02026C00, kLayerSize = 0x90;
+    constexpr uint32_t kLayerCount = kStage + 0x10; // word: the stage's layers (scno)
+    constexpr uint32_t kColumn = 0x0A, kLine = 0x0C; // words: the layer's scroll, as the board takes it (0-1023)
+    constexpr uint32_t kShakenAcross = 0x8C, kShakenUp = 0x8E; // words: its place with a shake's (abs_x, abs_y)
+    constexpr uint32_t kShakeAcross = 0x0619DBCC, kShakeUp = 0x0619DCD0; // words by a shake's frame (quake_x_tbl, quake_y_tbl)
+    constexpr uint32_t kSetScroll = 0x0612E51C;   // (r4 the layer, r5 across, r6 up: its scroll for the board, Scrn_Move_Set)
+    constexpr uint32_t kSetFamily = 0x0612DD48;   // (r4 the layer + 1, r5, r6: its objects' place, Family_Set_W)
+
+    uint32_t LayerAt(int32_t n) {
+        return kLayers + static_cast<uint32_t>(S16(static_cast<uint16_t>(n * kLayerSize)));
+    }
+
+    // 060B9A2A (bg_pos_hosei2): each layer's scroll for the board from where it is (or its scripted place), a shake's
+    // offset added: across from the picture's left edge, both kept to the board's 1024
+    void LayerScrolls(Guest &g) {
+        for (int32_t n = 0; n < Word(g, kLayerCount); n++) {
+            const uint32_t at = LayerAt(n);
+            const int32_t across = Word(g, at + (Scripted(g, 0x0F) ? kChaseAcross : kAcross));
+            const int32_t left = Word(g, kLeftOfMiddle);
+            const int32_t shake = Word(g, kShakeAcross + static_cast<uint32_t>(Word(g, kQuakeAcross) * 2));
+            SetWord(g, at + kColumn, ((((across & 0x3FF) - left) & 0x3FF) + shake) & 0x3FF);
+            SetWord(g, at + kShakenAcross, across - left + shake);
+            const int32_t up = Word(g, at + (Scripted(g, 0xF0) ? kChaseUp : kShownUp));
+            const int32_t shakeUp = Word(g, kShakeUp + static_cast<uint32_t>(Word(g, kQuakeUp) * 2));
+            SetWord(g, at + kLine, ((up & 0x3FF) + shakeUp) & 0x3FF);
+            SetWord(g, at + kShakenUp, up + shakeUp);
+        }
+    }
+
+    // 060B96EE (Bg_Family_Set): each layer's scroll given to the board, and its objects placed with it (the other way
+    // across, and up from line 768)
+    void LayersToBoard(Guest &g) {
+        for (int32_t n = 0; n < Word(g, kLayerCount); n++) {
+            const uint32_t at = LayerAt(n);
+            const int32_t column = Word(g, at + kColumn), line = Word(g, at + kLine);
+            g.R(4) = static_cast<uint32_t>(n);
+            g.R(5) = static_cast<uint32_t>(column);
+            g.R(6) = static_cast<uint32_t>(line);
+            g.Call(kSetScroll);
+            g.R(4) = static_cast<uint32_t>(n + 1);
+            g.R(5) = static_cast<uint32_t>(-column & 0x3FF);
+            g.R(6) = static_cast<uint32_t>((0x300 - (line & 0x3FF)) & 0x3FF);
+            g.Call(kSetFamily);
+        }
+    }
+
+
     // --- the frame ---
 
     // 060B7246 (ta0_move): the stage's own routine, then a shake's frames counted down
@@ -452,6 +503,8 @@ namespace {
         {"StageCameraUp", 0x060B87B8, 0xB6, 0x8F9E65125DFE3916ull, Lifted<CameraUp>, true, kFree},
         {"StageLayerAcross", 0x060B886E, 0xB8, 0x5EE4F8FBD5234AE3ull, Lifted<LayerAcross>, true, kFree},
         {"StageLayerUp", 0x060B8926, 0x96, 0xFBDCD9497C792531ull, Lifted<LayerUp>, true, kFree},
+        {"StageLayersToBoard", 0x060B96EE, 0x70, 0x0BB4974CE80A5216ull, Lifted<LayersToBoard>, true, kFree},
+        {"StageLayerScrolls", 0x060B9A2A, 0xEE, 0x561ED706B013141Dull, Lifted<LayerScrolls>, true, kFree},
         {"StageFightersLayer", 0x060BACB4, 0x30, 0x0B4ACE5DAB5774AEull, Lifted<FightersLayer>, true, kFree},
     };
 } // namespace
