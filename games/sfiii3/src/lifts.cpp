@@ -365,6 +365,11 @@ void RegisterComputerAnswers();
 void RegisterComputerMoves();
 void RegisterStageCamera();
 void RegisterStageSelect();
+// The fight's (fight_core.h)
+void RegisterFightScore();
+void RegisterFightRound();
+void RegisterFightInput();
+void RegisterFightHits();
 
 void RegisterLifts3rdStrike() {
     RegisterGameLifts(kLifts, std::size(kLifts));
@@ -374,6 +379,10 @@ void RegisterLifts3rdStrike() {
     RegisterComputerMoves();
     RegisterStageCamera();
     RegisterStageSelect();
+    RegisterFightScore();
+    RegisterFightRound();
+    RegisterFightInput();
+    RegisterFightHits();
     AddHook("VerticalBlank", 0x06000528, 8, 0xF41697FE6C5AEE4Dull, VerticalBlank);
 }
 

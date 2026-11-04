@@ -22,6 +22,7 @@
 // until its round is fought; the computer plays a side by its record's byte 3. A round decided (a side's rounds won
 // going up, kRoundsWon) is the match's end: the next is made then, and takes the machine's place a moment later.
 #include "fight.h"
+#include "fight_core.h"
 #include "game.h"
 #include "lift.h"
 #include "session.h"
@@ -785,7 +786,8 @@ namespace {
     // machine's shows its own (99 on the clock, no score, an empty gauge). The clock is put a second higher, about to
     // tick, so that it is drawn at once; the gauges are put back the frame after (PanelFrame: the staying side's, and
     // the team's carried over to the one come in) and the game told to draw them again (kMeterUpdate); the scores are
-    // the replaced machine's again and are drawn as they next change (points scored). (The text
+    // the replaced machine's again, and drawn again that frame (fight_score.cpp: the game itself draws them only as
+    // points are scored). (The text
     // layers themselves cannot be mixed: each machine draws characters into codes of its own choosing, and later
     // draws over the other's.)
     void PanelFrame() {
@@ -795,6 +797,7 @@ namespace {
         for (uint32_t n = 0; n < kScoresSize; n++) {
             SetRam8(kScores + n, b.scores[n]);
         }
+        fighting::AskScoresDrawn(); // (and drawn again: the game draws them only as points are scored)
         const int side = b.panelFor, other = 1 - side;
         for (uint32_t n = 0; n < kGaugeSize; n++) {
             SetRam8(kGauge + other * kGaugeSize + n, b.gauge[n]);
