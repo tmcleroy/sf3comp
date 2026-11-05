@@ -163,6 +163,24 @@ The game's slowdown is its CPU's: the main loop does a frame's work and waits fo
 - **the vertical blank and the DMA-done interrupt stay where they are**: they are the board's clock, kept by the
   frame loop (`Machine::RunFrame`) with or without a chip model.
 
+### Arcade timing: hooks at the hand-offs (decided 2026-11-04, to build)
+
+With arcade timing the game's own code runs in place of the rewrites (its cycles are the board's; a rewrite's are
+only said), so nothing would be handed over. Neither exact timing nor the board model is given up for it: hooks sit at
+the hand-off points (charged nothing, as every hook is: recomp.cpp's RunLifts), and each gives the interface what the
+routine is about to write, the same data the rewrite hands over; the chip writes the game's code then makes land in
+plain memory or a small latch, not in a video model. A hook runs only when its rewrite does not (a Guest query of the
+dispatcher's rule: no rewrites, or arcade timing without Game::rewritesNeeded).
+
+The way to write them once: each hand-off rewrite written against a memory it is given, the guest's (the rewrite) or
+an overlay of it that keeps writes to itself and drops the chip writes (the hook's dry run: what the routine will do,
+worked out before it runs, nothing changed). What the rewrites `Call` must then have a native form for the dry run: the
+divide, the tilemaps' tile banks (0x0612E14C: per tilemap, three bits of the settings word set or cleared by the
+masks at 0x06605548 against 0x0206A1DE, then 0x0206A1DE from 0x0206A1DC), the CPU's character bank (0x0613AA5E,
+0x0613AAB0: two words of RAM), and the list area's allocation (0x061379EC, 0x06137980; or ClearListArea's hand-over
+made after the routine, from its result). checknative.sh then runs its four games again with arcade timing on, and the
+rewrites' and the hooks' hand-overs must agree with the board's as they do now.
+
 ## Sound
 
 The voices are already close to native: `pcm.cpp` mixes from the sixteen voices' registers, and the CPS-3 has no
