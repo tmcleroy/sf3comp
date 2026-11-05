@@ -168,16 +168,22 @@ round=0
 while [ -n "$left" ]; do
     round=$((round + 1))
     only=$(echo "$left" | paste -sd, -)
-    pids=()
+    # At most CHECKLIFTS_JOBS copies at once (default 6; about 1 GB each: 21 at once with the other checks filled the
+    # 16 GB Mac). Each run's exit status kept in a file (bash 3.2 forgets a job that ended while `jobs` was asked).
     for i in "${!NAMES[@]}"; do
         name=${NAMES[$i]}
+        while [ "$(jobs -rp | wc -l)" -ge "${CHECKLIFTS_JOBS:-6}" ]; do sleep 1; done
+        rm -f "$OUT/$name-$round.status"
         # shellcheck disable=SC2086
-        CPS3RECOMP_POKE="${POKES[$i]}" SFIII3_LIFTS_ONLY="$only" CPS3RECOMP_LIFT_CHECK=1 nice -n 20 "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$FRAMES" \
-            --settings "$OUT/$name-$round.ini" --eeprom "$OUT/$name-$round.bin" ${ARGS[$i]} > /dev/null 2> "$OUT/$name-$round.log" &
-        pids+=($!)
+        (
+            CPS3RECOMP_POKE="${POKES[$i]}" SFIII3_LIFTS_ONLY="$only" CPS3RECOMP_LIFT_CHECK=1 nice -n 20 "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$FRAMES" \
+                --settings "$OUT/$name-$round.ini" --eeprom "$OUT/$name-$round.bin" ${ARGS[$i]} > /dev/null 2> "$OUT/$name-$round.log"
+            echo $? > "$OUT/$name-$round.status"
+        ) &
     done
+    wait
     for i in "${!NAMES[@]}"; do
-        if ! wait "${pids[$i]}"; then
+        if [ "$(cat "$OUT/${NAMES[$i]}-$round.status" 2>/dev/null)" != 0 ]; then
             echo "round $round, ${NAMES[$i]}: the run failed"; tail -3 "$OUT/${NAMES[$i]}-$round.log"; status=1
         fi
     done
