@@ -236,6 +236,22 @@ public:
     bool NativeInSync() const {
         return m_nativeInSync;
     }
+    // The interface made to hold this frame for its picture if it does not (the frames the game's code hands nothing
+    // over, the boot ROM's: made again from the board's memories, SyncNative); false when it cannot be (not kept, or in
+    // the checks, where it is compared and never made again)
+    bool NativeForPicture() {
+        if (m_nativeInSync || m_nativeSyncedAt == m_frame) {
+            return true;
+        }
+        if (!native::On() || nativeCheck) {
+            return false;
+        }
+        SyncNative();
+        m_nativeStamps = m_charStamp;
+        m_nativeStampsKnown = true;
+        m_nativeSyncedAt = m_frame;
+        return true;
+    }
     // Whether this frame's picture may be drawn from the interface (set by the port's machine before each frame): only
     // then is the interface made again from the board when it must be
     bool nativeWanted = false;
@@ -316,6 +332,7 @@ private:
     // (outside the checks: whether the interface holds what the board does; SyncNative makes it so)
     uint8 m_nativeHanded = 0; // (this frame: 1 the lists' heads, 2 the registers)
     bool m_nativeInSync = false, m_nativeStampsKnown = false;
+    uint64 m_nativeSyncedAt = ~0ull; // (the frame NativeForPicture made it again for)
     std::array<uint64, 128> m_nativeStamps{}; // (character RAM's pages' stamps when the textures last held the same)
     void NativeFrameEnd();
     void SyncNative();

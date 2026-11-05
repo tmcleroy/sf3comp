@@ -145,18 +145,19 @@ namespace {
     } g_shownTotals;
 } // namespace
 
-// Whether this frame's picture is drawn from the native interfaces: not with --board (boardPicture), not in the checks
-// (the board's picture is the one the native one is compared with), and only when this board's interface holds the
-// frame, and the stage boards' when they are drawn (machine.h, NativeInSync: made again from the board's memories after
-// a state put back, run-ahead's or rollback's frames, before a frame is drawn from it)
-bool Machine::ShownNative() const {
-    if (boardPicture || board.nativeCheck || !native::On() || !board.NativeInSync()) {
+// Whether this frame's picture is drawn from the native interfaces: always but with --board (boardPicture) and in the
+// checks (the board's picture is the one the native one is compared with). Each board's interface (and the stage
+// boards' when they are drawn) holds the frame: handed over by the game's code (machine.h, NativeInSync), or made
+// again from the board's memories first when it was not (NativeForPicture: after a state put back, run-ahead's or
+// rollback's frames, and the boot ROM's, which hand nothing over)
+bool Machine::ShownNative() {
+    if (boardPicture || board.nativeCheck || !native::On() || !board.NativeForPicture()) {
         return false;
     }
-    if (m_stage && stageObject && (!composeNow || composeNow()) && !m_stage->NativeInSync()) {
+    if (m_stage && stageObject && (!composeNow || composeNow()) && !m_stage->NativeForPicture()) {
         return false;
     }
-    return !(m_stage2 && (stageBlend > 0 || stageSlide > 0) && !m_stage2->NativeInSync());
+    return !(m_stage2 && (stageBlend > 0 || stageSlide > 0) && !m_stage2->NativeForPicture());
 }
 
 // One board's layers into `pixels` with the renderer's settings `r` (its margin, world shift, rows down, text layer,

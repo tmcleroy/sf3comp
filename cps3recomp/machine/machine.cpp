@@ -98,6 +98,7 @@ void Machine::Reset() {
     UpdateFlashPlain();
     m_now = m_frameStart = m_spillover = 0;
     m_frame = 0;
+    m_nativeSyncedAt = ~0ull;
     m_cpu.Reset(true);
     UpdateInterrupts();
 }

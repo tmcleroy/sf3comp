@@ -204,7 +204,7 @@ private:
         bool (*fn)(void *context, uint16_t group, uint32_t object) = nullptr;
         void *context = nullptr;
     } m_shownKeep;
-    bool ShownNative() const;
+    bool ShownNative();
     void DrawLayers(bool native, Renderer &r, const machine::Machine &m, std::vector<uint32_t> &pixels, int &width, int &height);
     int Compose(bool native, std::vector<uint32_t> &pixels, int &width, int &height);
     void DrawStageOnly(bool native, std::vector<uint32_t> &pixels);
