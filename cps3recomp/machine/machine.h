@@ -178,15 +178,21 @@ public:
     void *soundContext = nullptr;
     // How far into the frame the CPU is (0..1), for the sound's timing
     double FramePosition() const;
-    // The native sound (sound/native_sound.h): what the game's rewritten sound driver hands over (kept when
-    // native::Checking(), and then in save states), stamped with the time now
+    // The native sound (sound/native_sound.h): the mixer the default build plays (pcm.cpp only with --board and in the
+    // checks), fed by the game's sound driver: its rewrites hand events over as they write the chip, stamped with the
+    // time now; with arcade timing, when the game's own code runs, hooks work out its events first and they are let go
+    // at the chip writes they belong to (NativeSoundAfter). Fed while `mixNative` (set by the port: the native mixer
+    // played, or checked); in save states always.
     native::Mixer nativeSound{kFrameRate};
+    bool mixNative = false;
     void NativeSound(native::SoundEvent e) {
-        if (native::Checking()) {
+        if (mixNative) {
             e.at = FramePosition();
             nativeSound.Add(e);
         }
     }
+    // ... an event that belongs after the game's code has made `writes` more writes to the sound chip (0: at once)
+    void NativeSoundAfter(const native::SoundEvent &e, uint32 writes);
     // The check, level (c) (nativeCheck: pcm.cpp calls it at the end of every frame with what it mixed, all and voice
     // by voice): the native mixer's frame against the board's, sample for sample, and the voices as the driver set them
     // against the chip's registers
@@ -365,6 +371,13 @@ private:
     std::array<uint64, 128> m_nativeStamps{}; // (character RAM's pages' stamps when the textures last held the same)
     void NativeFrameEnd();
     void SyncNative();
+    // (the native sound's events waiting for their chip writes, by the count of writes they wait for)
+    struct WaitingSound {
+        uint64 write = 0;
+        native::SoundEvent event;
+    };
+    std::vector<WaitingSound> m_waitingSound;
+    uint64 m_soundWrites = 0;
     native::Voice BoardVoice(int v) const; // (the check: a voice's registers in the interface's terms)
     void NoteCharWrite(uint32 at, uint32 value, int bytes) {
         if (nativeCheck && m_cpu.PC < 0x80000) {

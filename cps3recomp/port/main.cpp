@@ -80,7 +80,8 @@ bool Movie::Save(const std::string &path) const {
 }
 
 namespace {
-    constexpr uint32_t kStateVersion = 3; // (2: the colours made again from colour RAM, not kept; 3: the custom soundtrack's place)
+    constexpr uint32_t kStateVersion = 4; // (2: the colours made again from colour RAM, not kept; 3: the custom soundtrack's place;
+                                          // 4: the native mixer's voices)
 
     bool ReadFile(const std::string &path, std::vector<uint8_t> &data) {
         FILE *f = fopen(path.c_str(), "rb");
@@ -272,6 +273,8 @@ bool Port::Init(std::string &error) {
         recomp.stats = opt.stats;
         cps3recomp::Attach(machine->board, recomp);
     }
+    // (the native mixer is fed by the game's sound driver's rewrites and hooks: with none of them, the board's)
+    machine->SetBoardSound(opt.boardSound || opt.cpu == "interp" || getenv("CPS3RECOMP_NO_LIFTS") != nullptr);
     if (!opt.moviePlay.empty() && !playMovie.Load(opt.moviePlay)) {
         error = "cannot read the movie " + opt.moviePlay;
         return false;
@@ -1812,6 +1815,8 @@ void Usage() {
             "  --eeprom FILE          where the board's settings memory is kept\n"
             "  --cpu MODE             native (translated code), blocks (the interpreter run the same way),\n"
             "                         interp (the interpreter, an instruction at a time), check\n"
+            "  --board                the board model's sound (pcm.cpp, from the chip's registers) in place of\n"
+            "                         the native mixer's (from the voices the game's sound driver hands over)\n"
             "  --sound SIDE           driver (the sound program as ordinary code), z80 (the program itself),\n"
             "                         check (both, every write to the chip compared)\n"
             "  --sound-test SEED[:N]  every N frames (30) a command to the sound side: each song in turn, placed\n"
@@ -1920,6 +1925,8 @@ bool ParseArgs(int argc, char **argv, port::Options &o) {
             o.mute = true;
         } else if (a == "--unthrottled") {
             o.unthrottled = true;
+        } else if (a == "--board") {
+            o.boardSound = true;
         } else if (a == "--headless") {
             o.headless = true;
         } else if (a == "--frames") {

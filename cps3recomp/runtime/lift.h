@@ -80,6 +80,10 @@ public:
     void Return(uint64_t cycles = 100);
     // The board this CPU is on: for rewrites that hand the native interface what they draw (video/native.h)
     machine::Machine &Board();
+    // (in a hook) Whether the rewrites run now, by the dispatcher's rule: not with CPS3RECOMP_NO_REWRITES, and with the
+    // bus's timing on (arcade timing) only when the game's sources need them (Game::rewritesNeeded). A hook at a
+    // rewritten routine's address that hands over what the rewrite would (the native interface) does so only when not.
+    bool RewritesRun() const;
 
 private:
     machine::SH2 &m_cpu;

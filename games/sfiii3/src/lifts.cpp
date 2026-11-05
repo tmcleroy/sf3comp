@@ -342,6 +342,12 @@ namespace {
 
 // A source file's lifts registered (debugging aid, SFIII3_LIFTS_ONLY=NAME,NAME: only those, to check a rewrite that the
 // others call)
+// Whether a lift of that name is registered (SFIII3_LIFTS_ONLY: only those it names)
+bool GameLiftWanted(const char *name) {
+    const char *only = getenv("SFIII3_LIFTS_ONLY");
+    return !only || (std::string(",") + only + ",").find(std::string(",") + name + ",") != std::string::npos;
+}
+
 void RegisterGameLifts(const Lift *lifts, size_t count) {
     if (const char *only = getenv("SFIII3_LIFTS_ONLY")) {
         static std::deque<std::vector<Lift>> kept;

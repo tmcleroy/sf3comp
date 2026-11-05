@@ -116,6 +116,13 @@ public:
     }
     // The sound made since the port last took it: 16-bit stereo, left first, at Pcm::kRate
     std::vector<int16_t> audio;
+    // Whose mixer is heard: the native mixer, from the voices the game's sound driver hands over (the default), or the
+    // board model's (pcm.cpp, from the sound chip's registers: --board; and when no hand-over can run, with the
+    // interpreter alone). The native check runs both and compares them. Set before the first frame.
+    void SetBoardSound(bool board);
+    bool BoardSound() const {
+        return m_boardSound;
+    }
     static constexpr double kSampleRate = Pcm::kRate;
 
     uint16_t players[kMaxPlayers] = {};
@@ -232,6 +239,7 @@ private:
     void MakePicture() const;
     void BenchFrame();
     Pcm m_pcm;
+    bool m_boardSound = false;
     std::vector<uint32_t> m_picture;
     std::unique_ptr<RomSet> m_stageSet;
     std::unique_ptr<machine::Machine> m_stage;

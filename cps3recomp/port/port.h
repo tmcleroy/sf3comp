@@ -70,6 +70,7 @@ struct Options {
     bool autoPlay = false;
     bool headless = false, mute = false, unthrottled = false, fullscreen = false, stats = false;
     bool hashPicture = false; // --hash-log hashes the picture only
+    bool boardSound = false;  // --board: the board model's sound (pcm.cpp) heard in place of the native mixer
     bool hashNoPicture = false; // --hash-no-picture: the state hash without the picture
     bool hashNoSound = false;   // --hash-no-sound: ... without the sound side (as online play's)
     bool hashGame = false;     // --hash-game: the state hash without the Z80 and its own memory (to compare --sound driver and z80)

@@ -35,6 +35,7 @@
 #include "machine.h"
 
 #include <iterator>
+#include <unordered_map>
 
 namespace cps3recomp {
 
@@ -62,8 +63,9 @@ namespace {
     constexpr uint32_t kDriverFlags = 0x02079C8C;  // byte: 1 on, 2 the music's, 4 paused
     constexpr uint32_t kKeptKeys = 0x02079C78;     // word: the keys as a pause found them
     constexpr uint32_t kKeptFlags = 0x02079C7C;    // bytes, by channel: the music's flags as a pause found them
-    constexpr uint32_t kVolumeOf = 0x0613B226;     // r4 level, r5 the tremolo, r6 the music's volume, r7 the channel: r0
-    constexpr uint32_t kStepOf = 0x0613B1D8;       // r4 pitch: r0 the chip's step
+    constexpr uint32_t kSteps = 0x0660CFF8;        // the pitch's steps: words, 0xC00 of them (an octave), in the program
+    constexpr uint32_t kSoundMode = 0x02079C10;    // long: the chip's mode word as set up (bit 16: the volumes curved)
+    constexpr uint32_t kMasterFade = 0x02078D04;   // long: the music's fade (its bits 8-23)
 
     uint32_t Signed(int32_t v) {
         return static_cast<uint32_t>(v);
@@ -76,10 +78,93 @@ namespace {
         return static_cast<int32_t>(static_cast<uint32_t>(a) - static_cast<uint32_t>(b));
     }
 
-    void Hand(Guest &g, const native::SoundEvent &e) {
-        g.Board().NativeSound(e);
+    // The memory the driver's routines below work on, and where their events go. Live (a rewrite): the guest's, and the
+    // events handed over now. Dry (a hook, with arcade timing, before the game's own code runs the routine): the
+    // guest's read through a copy of its own that keeps every write (nothing changed, nothing charged), the writes to
+    // the sound chip counted; each event then waits for the chip write it follows to be made by the game's code
+    // (Machine::NativeSoundAfter), so it lands at that write's time, as the board's mixer takes it.
+    class Driver {
+    public:
+        Driver(Guest &g, bool dry)
+            : m_g(g)
+            , m_dry(dry) {}
+        uint8_t Read8(uint32_t a) {
+            if (m_dry) {
+                const auto it = m_kept.find(a & kMask);
+                if (it != m_kept.end()) {
+                    return it->second;
+                }
+            }
+            return m_g.Read8(a);
+        }
+        uint16_t Read16(uint32_t a) {
+            if (m_dry && (Kept(a) || Kept(a + 1))) {
+                return static_cast<uint16_t>((Read8(a) << 8) | Read8(a + 1));
+            }
+            return m_g.Read16(a);
+        }
+        uint32_t Read32(uint32_t a) {
+            if (m_dry && (Kept(a) || Kept(a + 1) || Kept(a + 2) || Kept(a + 3))) {
+                return (static_cast<uint32_t>(Read16(a)) << 16) | Read16(a + 2);
+            }
+            return m_g.Read32(a);
+        }
+        void Write8(uint32_t a, uint8_t v) {
+            if (!m_dry) {
+                m_g.Write8(a, v);
+                return;
+            }
+            Wrote(a);
+            m_kept[a & kMask] = v;
+        }
+        void Write16(uint32_t a, uint16_t v) {
+            if (!m_dry) {
+                m_g.Write16(a, v);
+                return;
+            }
+            Wrote(a);
+            m_kept[a & kMask] = static_cast<uint8_t>(v >> 8);
+            m_kept[(a + 1) & kMask] = static_cast<uint8_t>(v);
+        }
+        void Write32(uint32_t a, uint32_t v) {
+            if (!m_dry) {
+                m_g.Write32(a, v);
+                return;
+            }
+            Wrote(a);
+            for (uint32_t i = 0; i < 4; i++) {
+                m_kept[(a + i) & kMask] = static_cast<uint8_t>(v >> (24 - 8 * i));
+            }
+        }
+        void Hand(const native::SoundEvent &e) {
+            if (m_dry) {
+                m_g.Board().NativeSoundAfter(e, m_chipWrites);
+            } else {
+                m_g.Board().NativeSound(e);
+            }
+        }
+
+    private:
+        static constexpr uint32_t kMask = 0x1FFFFFFF; // (the CPU's mirrors of the same memory)
+        Guest &m_g;
+        bool m_dry;
+        std::unordered_map<uint32_t, uint8_t> m_kept;
+        uint32_t m_chipWrites = 0;
+        bool Kept(uint32_t a) const {
+            return m_kept.count(a & kMask) != 0;
+        }
+        void Wrote(uint32_t a) {
+            const uint32_t at = a & kMask;
+            if (at >= 0x040E0000 && at < 0x040E0300) {
+                m_chipWrites++;
+            }
+        }
+    };
+
+    void Hand(Driver &g, const native::SoundEvent &e) {
+        g.Hand(e);
     }
-    void HandKeys(Guest &g, native::SoundEvent::Kind kind, uint16_t keys) {
+    void HandKeys(Driver &g, native::SoundEvent::Kind kind, uint16_t keys) {
         native::SoundEvent e;
         e.kind = kind;
         e.keys = keys;
@@ -87,13 +172,13 @@ namespace {
     }
 
     // A voice's register written, and written again until it reads back as written (0x0613BC9A)
-    void Put(Guest &g, uint32_t at, uint32_t value) {
+    void Put(Driver &g, uint32_t at, uint32_t value) {
         g.Write16(at, static_cast<uint16_t>(value));
         while (g.Read16(at) != static_cast<uint16_t>(value)) {
             g.Write16(at, static_cast<uint16_t>(value));
         }
     }
-    void KeyOff(Guest &g, uint16_t bit) {
+    void KeyOff(Driver &g, uint16_t bit) {
         g.Write16(kKeys, static_cast<uint16_t>(g.Read16(kKeys) & ~bit));
         HandKeys(g, native::SoundEvent::kKeyOff, bit);
     }
@@ -105,7 +190,7 @@ namespace {
 
     // One of a set's channels
     struct Channel {
-        Guest &g;
+        Driver &g;
         uint32_t at;
         uint8_t B(uint32_t o) {
             return g.Read8(at + o);
@@ -132,7 +217,7 @@ namespace {
 
     // A new note's sample set on a voice: keyed off, its registers written (twice over in part, as the driver does),
     // and whether it loops on (a loop point short of its end)
-    void SetSample(Guest &g, Channel &c, uint32_t regs, uint8_t voice, uint16_t bit) {
+    void SetSample(Driver &g, Channel &c, uint32_t regs, uint8_t voice, uint16_t bit) {
         KeyOff(g, bit);
         Put(g, regs + 2, 0);
         const uint32_t bank = g.Read16(kSampleBank);
@@ -160,7 +245,7 @@ namespace {
         e.looping = looping;
         Hand(g, e);
     }
-    void StopLooping(Guest &g, uint32_t regs, uint8_t voice) {
+    void StopLooping(Driver &g, uint32_t regs, uint8_t voice) {
         Put(g, regs + 10, 0);
         native::SoundEvent e;
         e.kind = native::SoundEvent::kLooping;
@@ -169,40 +254,108 @@ namespace {
         Hand(g, e);
     }
 
-    // The game's volume for a side (0x0613B226), as the driver calls it
-    uint16_t VolumeOf(Guest &g, uint32_t level, int32_t tremolo, int32_t musicVolume, uint32_t channel) {
-        g.R(4) = level;
-        g.R(5) = Signed(tremolo);
-        g.R(6) = Signed(musicVolume);
-        g.R(7) = channel;
-        g.Call(kVolumeOf);
-        return static_cast<uint16_t>(g.R(0));
+    // 0613B226, the volume for a side (its native form, so that a dry run calls no game code): from the level (r4: the
+    // envelope's, scaled by the pan), the tremolo (r5), the music's volume (r6, a signed byte: -128 silent) and the
+    // channel (r7: its volume at 98 times 100's, 88's, the instrument's and the driver's, and for an effect the
+    // effects' volume), clamped to 15 bits; then, with the chip's mode bit 16 on, the music faded (a channel of the
+    // music's set: 111 is 0), else bent into the chip's curve (four straight pieces up to 0x7FFF, doubled). `r7` is
+    // left 0x2000 where the routine leaves it so.
+    struct Volume {
+        uint16_t value;
+        bool r7Changed;
+    };
+    int32_t Scaled(int32_t a, uint32_t b) { // (a byte of the game's, 0-127 about 64, times a value, over 64)
+        return static_cast<int32_t>(static_cast<uint32_t>(a) * ((b + 64) & 127)) >> 6;
+    }
+    Volume VolumeOf(Driver &g, uint32_t level, int32_t tremolo, int32_t musicVolume, uint32_t channel) {
+        Channel c{g, channel};
+        const uint32_t depth = c.B(100);
+        int32_t v = static_cast<int32_t>((depth ? depth + 1 : 0) * c.B(98)) << 1;
+        v = Scaled(v, static_cast<uint32_t>(static_cast<int32_t>(static_cast<int16_t>(c.W(88)))));
+        v = Scaled(v, static_cast<uint32_t>(static_cast<int32_t>(static_cast<int8_t>(g.Read8(static_cast<uint32_t>(c.L(8)) + 2)))));
+        v = Scaled(v, g.Read8(0x02079C5A));
+        if (c.SB(111) == 0) {
+            v = Scaled(v, g.Read8(0x02079C59));
+        }
+        v = Add(v, 1);
+        const int32_t lowered = static_cast<int32_t>(static_cast<uint32_t>(v) * (level & 0xFFFF)) >> 15;
+        int32_t out;
+        if (static_cast<int8_t>(musicVolume) == -128) {
+            out = 0;
+        } else {
+            const uint32_t l = static_cast<uint32_t>(lowered) & 0xFFFF;
+            out = static_cast<int16_t>((static_cast<uint32_t>(tremolo) * l) >> 16);
+            out = Add(out, static_cast<int8_t>(musicVolume) * 256);
+            out = Add(out, static_cast<int32_t>(l));
+        }
+        const uint32_t clamped = out > 0x7FFF ? 0x7FFF : out < 0 ? 0 : static_cast<uint32_t>(out);
+        if (g.Read8(kSoundMode + 1) & 1) {
+            if (c.B(111)) {
+                return {static_cast<uint16_t>(clamped), false};
+            }
+            const uint32_t fade = (g.Read32(kMasterFade) >> 8) & 0xFFFF;
+            return {static_cast<uint16_t>(static_cast<int32_t>((clamped & 0xFFFF) * fade) >> 7), false};
+        }
+        uint32_t curved;
+        bool r7 = false;
+        if (clamped <= 0x1000) {
+            curved = clamped << 2;
+        } else {
+            r7 = true;
+            if (clamped <= 0x2000) {
+                curved = (clamped << 1) + 0x2000;
+            } else if (clamped <= 0x4000) {
+                curved = (clamped >> 1) + 0x5000;
+            } else {
+                curved = (clamped >> 2) + 0x6000;
+            }
+        }
+        if (static_cast<int32_t>(curved) >= 0x8000) {
+            curved = 0x7FFF;
+        }
+        return {static_cast<uint16_t>(curved << 1), r7};
+    }
+
+    // 0613B1D8, the chip's step for a pitch (its native form): the pitch in 0xC00 steps an octave, the step of its place
+    // in the octave from the table (plus one) shifted by the octave, less one
+    uint16_t StepOf(Driver &g, int32_t pitch) {
+        int32_t octave = 0;
+        while (pitch >= 0xC00) {
+            pitch -= 0xC00;
+            octave++;
+        }
+        while (pitch < 0) {
+            pitch += 0xC00;
+            octave--;
+        }
+        uint32_t step = Signed(static_cast<int16_t>(g.Read16(kSteps + static_cast<uint32_t>(pitch) * 2)) + 1);
+        while (static_cast<int8_t>(octave) > 0) {
+            step <<= 1;
+            octave--;
+        }
+        while (static_cast<int8_t>(octave) < 0) {
+            step = (step & 0xFFFF) >> 1;
+            octave++;
+        }
+        return static_cast<uint16_t>(step - 1);
     }
 
     // 0613B3CC: a channel stepped on a frame and its voice set: r4 the channel, r5 its voice, r6 1 for the music's set
-    // (0 the effects'). The music's channel has its voice unless an effect is playing on it.
-    bool StepChannel(Guest &g) {
-        Channel c{g, g.R(4)};
-        const uint8_t voice = static_cast<uint8_t>(g.R(5));
-        const bool music = (g.R(6) & 0xFF) != 0;
-        const uint32_t sp = g.R(15);
-        g.R(15) = sp - 44; // (the routine's frame: seven registers, pr, macl and 8 bytes; what it calls goes below)
+    // (0 the effects'). The music's channel has its voice unless an effect is playing on it. Gives the time it takes,
+    // and r7 as the routine leaves it.
+    uint64_t StepChannel(Driver &g, uint32_t channel, uint8_t voice, bool music, uint32_t &r7) {
+        Channel c{g, channel};
         const uint32_t regs = kVoiceRegs + (static_cast<uint32_t>(voice) << 5);
         const uint16_t bit = static_cast<uint16_t>(voice < 32 ? 1u << voice : 0);
         bool owns = true;
         if (music && !(g.Read8(kEffects + 94 + static_cast<uint32_t>(static_cast<int16_t>(voice * kChannel))) & 0x80)) {
             owns = false; // (an effect has the voice)
         }
-        const auto done = [&](uint64_t cycles) {
-            g.R(15) = sp;
-            g.Return(cycles);
-            return true;
-        };
         if (c.B(94) & 0x80) { // (the channel is off)
             if (music && owns) {
                 KeyOff(g, bit);
             }
-            return done(40);
+            return 40;
         }
 
         // The timers, counted down by the frame's ticks
@@ -278,7 +431,7 @@ namespace {
             if (c.W(66) == 0) {
                 c.SetB(94, c.B(94) | 0x80);
                 c.SetB(111, 0);
-                return done(120);
+                return 120;
             }
             c.SetB(108, 4);
             if (owns) {
@@ -396,7 +549,7 @@ namespace {
             if (state != -1 && state != 0) {
                 const int32_t moved = static_cast<int16_t>(g.Read16(pan)) + static_cast<int16_t>(g.Read16(pan + 4));
                 const int32_t to = static_cast<int16_t>(g.Read16(pan + 2));
-                g.R(7) = kEffects;
+                r7 = kEffects;
                 const bool there = static_cast<int16_t>(g.Read16(pan + 4)) >= 0 ? moved >= to : to >= moved;
                 if (there) {
                     g.Write16(pan, g.Read16(pan + 2));
@@ -411,7 +564,7 @@ namespace {
             }
         }
         if (!owns) {
-            return done(160);
+            return 160;
         }
 
         // The volumes: from the envelope's level, the tremolo and (the music's) the music's volume; with stereo on,
@@ -419,7 +572,7 @@ namespace {
         const uint32_t ch = c.at;
         const int32_t musicVolume = music ? static_cast<int8_t>(g.Read8(kMusicVolume)) : 0;
         const uint32_t level = static_cast<uint32_t>(static_cast<int32_t>(static_cast<int16_t>(c.W(66))));
-        uint16_t left, right;
+        Volume left, right;
         bool rightFirst;
         if (g.Read8(kStereo)) {
             uint32_t at;
@@ -449,19 +602,21 @@ namespace {
             right = VolumeOf(g, level, c.L(32), musicVolume, ch);
             rightFirst = false;
         }
-        if (rightFirst) {
-            g.Write16(regs + 30, right);
-            g.Write16(regs + 28, left);
-        } else {
-            g.Write16(regs + 28, left);
-            g.Write16(regs + 30, right);
-        }
+        // (r7: the channel, as the routine passes it, or 0x2000 where the last volume leaves it)
+        r7 = (rightFirst ? left : right).r7Changed ? 0x2000 : ch;
+        const auto side = [&](bool isLeft) {
+            const Volume &v = isLeft ? left : right;
+            g.Write16(regs + (isLeft ? 28 : 30), v.value);
+            native::SoundEvent e;
+            e.kind = native::SoundEvent::kVolume;
+            e.voice = voice;
+            e.sides = isLeft ? 1 : 2;
+            (isLeft ? e.left : e.right) = static_cast<int16_t>(v.value);
+            Hand(g, e);
+        };
+        side(!rightFirst);
+        side(rightFirst);
         native::SoundEvent e;
-        e.kind = native::SoundEvent::kVolume;
-        e.voice = voice;
-        e.left = static_cast<int16_t>(left);
-        e.right = static_cast<int16_t>(right);
-        Hand(g, e);
 
         // The pitch: the note's (sliding) with the vibrato, the fine tune (95, an eighth of a semitone's 192 steps?)
         // and the transpose (96, from 64), and the music's transpose
@@ -471,9 +626,7 @@ namespace {
         if (music) {
             pitch = Add(pitch, static_cast<int16_t>(g.Read16(kTranspose)));
         }
-        g.R(4) = Signed(pitch);
-        g.Call(kStepOf);
-        const uint16_t step = static_cast<uint16_t>(g.R(0));
+        const uint16_t step = StepOf(g, pitch);
         g.Write16(regs + 12, step);
         e = {};
         e.kind = native::SoundEvent::kPitch;
@@ -485,14 +638,13 @@ namespace {
             g.Write16(kKeys, static_cast<uint16_t>(g.Read16(kKeys) | bit));
             HandKeys(g, native::SoundEvent::kKeyOn, bit);
         }
-        return done(300);
+        return 300;
     }
 
     // 06139316: the driver set up: r4 its table of settings, r5 and r6 two more tables, r7 bit 0 a mode bit of the
     // chip; on the stack, the chip's other mode byte (long 0's low byte) and whether it is stereo (long 1's). The chip
     // silenced: every voice's registers cleared and the keys off.
-    bool SetUp(Guest &g) {
-        const uint32_t sp = g.R(15), table = g.R(4), second = g.R(5), third = g.R(6), mode = g.R(7);
+    void SetUp(Driver &g, uint32_t sp, uint32_t table, uint32_t second, uint32_t third, uint32_t mode) {
         g.Write32(0x02078CE8, 0x0660CBF8); // (the driver's tables in the program: the release's rates and four more)
         g.Write32(kReleaseRates, 0x0660CC78);
         g.Write32(0x02078CF0, 0x0660CCF8);
@@ -505,19 +657,19 @@ namespace {
         for (uint32_t i = 0; i < 42; i += 2) {
             g.Write16(kOtherChip, g.Read16(0x0660C758 + i));
         }
-        for (uint32_t i = 0; i < 0x200; i += 2) {
-            g.Write16(kVoiceRegs + i, 0);
-        }
-        g.Write16(0x02079C10, static_cast<uint16_t>((static_cast<uint32_t>(g.Read8(sp + 3)) << 8) | (mode & 1) | 0x22));
-        g.Write32(kChipMode, g.Read32(0x02079C10));
-        g.Write16(kKeys, 0);
         for (uint8_t v = 0; v < 16; v++) {
+            for (uint32_t i = 0; i < 32; i += 2) {
+                g.Write16(kVoiceRegs + v * 32u + i, 0);
+            }
             native::SoundEvent e;
             e.kind = native::SoundEvent::kVoice; // (every register 0)
             e.voice = v;
             e.start = e.loop = e.end = native::kCleared;
             Hand(g, e);
         }
+        g.Write16(0x02079C10, static_cast<uint16_t>((static_cast<uint32_t>(g.Read8(sp + 3)) << 8) | (mode & 1) | 0x22));
+        g.Write32(kChipMode, g.Read32(0x02079C10));
+        g.Write16(kKeys, 0);
         HandKeys(g, native::SoundEvent::kKeys, 0);
         g.Write32(0x02079C6C, table);
         g.Write16(0x02079C7A, static_cast<uint16_t>((static_cast<uint32_t>(g.Read8(table)) << 8) + g.Read8(table + 1)));
@@ -541,12 +693,10 @@ namespace {
         for (uint32_t i = 0; i < 16; i++) {
             g.Write8(0x02079C5C + i, 0);
         }
-        g.Return(17000); // (the other device's waits: 21 of 257 turns of a loop)
-        return true;
     }
 
     // 0613A334: every channel of both sets stopped, the keys off
-    bool StopAll(Guest &g) {
+    void StopAll(Driver &g) {
         for (uint32_t i = 0; i < 16; i++) {
             g.Write8(kMusic + i * kChannel + 94, 0xC0);
             g.Write8(kEffects + i * kChannel + 94, 0xC0);
@@ -556,12 +706,10 @@ namespace {
         g.Write16(kKeys, 0);
         HandKeys(g, native::SoundEvent::kKeys, 0);
         g.Write16(kKeptKeys, 0);
-        g.Return(250);
-        return true;
     }
 
     // 0613A272: after a pause of the music, its channels as the pause found them and their voices keyed on again
-    [[maybe_unused]] bool Resume(Guest &g) {
+    [[maybe_unused]] void Resume(Driver &g) {
         const uint8_t flags = g.Read8(kDriverFlags);
         if ((flags & 2) && (flags & 4)) {
             for (uint32_t i = 0; i < 16; i++) {
@@ -572,22 +720,73 @@ namespace {
             g.Write16(kKeys, static_cast<uint16_t>(g.Read16(kKeys) | kept));
             HandKeys(g, native::SoundEvent::kKeyOn, kept);
         }
-        g.Return(160);
+    }
+
+    // The rewrites (live), and the hooks that work out the same events when the game's own code runs (dry: with arcade
+    // timing; nothing changed, nothing charged)
+    bool g_channelRewritten = false, g_setUpRewritten = false, g_stopRewritten = false;
+    bool ChannelRewrite(Guest &g) {
+        Driver d(g, false);
+        uint32_t r7 = g.R(7);
+        const uint64_t cycles = StepChannel(d, g.R(4), static_cast<uint8_t>(g.R(5)), (g.R(6) & 0xFF) != 0, r7);
+        g.R(7) = r7;
+        g.Return(cycles);
         return true;
+    }
+    void ChannelHook(Guest &g) {
+        if (g_channelRewritten && g.RewritesRun()) {
+            return;
+        }
+        Driver d(g, true);
+        uint32_t r7 = g.R(7);
+        StepChannel(d, g.R(4), static_cast<uint8_t>(g.R(5)), (g.R(6) & 0xFF) != 0, r7);
+    }
+    bool SetUpRewrite(Guest &g) {
+        Driver d(g, false);
+        SetUp(d, g.R(15), g.R(4), g.R(5), g.R(6), g.R(7));
+        g.Return(17000); // (the other device's waits: 21 of 257 turns of a loop)
+        return true;
+    }
+    void SetUpHook(Guest &g) {
+        if (g_setUpRewritten && g.RewritesRun()) {
+            return;
+        }
+        Driver d(g, true);
+        SetUp(d, g.R(15), g.R(4), g.R(5), g.R(6), g.R(7));
+    }
+    bool StopAllRewrite(Guest &g) {
+        Driver d(g, false);
+        StopAll(d);
+        g.Return(250);
+        return true;
+    }
+    void StopAllHook(Guest &g) {
+        if (g_stopRewritten && g.RewritesRun()) {
+            return;
+        }
+        Driver d(g, true);
+        StopAll(d);
     }
 
     const Lift kLifts[] = {
-        {"SoundSetUp", 0x06139316, 0x22E, 0x90E9CE5D71582AD6ull, SetUp, true, 0x100FF},
-        {"SoundStopAll", 0x0613A334, 0xD4, 0x5F8C7600B189AA26ull, StopAll, true, 0x100FF},
+        {"SoundSetUp", 0x06139316, 0x22E, 0x90E9CE5D71582AD6ull, SetUpRewrite, true, 0x100FF},
+        {"SoundStopAll", 0x0613A334, 0xD4, 0x5F8C7600B189AA26ull, StopAllRewrite, true, 0x100FF},
         // {"SoundResume", 0x0613A272, 0x86, 0xC2CCA2D3E2FE96B4ull, Resume, true, 0x100FF}, (not reached by any check yet: left to the game\'s code; nothing in the program names it or its pause, 0x0613A21C)
-        {"SoundChannel", 0x0613B3CC, 0x8E0, 0x7781CBAA0B34ED7Dull, StepChannel, true, 0x1007F},
+        {"SoundChannel", 0x0613B3CC, 0x8E0, 0x7781CBAA0B34ED7Dull, ChannelRewrite, true, 0x1007F},
     };
 } // namespace
 
 void RegisterGameLifts(const Lift *lifts, size_t count); // lifts.cpp
+bool GameLiftWanted(const char *name);                    // lifts.cpp
 
 void RegisterSoundDriver() {
     RegisterGameLifts(kLifts, std::size(kLifts));
+    g_setUpRewritten = GameLiftWanted("SoundSetUp");
+    g_stopRewritten = GameLiftWanted("SoundStopAll");
+    g_channelRewritten = GameLiftWanted("SoundChannel");
+    AddHook("SoundSetUpEvents", 0x06139316, 0x22E, 0x90E9CE5D71582AD6ull, SetUpHook);
+    AddHook("SoundStopAllEvents", 0x0613A334, 0xD4, 0x5F8C7600B189AA26ull, StopAllHook);
+    AddHook("SoundChannelEvents", 0x0613B3CC, 0x8E0, 0x7781CBAA0B34ED7Dull, ChannelHook);
 }
 
 } // namespace cps3recomp

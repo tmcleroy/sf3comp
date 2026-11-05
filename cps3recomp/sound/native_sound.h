@@ -39,7 +39,7 @@ struct SoundEvent {
         kSample,  // what `voice` plays: start, loop, end (byte places in the sample stream) and whether it loops on
         kLooping, // whether `voice` loops on at its end
         kPitch,   // `voice`'s step through its sample
-        kVolume,  // `voice`'s volume, left and right
+        kVolume,  // `voice`'s volume, left and right (those of `sides`: 1 left, 2 right)
         kVoice,   // all of `voice` as given (the boot ROM's writes, passed on as the board has them)
     } kind = kKeys;
     uint8_t voice = 0;
@@ -48,6 +48,7 @@ struct SoundEvent {
     bool looping = false;
     uint16_t step = 0;
     int16_t left = 0, right = 0;
+    uint8_t sides = 3;
     double at = 0; // when in the frame: 0 its start, 1 its end (Machine::FramePosition)
 };
 

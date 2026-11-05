@@ -184,6 +184,7 @@ namespace {
         bool noDryRuns = false; // CPS3RECOMP_NO_DRY_RUNS=1: the hand-overs' dry runs left out (lift.h)
         bool stageBoard = false; // a second board: its rewrites only run dry (Lift::boards)
         uint64_t dryRuns = 0;
+        bool hookTimed = false; // (while a hook runs: whether the bus's timing was on for the call, Guest::RewritesRun)
         unsigned liftCheckEvery = 0;
         std::map<const Lift *, LiftCheck> liftChecks;
         bool inCheck = false; // a rewrite is being run for a check (its calls run in the interpreter)
@@ -884,6 +885,7 @@ namespace {
             const bool timed = cpu.m_busTiming;
             if (lift.hookFn) {
                 e->runs++;
+                rt.hookTimed = timed;
                 BusOff off(cpu);
                 lift.hookFn(guest);
                 continue;
@@ -1659,6 +1661,10 @@ void Guest::Call(uint32_t address) {
     m_cpu.RecalcInterrupts();
     m_cpu.PR = pr;
     m_cpu.PC = pc;
+}
+bool Guest::RewritesRun() const {
+    const Runtime &rt = *g_rt;
+    return !rt.noRewrites && !(rt.hookTimed && !(g_rewritesNeededNow && g_rewritesNeededNow()));
 }
 machine::Machine &Guest::Board() {
     return Access::Board(m_cpu);

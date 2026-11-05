@@ -49,8 +49,12 @@ void Mixer::Apply(const SoundEvent &e) {
         p.settings.step = e.step;
         break;
     case SoundEvent::kVolume:
-        p.settings.left = e.left;
-        p.settings.right = e.right;
+        if (e.sides & 1) {
+            p.settings.left = e.left;
+        }
+        if (e.sides & 2) {
+            p.settings.right = e.right;
+        }
         break;
     case SoundEvent::kVoice:
         p.settings = {e.start, e.loop, e.end, e.looping, e.step, e.left, e.right};

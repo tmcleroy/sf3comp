@@ -1280,8 +1280,18 @@ void Machine::WriteSound(uint32 offset, uint32 v, uint32 mask) {
         }
         keyOn = key;
     }
-    // (the check: the boot ROM's writes, not the game's code, passed on to the native sound as the board now has them)
-    if (nativeCheck && m_cpu.PC < 0x80000) {
+    // (the native sound's events that waited for this write: let go now)
+    m_soundWrites++;
+    if (!m_waitingSound.empty()) {
+        size_t n = 0;
+        while (n < m_waitingSound.size() && m_waitingSound[n].write <= m_soundWrites) {
+            NativeSound(m_waitingSound[n++].event);
+        }
+        m_waitingSound.erase(m_waitingSound.begin(), m_waitingSound.begin() + static_cast<std::ptrdiff_t>(n));
+    }
+    // (the boot ROM's writes, not the game's code, passed on to the native sound as the board now has them: a native
+    // start-up would set the voices itself)
+    if (mixNative && m_cpu.PC < 0x80000) {
         native::SoundEvent e;
         if (offset < 0x80) {
             const native::Voice s = BoardVoice(static_cast<int>(offset / 8));
@@ -1293,6 +1303,17 @@ void Machine::WriteSound(uint32 offset, uint32 v, uint32 mask) {
             NativeSound(e);
         }
     }
+}
+
+void Machine::NativeSoundAfter(const native::SoundEvent &e, uint32 writes) {
+    if (!mixNative) {
+        return;
+    }
+    if (!writes) {
+        NativeSound(e);
+        return;
+    }
+    m_waitingSound.push_back({m_soundWrites + writes, e});
 }
 
 // A voice's registers as the mixer reads them (pcm.cpp), in the native interface's terms: the places in the sample
@@ -1327,14 +1348,13 @@ namespace {
     } g_soundTotals;
 } // namespace
 
-// The frame's sound (pcm.cpp's, all and voice by voice) against the native mixer's from the events the rewrites handed
-// over; and at the frame's end, each voice's registers and the key word against the voices as the events set them
+// The frame's sound (pcm.cpp's, all and voice by voice) against the native mixer's from the events the driver handed
+// over (the port ends the mixer's frame first, voice by voice); and at the frame's end, each voice's registers and the key word against the voices as the events set them
 void Machine::NativeCompareSound(const std::vector<int32_t> &mix, const std::array<std::vector<int32_t>, 16> &byVoice) {
     SoundTotals &t = g_soundTotals;
     t.used = true;
     t.frames++;
     t.samples += mix.size() / 2;
-    nativeSound.EndFrame(Samples(), SamplesSize(), silenced, true);
     const unsigned long long frame = static_cast<unsigned long long>(m_frame - 1); // (the frame just run)
     bool voicesSame = nativeSound.Keys() == keyOn;
     int first = 0;

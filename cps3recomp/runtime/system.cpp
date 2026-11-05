@@ -40,8 +40,17 @@ Machine::Machine(const RomSet &rom)
     , m_pcm(board) {
     g_board = &board;
     board.nativeCheck = native::Checking(); // (the game's board, in the checks: its rewrites hand the native interface what they draw)
+    SetBoardSound(false);
     eeprom.words = board.eeprom.data();
     m_picture.assign(static_cast<size_t>(Video::kWidth) * Video::kHeight, 0);
+}
+
+void Machine::SetBoardSound(bool on) {
+    m_boardSound = on;
+    board.mixNative = !on || board.nativeCheck;
+    // (pcm.cpp mixes as the chip's registers are written: only when it is heard or checked)
+    const bool pcm = on || board.nativeCheck;
+    board.beforeSoundWrite = pcm ? m_pcm.beforeWrite : nullptr;
 }
 
 void Machine::Reset() {
@@ -671,7 +680,18 @@ void Machine::RunFrame() {
     // (taken for every frame whose picture may be drawn from it: the GPU's, or the CPU's from the native interface)
     board.nativeWanted = gpuPicture || benching || (this->drawing && !holdPicture && !boardPicture && native::On());
     board.RunFrame();
-    m_pcm.EndFrame(&audio);
+    // (the native mixer's frame first: the check, in pcm.cpp's, compares the board's with it)
+    if (board.mixNative) {
+        board.nativeSound.EndFrame(board.Samples(), board.SamplesSize(), board.silenced, board.nativeCheck);
+        if (!m_boardSound) {
+            board.nativeSound.Output(audio, m_pcm.gain);
+        }
+    }
+    if (m_boardSound || board.nativeCheck) {
+        m_pcm.EndFrame(m_boardSound ? &audio : nullptr);
+    } else {
+        m_pcm.SkipFrame();
+    }
     const bool drawing = this->drawing && !holdPicture;
     m_renderer.text = !hidePanel;
     m_renderer.backdrop = backdrop;

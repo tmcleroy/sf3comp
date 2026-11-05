@@ -2,19 +2,23 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Tommy McLeroy
 #
-# The native sound's check, level (c) (cps3recomp/docs/NATIVE.md): with CPS3RECOMP_NATIVE_CHECK=1 the board keeps the
-# native mixer (sound/native_sound.h) beside its own sound chip, fed with the events the rewritten sound driver hands
-# over (src/sound_driver.cpp), and at the end of every frame compares the mixer's samples with pcm.cpp's, every sample
-# of each side, voice by voice; and the voices as the events set them (what each plays, its loop, pitch and volume, the
-# keys) against the chip's registers. Over the four runs checknative.sh makes: attract mode, a one-player game of
-# made-up play, a two-player versus game and a training session. Then the same rewrites against the game's own code
+# The native sound's check, level (c) (cps3recomp/docs/NATIVE.md): with CPS3RECOMP_NATIVE_CHECK=1 the board keeps its
+# own mixer (pcm.cpp, from the sound chip's registers) beside the native mixer (sound/native_sound.h, from the events
+# the game's sound driver hands over: src/sound_driver.cpp), and at the end of every frame compares the two, every
+# sample of each side, voice by voice; and the voices as the events set them (what each plays, its loop, pitch and
+# volume, the keys) against the chip's registers. Over the four runs checknative.sh makes (attract mode, a one-player
+# game of made-up play, a two-player versus game, a training session), each twice: as the port runs by default (the
+# rewrites hand the events over) and with arcade timing (CPS3RECOMP_BUS_TIMING=1: the game's own code runs, and the
+# hooks work out its events and let them go at its writes to the chip). Then the default build's sound end to end:
+# what it plays (the native mixer, --audio-dump) against what --board plays (pcm.cpp), the same bytes, over attract
+# mode and the one-player game, by default and with arcade timing. And the rewrites against the game's own code
 # (CPS3RECOMP_LIFT_CHECK, with only them registered) over attract mode and the one-player game. Prints "all the same",
 # or the first frame, voice and sample that differ. Exit 0 when all the same.
 #
 #   games/sfiii3/checksound.sh ROM [BUILD] [FRAMES]     (BUILD: build/sfiii3; FRAMES: 12000 a run)
 #
-# CHECKSOUND_NO_REWRITES=1: the native runs with the game's own code in place of the rewrites (nothing handed over),
-# to see that the check finds that
+# CHECKSOUND_NO_LIFTS=1: the runs with neither the rewrites nor the hooks (nothing handed over), to see that the check
+# finds that
 ROM=${1:?usage: checksound.sh ROM [BUILD] [FRAMES]}
 BUILD=${2:-build/sfiii3}
 FRAMES=${3:-12000}
@@ -24,44 +28,79 @@ NAMES=(attract cpu7 versus training)
 ARGS=("" "--auto 7:300:1" "--auto 31:300:2" "--keys 30:ctraining_start --auto 3:300:1")
 status=0
 pids=()
-run() { # name kind args...
-    local name=$1 kind=$2
+game() { # name arcade(0/1) args...: a run of the game, its log in OUT/name.log
+    local name=$1 arcade=$2
     shift 2
-    if [ "$kind" = native ]; then
-        # shellcheck disable=SC2068
-        (
-            [ -n "$CHECKSOUND_NO_REWRITES" ] && export CPS3RECOMP_NO_REWRITES=1
-            CPS3RECOMP_NATIVE_CHECK=1 exec nice -n 20 "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$FRAMES" \
-                --settings "$OUT/$name.ini" --eeprom "$OUT/$name.bin" $@ > /dev/null 2> "$OUT/$name.log"
-        ) &
-    else
-        # shellcheck disable=SC2068
-        SFIII3_LIFTS_ONLY="$REWRITES" CPS3RECOMP_LIFT_CHECK=1 nice -n 20 "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$FRAMES" \
-            --settings "$OUT/$name.ini" --eeprom "$OUT/$name.bin" $@ > /dev/null 2> "$OUT/$name.log" &
-    fi
+    # shellcheck disable=SC2068
+    (
+        [ -n "$CHECKSOUND_NO_LIFTS" ] && export CPS3RECOMP_NO_LIFTS=1
+        [ "$arcade" = 1 ] && export CPS3RECOMP_BUS_TIMING=1
+        exec nice -n 20 "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$FRAMES" --settings "$OUT/$name.ini" \
+            --eeprom "$OUT/$name.bin" $@ > /dev/null 2> "$OUT/$name.log"
+    ) &
     pids+=($!)
 }
+checked() { # name arcade args...
+    local name=$1 arcade=$2
+    shift 2
+    # shellcheck disable=SC2068
+    CPS3RECOMP_NATIVE_CHECK=1 game "$name" "$arcade" $@
+}
 for i in "${!NAMES[@]}"; do
-    run "${NAMES[$i]}" native ${ARGS[$i]}
+    # shellcheck disable=SC2086
+    checked "${NAMES[$i]}" 0 ${ARGS[$i]}
+    # shellcheck disable=SC2086
+    checked "arcade-${NAMES[$i]}" 1 ${ARGS[$i]}
 done
-run lifts-attract lifts
-run lifts-cpu7 lifts --auto 7:300:1
+DUMPS=(attract cpu7)
+for i in 0 1; do
+    for arcade in 0 1; do
+        # shellcheck disable=SC2086
+        game "heard-$arcade-${DUMPS[$i]}" $arcade --audio-dump "$OUT/native-$arcade-${DUMPS[$i]}.wav" ${ARGS[$i]}
+        # shellcheck disable=SC2086
+        game "board-$arcade-${DUMPS[$i]}" $arcade --board --audio-dump "$OUT/board-$arcade-${DUMPS[$i]}.wav" ${ARGS[$i]}
+    done
+done
+lifts() { # name args...
+    local name=$1
+    shift
+    # shellcheck disable=SC2068
+    SFIII3_LIFTS_ONLY="$REWRITES" CPS3RECOMP_LIFT_CHECK=1 nice -n 20 "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$FRAMES" \
+        --settings "$OUT/$name.ini" --eeprom "$OUT/$name.bin" $@ > /dev/null 2> "$OUT/$name.log" &
+    pids+=($!)
+}
+lifts lifts-attract
+lifts lifts-cpu7 --auto 7:300:1
 for pid in "${pids[@]}"; do
     wait "$pid" || { echo "a run failed"; status=1; }
 done
 for name in "${NAMES[@]}"; do
-    line=$(grep "cps3recomp: native sound:" "$OUT/$name.log")
-    echo "$name: samples: ${line#cps3recomp: native sound: }"
-    if [ -z "$line" ] || ! echo "$line" | grep -q ", 0 different$"; then
-        grep "^native sound, frame" "$OUT/$name.log" | head -3
-        status=1
-    fi
-    line=$(grep "cps3recomp: native voices:" "$OUT/$name.log")
-    echo "$name: voices: ${line#cps3recomp: native voices: }"
-    if [ -z "$line" ] || ! echo "$line" | grep -q ", 0 different$"; then
-        grep "^native voices, frame" "$OUT/$name.log" | head -3
-        status=1
-    fi
+    for run in "$name" "arcade-$name"; do
+        line=$(grep "cps3recomp: native sound:" "$OUT/$run.log")
+        echo "$run: samples: ${line#cps3recomp: native sound: }"
+        if [ -z "$line" ] || ! echo "$line" | grep -q ", 0 different$"; then
+            grep "^native sound, frame" "$OUT/$run.log" | head -3
+            status=1
+        fi
+        line=$(grep "cps3recomp: native voices:" "$OUT/$run.log")
+        echo "$run: voices: ${line#cps3recomp: native voices: }"
+        if [ -z "$line" ] || ! echo "$line" | grep -q ", 0 different$"; then
+            grep "^native voices, frame" "$OUT/$run.log" | head -3
+            status=1
+        fi
+    done
+done
+for name in "${DUMPS[@]}"; do
+    for arcade in 0 1; do
+        a="$OUT/native-$arcade-$name.wav" b="$OUT/board-$arcade-$name.wav"
+        what=$([ $arcade = 1 ] && echo "arcade-$name" || echo "$name")
+        if [ -s "$a" ] && cmp -s "$a" "$b"; then
+            echo "$what: heard: the native mixer's sound and --board's the same ($(($(wc -c < "$a") / 4)) samples)"
+        else
+            echo "$what: heard: the native mixer's sound and --board's DIFFERENT ($(cmp "$a" "$b" 2>&1 | head -1))"
+            status=1
+        fi
+    done
 done
 for name in lifts-attract lifts-cpu7; do
     grep "cps3recomp: rewrite" "$OUT/$name.log" | sed "s/^cps3recomp: /$name: /"
