@@ -120,10 +120,13 @@ A hazard found doing it: with the compute passes and the copy pass that reads th
 Metal's copy now and then read the picture before the compute pass had finished writing it (about one frame in 9000;
 in one frame in two when the uploads went in a command buffer of their own). The frame then read back as the one
 before. Submitting the drawing and waiting for it before the read-back cured it (0 different in 15 runs of 3000 frames
-under load; CPS3RECOMP_NATIVE_GPU_ONE_BUFFER=1 puts it back for looking into it). The presenter, sampling the picture in
-a render pass after the compute passes, must be given the same ordering when the GPU path becomes the default
-(SDL_GPU's own synchronisation between a compute pass's storage writes and a later pass's reads is not to be relied on
-here).
+under load; CPS3RECOMP_NATIVE_GPU_ONE_BUFFER=1 puts it back for looking into it). The presenter must not do the same:
+no added input lag and no lower performance is the rule, so the live path keeps the compute passes and the render pass
+that samples the picture in one command buffer, with no CPU wait. To do before the GPU path becomes the default: find
+whether the race is the copy pass's alone (a render pass reading the picture after the compute passes, checked by
+rendering it to a texture and reading that back); if the render pass shows it too, order it on the GPU (a separate
+submit with no CPU wait, or a fence the next frame waits on), never by stalling the CPU each frame; and measure the frame
+time and the delay from input to the picture against today's CPU path.
 
 ### Guest stages through the same interface (the user's requirement)
 
