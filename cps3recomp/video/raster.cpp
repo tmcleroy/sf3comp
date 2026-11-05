@@ -186,17 +186,20 @@ namespace {
 void Rasteriser::Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *ss, std::vector<uint32_t> &pixels, int &width, int &height) {
     const FrameRegisters &r = v.registers;
     const Screen screen = ScreenOf(r);
-    width = screen.width;
+    width = screen.width + 2 * margin;
     height = screen.height;
     pixels.assign(static_cast<size_t>(width) * height, 0);
     m_buffer.assign(static_cast<size_t>(kBufferWidth) * kBufferHeight, 0);
-    const Clip clip = {0, screen.clipRight, 0, screen.clipBottom};
+    Clip clip = {0, width - 1, 0, screen.clipBottom};
+    if (screen.zoomX != 0x40 || screen.zoomY != 0x40) {
+        clip.right = std::min(static_cast<int>((static_cast<uint32_t>(width) * ((screen.zoomX << 16) / 0x40) + 0x8000) >> 16) - 1, kBufferRight);
+    }
     const uint8_t *textures = v.textures.Pixels();
     BuildDrawList(v.objects, r, screen, m_items);
     for (const DrawItem &d : m_items) {
         if (d.kind == DrawItem::kQuad) {
-            DrawTile(m_buffer.data(), kBufferWidth, textures, clip, d.tile, d.colour, d.granularity64 ? 64 : 256, d.flipX, d.flipY, d.x, d.y, d.blend,
-                     d.scaleX, d.scaleY);
+            DrawTile(m_buffer.data(), kBufferWidth, textures, clip, d.tile, d.colour, d.granularity64 ? 64 : 256, d.flipX, d.flipY, d.x + margin - shift,
+                     d.y, d.blend, d.scaleX, d.scaleY);
             continue;
         }
         // A tilemap's line (64 x 64 tiles of 16x16 in sprite RAM): its scroll, line scroll, flips and bases
@@ -223,6 +226,7 @@ void Rasteriser::Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *s
         if (lineScroll) {
             scrollX += static_cast<int>((Long(spriteRam, lineBase | ((mapLine + 16) & 0x3FF)) >> 16) & 0x3FF);
         }
+        scrollX -= margin - shift; // (the columns added at the left show the map further left)
         const Clip row = {clip.left, clip.right, line, line};
         for (int x = clip.left / 16; x < clip.right / 16 + 2; x++) {
             const uint32_t tile = Long(spriteRam, mapBase + ((tileLine & 63) << 6) + (((x + (scrollX >> 4)) & 63) ^ xFlipMask));
@@ -261,7 +265,7 @@ void Rasteriser::Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *s
             const uint8_t *chr = ss + 0x4000 + tile * 32 + (flipY ? 7 - sub : sub) * 4;
             const uint32_t base = (colour * 16) & 0x1FFFF;
             for (int copy = 0; copy < 2; copy++) {
-                const int sx = copy * 512 + x * 8 - rowScroll;
+                const int sx = copy * 512 + x * 8 - rowScroll + margin;
                 for (int px = 0; px < 8; px++) {
                     const int dx = sx + px;
                     if (dx < 0 || dx >= width) {

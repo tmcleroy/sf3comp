@@ -47,6 +47,9 @@ void BuildDrawList(const std::vector<Object> &objects, const FrameRegisters &r, 
 class Rasteriser {
 public:
     void Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *ssRam, std::vector<uint32_t> &pixels, int &width, int &height);
+    // Widescreen (as Renderer's): columns added on each side, the tilemaps drawn on into them, the objects and the text
+    // layer moved over; and the world (objects, tilemaps) drawn `shift` columns further left than centred
+    int margin = 0, shift = 0;
 
 private:
     static constexpr int kBufferWidth = 1024, kBufferHeight = 448;

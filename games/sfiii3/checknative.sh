@@ -13,7 +13,8 @@
 # heads, the registers and sprite RAM's object words (native::FlattenObjects). Level (b): every frame drawn the plain
 # way, the native rasteriser's picture (video/raster.cpp, from the interface alone and the game's own memories) against
 # renderer.cpp's from the board, pixel for pixel. Over attract mode, a one-player game of made-up play (the computer's fights, the
-# screens between), a two-player versus game and a training session. Then the same rewrites against the game's own
+# screens between), a two-player versus game (with widescreen and its invisible walls: the margin and the world's shift) and a training
+# session. Then the same rewrites against the game's own
 # code (CPS3RECOMP_LIFT_CHECK, with only them registered) over attract mode and the one-player game. Exit 0 when all
 # the same.
 #
@@ -28,7 +29,7 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=$(mktemp -d)
 REWRITES="AskPalette,StartNextDma,TextColours,ObjectScrolls,TilemapRegisters,ScreenRegisters,PictureZoom,TextPalette,ListHeads,ClearListArea"
 NAMES=(attract cpu7 versus training)
-ARGS=("" "--auto 7:300:1" "--auto 31:300:2" "--keys 30:ctraining_start --auto 3:300:1")
+ARGS=("" "--auto 7:300:1" "--auto 31:300:2 --features widescreen,widescreen_walls" "--keys 30:ctraining_start --auto 3:300:1")
 status=0
 pids=()
 run() { # name kind args...

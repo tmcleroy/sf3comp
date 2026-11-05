@@ -67,6 +67,8 @@ namespace {
 
 void Machine::NativePixels() {
     int width = 0, height = 0;
+    m_nativeRaster.margin = m_renderer.margin;
+    m_nativeRaster.shift = m_renderer.shift;
     m_nativeRaster.Draw(board.native, board.SpriteRamBytes(), board.SsRam(), m_nativePicture, width, height);
     g_pixelTotals.frames++;
     if (width != m_width || height != m_height || m_nativePicture.size() < static_cast<size_t>(width) * height ||
@@ -261,7 +263,7 @@ void Machine::RunFrame() {
         m_renderer.drawGroup = nullptr;
     } else if (drawing) {
         m_renderer.Draw(board, m_picture, m_width, m_height);
-        if (board.nativeCheck && m_renderer.margin == 0) {
+        if (board.nativeCheck) {
             NativePixels();
         }
     }
