@@ -127,10 +127,33 @@ under load; CPS3RECOMP_NATIVE_GPU_ONE_BUFFER=1 puts it back for looking into it)
 
 Where the window's picture goes through SDL's GPU API and no shader preset (the default on every platform with a GPU
 device), the picture of a frame drawn the plain way is drawn by the GPU from the interface, and the CPU's renderer is not
-run for it:
+run for it.
 
-- **The interface is kept** (`native::Keep`, before the first machine: on unless headless, `--renderer sdl` or
-  CPS3RECOMP_NO_NATIVE_PRESENT; CPS3RECOMP_NATIVE=1 or 0 says so whatever). `Machine::nativeCheck` stays the checks'
+**Off for a while, and why it is back on (2026-11-05).** The Mac mini restarted three times that day (its userspace
+watchdog: no check-ins from WindowServer, which was stuck in the GPU driver), and main's 2231b7f turned the GPU path off
+by default (CPS3RECOMP_NATIVE_PRESENT=1 to opt in). The cause was the queue, not the passes: headless and offscreen runs
+(checknative's GPU runs, the bench, `--present-test`) submitted a command buffer a frame and never waited on one, so with
+no swapchain to hold them back they drew far faster than the GPU and piled up unfinished work, up to 33 command buffers
+deep, until WindowServer got no GPU time. The fix (`Presenter::Submit`, as cps2recomp does): offscreen, every frame is
+submitted with a fence and waited for at once, so exactly one frame is ever on the GPU; in a window the swapchain bounds
+it (SDL's acquire hands out no texture while both frames in flight are unfinished, vsync or not, and such a frame draws
+nothing: SDL 3.4.16's Metal and Vulkan acquire read). With it, every shader index is kept inside its buffer or texture
+(the tile and row counts passed in the params, the textures' 8 MB and sizes, the overlay a column and a row inside the
+composed texture), and the checks' and the bench's GPU devices are let go of before the program ends (`EndNativeGpu`),
+not from static destructors at exit (the Deck's Vulkan driver crashed destroying one there). Checked on the Steam Deck
+under Vulkan validation (no errors from our shaders) and on a MacBook Air (three GPU runs: the pixels the same, at most
+one frame in flight, WindowServer responsive); the mini runs CPU-only checks. So the GPU path is on by default again:
+in a window through SDL's GPU API, unless `--board`, `--renderer sdl` or CPS3RECOMP_NO_NATIVE_PRESENT=1 (the native
+rasteriser on the CPU draws the picture otherwise, and headless).
+
+Switches for looking into it: CPS3RECOMP_GPU_DEBUG=1 (SDL's GPU debug mode: Vulkan's validation layers, Metal's
+checks), CPS3RECOMP_GPU_QUEUE_STATS=1 (the presenter's pictures submitted, how many by the GPU from the interface, the
+most in flight, the waits, said at the end), CPS3RECOMP_NATIVE_GPU_TIMING=1 (each pass, uploads, tiles, resolve and
+compose, submitted alone and waited for: its time on the GPU, the mean and the most), CPS3RECOMP_TWIN_REPEAT=N (the
+window's twin shows each frame N times: a program drawing far faster than the GPU, for the queue's depth).
+
+- **The interface is kept** (`native::Keep`, before the first machine: on unless the port's `--board`, since the CPU's
+  rasteriser draws every picture from it too, below; CPS3RECOMP_NATIVE=1 or 0 says so whatever). `Machine::nativeCheck` stays the checks'
   (`native::Checking`, CPS3RECOMP_NATIVE_CHECK). What is handed over is taken only for a frame the GPU may draw
   (`machine::Machine::NativeTaking`: `nativeWanted`, set from the port's request below; always in the checks): not for
   run-ahead's frames, the menu's, a stage board's or a headless run's, which so cost nothing more. The object DMA
@@ -146,19 +169,30 @@ run for it:
   attract mode, a one-player game, a versus game, a rollback test, run-ahead 2 and a state saved and loaded (6000
   frames each; and 3000 frames of a versus game under arcade timing, by its dry runs), and the state hashes the same
   as with the interface not kept.
-- **The frame** (`Machine::gpuPicture`, set by the port each frame: the GPU presenter, the menu closed, no run-ahead,
-  and the last frame shown could have been the GPU's): drawn the plain way (no stage board, nothing left out, the panel
+- **The frame** (`Machine::gpuPicture`, set by the port each frame: the GPU presenter and the menu closed): drawn the plain way (no stage board, nothing left out, the panel
   and the backdrop the board's) and in step, it is made ready (`native::BuildFrame`, `Machine::GpuFrame`) and the CPU's
   picture is owed: drawn by renderer.cpp only if something asks for it (`Machine::Picture`: a screenshot, the menu's
   picture, the readout, a hash), from the same memories, before the next frame changes them (a frame not drawn and a
-  state put back draw it first). Asked for to change it (the game's sources drawing on it), GpuFrame is none.
-- **Shown** (`Presenter::ShowNative`) when `Port::ShownPlain`: no readout lines or boxes, no line at the bottom
-  (stopped, fast forward, speed, hosting, the zoom's label, a screenshot's note), not online, not zoomed. Else
-  `Show(pixels)` as before (the HUD, the status lines, the menu and the zoom are the CPU's still). ShowNative records,
-  in the one command buffer Show would use and where Show submits it: NativeGpu::Draw (the uploads: tiles, rows, the
-  texture pages changed, the colours only when they changed, `Palette::Version`, SS RAM; the two compute passes), then
-  the same render pass Show uses, sampling NativeGpu::Picture (1024 x 256, the frame's in its top left: uv scaled by
-  width / 1024 and height / 256, `Presenter::Draw`'s texture and picture sizes). No CPU wait.
+  state put back draw it first). Asked for to change it (the game's sources drawing on it), GpuFrame is none. What the
+  GPU draws it from (the colours, the texture pages changed, SS RAM) is kept as it was at that frame's end
+  (`Machine::GpuVideo`, `GpuText`), apart from the machine's: run-ahead and rollback put the machine back after the frame
+  shown was run, and the frame shown is still drawn by the GPU.
+- **Shown** (`Presenter::ShowNative`) for every frame made for the GPU, with what the port puts over the picture put
+  over it on the GPU: the readout's lines and boxes, the lines at the bottom (stopped, fast forward, speed, hosting, the
+  zoom's label, a screenshot's note), online's names and chat, the camera's zoom and the in-game menu. The port draws
+  them as it always has, once over an all-black picture and once over an all-white one (`Port::ShownOver`; the menu's
+  at its own size, `MenuOverlay`), and the two give each pixel its colour over black and how much of what is under it it
+  covers (`Probe`: the overlay, `NativeGpu::Overlay`, sent again only when it changes). A third compute pass
+  (shaders/native_compose.comp) puts it over the frame's picture, scaled as the shown picture is (the menu's three times
+  as tall, 4:3), a column and a row more for the presenter's filtering at the edges; zoomed, the picture as it is above
+  and the one with the overlay under it, as Show's zoom takes them. Translucent drawing comes out within one in 255 of
+  the CPU's; elsewhere the same (CPS3RECOMP_PRESENT_COMPARE=1 with `--present-every N`: the window's twin, with no
+  window, the GPU's shown picture against the CPU's, every Nth frame). Show(pixels) remains for frames not made for the
+  GPU (a stage board's, the CPU renderer's features). ShowNative records, in the one command buffer Show would use and
+  where Show submits it: NativeGpu::Draw (the uploads: tiles, rows, the texture pages changed, the colours only when they
+  changed, `Palette::Version`, SS RAM, the overlay; the compute passes), then the same render pass Show uses, sampling
+  the picture (NativeGpu::LastShown: the frame's picture, 1024 x 256, or the composed one, uv scaled by the part used,
+  `Presenter::Draw`'s texture and picture sizes). No CPU wait in a window; offscreen each frame waited for (above).
 
 **The race, for a render pass**: checknative.sh now checks the GPU's pixels as the presenter shows them
 (CPS3RECOMP_NATIVE_GPU_PRESENT=1, the default there): ShowNative into a texture of the presenter's own (OpenOffscreen),
@@ -192,8 +226,9 @@ it) and no CPU wait added: no frame of queueing is added, and the picture is don
 screen: nobody has seen the GPU path in a window (the window's code, RunWindowed's choice between ShowNative and Show,
 was only built; every run here was windowless).
 
-Next, as its own piece: the HUD, the status lines, the menu and the zoom as a GPU layer over the picture (the touch
-overlay's pipeline is there), so that no frame falls back to the CPU's picture.
+The HUD, the status lines, the menu and the zoom as a GPU layer: done (the compose pass, above). Frames that still fall
+back to the CPU's picture: a stage board's, and the CPU renderer's features (objects left out or put in front, the ring
+out's way down).
 
 ### Guest stages through the same interface (the user's requirement)
 
@@ -351,7 +386,7 @@ instead of the chips'. Until then the interface is kept in check runs and wherev
 picture (`native::On()`), is in save states only in check runs (`native::Checking()`), and is made again from the
 board's memories after a state is put back elsewhere (`SyncNative`).
 
-**As built for the video (2026-11-05, on the CPU: the GPU path stays off)**: the interface is kept by default
+**As built for the video (2026-11-05, on the CPU; in a window the GPU draws the plain frames, above)**: the interface is kept by default
 (`native::Keep` unless the port's `--board`), and every picture shown is drawn from it by `native::Rasteriser`
 (runtime/system.cpp: `Compose`, every way the game's sources make the picture, each board's layers by `DrawLayers`
 with the renderer's settings: margin, world shift, rows down, text layer, overlay, backdrop, the game's choice of

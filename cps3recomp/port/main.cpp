@@ -1653,9 +1653,7 @@ void Port::RunFrame() {
         menu.Close();
     }
     memcpy(machine->players, pad, sizeof(pad));
-    // (Machine::gpuPicture; only with CPS3RECOMP_NATIVE_PRESENT=1 for now: the GPU path wedged the Mac, main())
-    static const bool nativePresent = getenv("CPS3RECOMP_NATIVE_PRESENT") && strcmp(getenv("CPS3RECOMP_NATIVE_PRESENT"), "1") == 0;
-    machine->gpuPicture = nativePresent && gpuPresent && !menu.IsOpen();
+    machine->gpuPicture = gpuPresent && !menu.IsOpen() && !opt.boardPicture; // (Machine::gpuPicture; --board: the board model's picture)
     RapidFire();
     if (coinFrames > 0) {
         coinFrames--;
@@ -2157,10 +2155,12 @@ int main(int argc, char **argv) {
         return 2;
     }
     std::string error;
-    // (the native video interface kept: the picture is drawn from it by the native rasteriser on the CPU, unless --board.
-    // The window's GPU path (Presenter::ShowNative) is off unless CPS3RECOMP_NATIVE_PRESENT=1 for now: a frame of its
-    // compute passes wedged the Mac's GPU driver and, behind it, WindowServer, until the watchdog restarted the Mac
-    // (three times, 2026-11-05): Port::Step's gpuPicture)
+    // (the native video interface kept: the picture is drawn from it, unless --board. In a window through SDL's GPU API
+    // the GPU draws it (Presenter::ShowNative), unless --renderer sdl or CPS3RECOMP_NO_NATIVE_PRESENT=1; else the native
+    // rasteriser on the CPU. The GPU path was off by default for a while on 2026-11-05: the Mac restarted three times
+    // (its watchdog, WindowServer starved of the GPU) because headless and offscreen runs submitted their frames with
+    // nothing waiting on them, up to 33 command buffers deep. Offscreen each frame is now waited for as it is submitted
+    // (one on the GPU), a window's bounded by its swapchain (Presenter::Submit))
     cps3recomp::native::Keep(!p.opt.boardPicture);
     if (!p.Init(error)) {
         SayFailed(p.opt, argc == 1 ? error + "\n\nStart the game with its launcher (" GAME_ID "-launcher), which passes it your ROM set." : error);

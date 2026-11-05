@@ -137,7 +137,14 @@ by the GPU from the interface (port/native_gpu.cpp's compute passes, then the pr
 buffer, no CPU wait) for every frame drawn the plain way with nothing put over it; the CPU's renderer runs then only if
 its picture is asked for. About half the CPU time for the picture, the picture done no later, no frame of queueing
 added (the numbers: cps3recomp/docs/NATIVE.md); checknative.sh checks the GPU's pixels as the presenter shows them.
-Not yet seen in a window. Next: the HUD, status lines, menu and zoom as a GPU layer; the features' object choices. Wanted features this makes possible, both asked for by the user: GPU rendering (SDL_GPU drawing
+The HUD, status lines, online names, zoom and menu are put over it on the GPU too (a third compute pass, from what the
+port draws over a black and a white picture). It was off by default for a few hours on 2026-11-05 (the Mac mini
+restarted three times: headless and offscreen GPU runs never waited on their frames, up to 33 command buffers queued,
+and WindowServer got no GPU time); each offscreen frame is now waited for as it is submitted (one on the GPU, as
+cps2recomp does), a window's bounded by its swapchain, and it is on by default again in a window
+(CPS3RECOMP_NO_NATIVE_PRESENT=1 or `--renderer sdl` leave the picture to the CPU's rasteriser, `--board` to the board
+model). Checked on the Steam Deck under Vulkan validation and on a MacBook Air; not yet played in a window.
+Next: the features' object choices. Wanted features this makes possible, both asked for by the user: GPU rendering (SDL_GPU drawing
 the interface's objects and layers, not a software renderer's picture handed over), and the guest stages drawn as
 layers through the same interface (DEFINITIVE.md item 10). The readable work below stops at the move code and boxes that are done; the rest waits.
 
