@@ -2089,8 +2089,11 @@ int main(int argc, char **argv) {
         return 2;
     }
     std::string error;
-    // (the native video interface kept where the window's picture may be drawn from it by the GPU: Presenter::ShowNative)
-    cps3recomp::native::Keep(!p.opt.headless && p.opt.renderer != "sdl" && !getenv("CPS3RECOMP_NO_NATIVE_PRESENT"));
+    // (the native video interface kept where the window's picture may be drawn from it by the GPU: Presenter::ShowNative).
+    // Off unless CPS3RECOMP_NATIVE_PRESENT=1 for now: a frame of its compute passes wedged the Mac's GPU driver and,
+    // behind it, WindowServer, until the watchdog restarted the Mac (three times, 2026-11-05)
+    const char *nativePresent = getenv("CPS3RECOMP_NATIVE_PRESENT");
+    cps3recomp::native::Keep(!p.opt.headless && p.opt.renderer != "sdl" && nativePresent && strcmp(nativePresent, "1") == 0);
     if (!p.Init(error)) {
         SayFailed(p.opt, argc == 1 ? error + "\n\nStart the game with its launcher (" GAME_ID "-launcher), which passes it your ROM set." : error);
         return 1;

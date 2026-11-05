@@ -252,6 +252,20 @@ void Rasteriser::Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *s
     pixels.assign(static_cast<size_t>(width) * height, 0);
     m_buffer.assign(static_cast<size_t>(kBufferWidth) * kBufferHeight, 0);
     const uint8_t *textures = v.textures.Pixels();
+    { // (CPS3RECOMP_NATIVE_TILE_STATS=1: the most tile rows a frame has, which the GPU's first pass loops over per pixel)
+        static const bool stats = getenv("CPS3RECOMP_NATIVE_TILE_STATS") != nullptr;
+        static uint64_t most = 0;
+        if (stats) {
+            uint64_t rows = 0;
+            for (const Tile &t : f.tiles) {
+                rows += static_cast<uint64_t>(std::max(t.ey - t.sy, 0));
+            }
+            if (rows > most) {
+                most = rows;
+                fprintf(stderr, "native tiles: %zu tiles, %llu tile rows\n", f.tiles.size(), static_cast<unsigned long long>(rows));
+            }
+        }
+    }
     for (const Tile &t : f.tiles) {
         int yIndex = t.yIndex;
         for (int y = t.sy; y < t.ey; y++, yIndex += t.dy) {
