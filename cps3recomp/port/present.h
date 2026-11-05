@@ -113,7 +113,7 @@ public:
                        Scaling scaling, std::vector<uint32_t> &out, std::string &error, const Zoomed *zoomed = nullptr);
     // For the checks and the bench: no window, the pictures drawn into a texture `width` x `height` of the presenter's
     // own (Show and ShowNative as for a window); `nearest`: sampled at the nearest pixel (at 1:1, each pixel as it is).
-    // Each picture's command buffer is submitted with a fence: WaitShown waits for it (and says how long that took)
+    // Each picture's command buffer is submitted with a fence and waited for at once: WaitShown says how long that took
     bool OpenOffscreen(int width, int height, bool nearest, std::string &error);
     double WaitShown();
     // ... and what the last was read back (0x00BBGGRR), in a command buffer of its own after WaitShown
@@ -137,10 +137,9 @@ private:
     SDL_GPUTransferBuffer *m_offscreenRead = nullptr;
     int m_offscreenWidth = 0, m_offscreenHeight = 0;
     // (the pictures submitted and not yet finished: Submit)
-    static constexpr size_t kInFlight = 2, kInFlightOffscreen = 1;
     std::deque<SDL_GPUFence *> m_inFlight;
     size_t m_mostInFlight = 0;
-    uint64_t m_submits = 0, m_waits = 0, m_waitedNs = 0, m_nativeShown = 0;
+    uint64_t m_submits = 0, m_waits = 0, m_waitedNs = 0, m_nativeShown = 0, m_lastWaitNs = 0;
     SDL_GPUSampler *m_nearest = nullptr;
     bool m_useNearest = false, m_wantNative = true;
 

@@ -876,6 +876,10 @@ int RunWindowed(Port &port) {
         // are. Either way one command buffer, submitted here
         port.WindowedStep();
         const native::Frame *gpuFrame = port.machine->GpuFrame();
+        if (getenv("CPS3RECOMP_DEBUG_SHOW") && port.frame % 300 == 0) { // (debugging aid)
+            fprintf(stderr, "show, frame %llu: gpuPresent %d, GPU frame %d, can show %d, picture %d\n", static_cast<unsigned long long>(port.frame),
+                    port.gpuPresent, gpuFrame != nullptr, presenter.CanShowNative(), port.machine->gpuPicture);
+        }
         Zoomed zoomed;
         bool shownNative = false;
         if (gpuFrame && presenter.CanShowNative()) {
