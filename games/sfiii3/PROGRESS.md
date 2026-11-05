@@ -7,7 +7,9 @@
   and nineteen seeds of made-up play; checks in `tools/check.sh`: interpreter and translation the same over 6000 frames
   of each, 3.56 M dispatches compared block by block, 0 different). 287 fps headless on a loaded machine (the
   interpreter: 15). Code not reached by the recording runs in the interpreter.
-- Picture: own software renderer (`cps3recomp/video/renderer.cpp`), MAME's drawing rules.
+- Picture: the native video interface drawn by its CPU rasteriser (`cps3recomp/video/raster.cpp`), the board's video memories
+  made from the interface (2026-11-05); the board model's renderer (`cps3recomp/video/renderer.cpp`, MAME's drawing rules) with
+  `--board` and in the checks, the reference.
 - Sound: own 16-voice mixer (`cps3recomp/sound/pcm.cpp`), not listened to yet.
 - Frontend: cps2recomp's port/ (window, SDL_GPU presenter, shaders, menu, HUD, zoom, bindings, netplay, run-ahead,
   save states) on the board through `runtime/system.h`; recomp-common's launcher (`cps3recomp/launcher`).

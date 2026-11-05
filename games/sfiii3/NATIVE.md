@@ -183,7 +183,7 @@ text layer's registers, the status word and the two interrupts (as a timer).
 | DMA timer | the toolkit: status bits and level 10 without the chips | small | gates: state hashes the same with and without the chip functions |
 | Sound events | 0x0613A408's writes (0x0613BBA8-0x0613BC9A, the key-on sites), 0x061393F8, 0x0613A384 | medium | (c): samples against pcm.cpp |
 | Guest stages | New Generation's and 2nd Impact's same hand-offs (the shared engine: the same rewrites on each game's places, src/video_games.cpp, run dry on the stage board) | done on the producer's side; the GPU's composition of the two to come | (a) per producer, all the same; (b) the composed picture, all the same (CPU), each producer's part (GPU) |
-| Board model out of the default build | machine.cpp's chip functions behind `--board` | small, last | every gate |
+| Board model out of the default build | the picture from the interface by the CPU's rasteriser (system.cpp: Compose, DrawLayers), the board's video memories from the interface (machine.cpp: NativeMakes, TakeFromNative); renderer.cpp and the DMAs' model behind `--board` and in the checks | done for the video (CPU) | every gate; default against `--board` the same (state hashes, saved states) |
 
 Order: (done: the palette, the frame registers, the textures, the lists' heads, the objects: the whole frame's
 interface exists, level (a); the rasteriser, level (b), for the plain picture and widescreen; the GPU renderer, the

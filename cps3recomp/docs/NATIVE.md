@@ -350,3 +350,20 @@ checks. Save states then hold the interface's state (palettes, textures by page 
 instead of the chips'. Until then the interface is kept in check runs and wherever the GPU draws the window's
 picture (`native::On()`), is in save states only in check runs (`native::Checking()`), and is made again from the
 board's memories after a state is put back elsewhere (`SyncNative`).
+
+**As built for the video (2026-11-05, on the CPU: the GPU path stays off)**: the interface is kept by default
+(`native::Keep` unless the port's `--board`), and every picture shown is drawn from it by `native::Rasteriser`
+(runtime/system.cpp: `Compose`, every way the game's sources make the picture, each board's layers by `DrawLayers`
+with the renderer's settings: margin, world shift, rows down, text layer, overlay, backdrop, the game's choice of
+objects by index). A frame the game's code handed nothing over for (the boot ROM's), or the first after a state put back,
+run-ahead's or rollback's frames, has the interface made again from the board's memories first
+(`Machine::NativeForPicture`). And the board's video memories are made from the interface, not by its video model
+(`Machine::NativeMakes`): the object DMA's list from the interface's objects, the palette and character DMAs' colours and
+bytes taken from its palette and textures at the frame's end (`TakeFromNative`, with the compressed transfers' table and
+what their runs left, as the board's state holds them), their times as before. So save states and the netplay format are
+the same, byte for byte. The model (the three DMAs and `renderer.cpp`) runs only with `--board`, in the checks (where
+the interface is compared with it), and for the frames the interface does not hold. Checked: default runs against
+`--board`, the state hashes (the picture in them) the same over every frame, with rollback, run-ahead and a state saved
+and loaded (the states the same byte for byte); the pixel check now composes every way the picture is drawn both ways.
+The rasteriser is no slower: the picture's CPU time a frame (`CPS3RECOMP_PICTURE_AB=1`) a tenth less than renderer.cpp's.
+Still the board's: the register latches (written by the game's code, read by the interface's SyncNative), the sound.
