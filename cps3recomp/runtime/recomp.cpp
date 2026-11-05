@@ -714,6 +714,7 @@ namespace {
         machineBefore.clear();
         {
             Archive ar(machineBefore, true);
+            ar.inMemory = true; // (character RAM by its changed pages only)
             rt.machine->Serialize(ar);
         }
         const Access::Registers before = Access::Get(cpu);
@@ -743,6 +744,7 @@ namespace {
         machine::g_hardwareWrites = nullptr;
         if (!taken) {
             Archive ar(machineBefore, false);
+            ar.inMemory = true; // (character RAM by its changed pages only)
             rt.machine->Serialize(ar);
             Access::Set(cpu, before);
             return false;
@@ -755,6 +757,7 @@ namespace {
         // The game's own code, from the same before
         {
             Archive ar(machineBefore, false);
+            ar.inMemory = true; // (character RAM by its changed pages only)
             rt.machine->Serialize(ar);
         }
         Access::Set(cpu, before);
