@@ -844,7 +844,7 @@ namespace {
     }
 
     // 060B2BCC (cmd_move): every command of the fighter's moved on by the frame's input, then those done counted down
-    void CommandsRead(Guest &g) {
+    [[maybe_unused]] void CommandsRead(Guest &g) {
         Frame frame(g, 44); // (r8-r14, pr, macl, a word)
         const uint32_t fighter = g.Read32(kPlayer);
         g.Write16(kId, g.Read16(fighter + kSide));
@@ -985,7 +985,7 @@ namespace {
     // (free: r0-r4 and T, which no caller reads; r5-r7 reach the fighter's routine: above)
     constexpr uint32_t kFree = 0x1001F;
     const Lift kLifts[] = {
-        {"CommandsRead", 0x060B2BCC, 0x2F0, 0xA8CB636E96B42FB6ull, Lifted<CommandsRead>, true, kFree},
+        // {"CommandsRead", 0x060B2BCC, 0x2F0, 0xA8CB636E96B42FB6ull, Lifted<CommandsRead>, true, kFree}, (not reached by any check yet: left to the game's code)
         {"PickUp", 0x060B59BE, 0x2E0, 0xDAA10D8767B179FAull, Lifted<PickUp>, true, kFree},
         {"LeverSet", 0x060B55F8, 0x3C6, 0x14D74C5F1B5C53F5ull, Lifted<LeverSet>, true, 0x170FF},
         {"CountDown", 0x060B5558, 0x4E, 0xE8254E4711D1230Bull, CountDownLifted, true, 0x103FE},
