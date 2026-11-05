@@ -192,6 +192,14 @@ is handed over; nothing else stays. The live path is unchanged, so the rewrites 
 before (checklifts). Only when the interface is kept (`native::On()`); `CPS3RECOMP_NO_DRY_RUNS=1` leaves them out. The
 run's count is said at the end ("hand-overs made by dry runs of their rewrites").
 
+Where the game's code is run, nothing moves: the dry runs add no entry of their own (they are the rewrites' entries,
+there already), and an entry does not start a block (the translation is made ahead of time; Lookup passes over
+lift entries). What an entry does change is that a call to it is not linked (it comes back to the dispatcher, which
+takes a pending interrupt there): so CPS3RECOMP_NO_DRY_RUNS=1 is the dispatch as it was before them, and the state
+hashes with the arcade timing are the same with the dry runs, without them, and with the interface not kept (every
+frame of 12000 of attract mode, three one-player games and a versus game). (cps2recomp's hooks did start a block
+at their address, which moved an interrupt and parted a movie; there they became inline watches.)
+
 What it reads of the chips: only the DMA status word (the timer that stays). So with the board model gone, the game's
 own code's writes to the registers need only land in a latch (or nowhere) and its writes to colour RAM, character RAM
 and the list heads in plain memory: the interface has had all of it from the dry runs.
