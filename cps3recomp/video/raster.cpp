@@ -181,7 +181,7 @@ static bool MakeTile(const Clip &clip, uint32_t code, uint32_t colour, int granu
     return true;
 }
 
-void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift, Frame &f) {
+void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift, Frame &f, Keep keep, const void *keepContext) {
     const FrameRegisters &r = v.registers;
     f.screen = ScreenOf(r);
     f.width = f.screen.width + 2 * margin;
@@ -193,7 +193,18 @@ void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift,
     f.bufferWidth = std::min(std::max(f.width, clip.right + 1), kBufferRight + 1);
     f.bufferHeight = std::min(std::max(f.height, clip.bottom + 1), kBufferBottom + 1);
     f.tiles.clear();
-    BuildDrawList(v.objects, r, f.screen, f.items);
+    if (keep) {
+        static thread_local std::vector<Object> kept;
+        kept.clear();
+        for (const Object &o : v.objects) {
+            if (keep(keepContext, o)) {
+                kept.push_back(o);
+            }
+        }
+        BuildDrawList(kept, r, f.screen, f.items);
+    } else {
+        BuildDrawList(v.objects, r, f.screen, f.items);
+    }
     Tile t;
     for (const DrawItem &d : f.items) {
         if (d.kind == DrawItem::kQuad) {
@@ -243,13 +254,47 @@ void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift,
     f.margin = margin;
 }
 
+// A blend's bits (colour numbers' 13 and up pick a bank of the palette the game fills with shadow or highlight colours)
+// applied to a colour of another producer's: each component scaled as the bank's colours are, on the whole, against the
+// first bank's (worked out once a frame, for the banks used), as Renderer::Blended
+uint32_t Rasteriser::Blended(const uint16_t *colours, uint32_t bank, uint32_t pixel) {
+    bank &= 0xF;
+    if (!m_blendKnown[bank]) {
+        uint64_t base[3] = {}, made[3] = {};
+        for (uint32_t i = 1; i < 0x2000; i++) {
+            const uint32_t a = Rgb(colours[i]), b = Rgb(colours[(bank << 13) | i]);
+            if (a == 0) {
+                continue;
+            }
+            for (int c = 0; c < 3; c++) {
+                base[c] += (a >> (8 * c)) & 0xFF;
+                made[c] += (b >> (8 * c)) & 0xFF;
+            }
+        }
+        for (int c = 0; c < 3; c++) {
+            m_blendScale[bank][c] = base[c] ? std::min<uint32_t>(static_cast<uint32_t>(made[c] * 256 / base[c]), 512) : 256;
+        }
+        m_blendKnown[bank] = true;
+    }
+    uint32_t out = 0;
+    for (int c = 0; c < 3; c++) {
+        const uint32_t v = std::min<uint32_t>((((pixel >> (8 * c)) & 0xFF) * m_blendScale[bank][c]) >> 8, 255);
+        out |= v << (8 * c);
+    }
+    return out;
+}
+
 void Rasteriser::Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *ss, std::vector<uint32_t> &pixels, int &width, int &height) {
-    BuildFrame(v, spriteRam, margin, shift, m_frame);
+    m_blendKnown = {};
+    BuildFrame(v, spriteRam, margin, shift, m_frame, keep, keepContext);
     const Frame &f = m_frame;
     const Screen &screen = f.screen;
     width = f.width;
     height = f.height;
-    pixels.assign(static_cast<size_t>(width) * height, 0);
+    const bool over = overlay && pixels.size() == static_cast<size_t>(width) * height;
+    if (!over) {
+        pixels.assign(static_cast<size_t>(width) * height, 0);
+    }
     m_buffer.assign(static_cast<size_t>(kBufferWidth) * kBufferHeight, 0);
     const uint8_t *textures = v.textures.Pixels();
     { // (CPS3RECOMP_NATIVE_TILE_STATS=1: the most tile rows a frame has, which the GPU's first pass loops over per pixel)
@@ -297,11 +342,19 @@ void Rasteriser::Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *s
         uint32_t *dest = &pixels[static_cast<size_t>(row) * width];
         uint32_t sx = 0;
         for (int col = 0; col < width; col++, sx += fx) {
-            dest[col] = Rgb(colours[source[std::min<uint32_t>(sx >> 16, kBufferWidth - 1)] & 0x1FFFF]);
+            const uint32_t colour = source[std::min<uint32_t>(sx >> 16, kBufferWidth - 1)];
+            if (!over || (colour & 0x1FFF)) {
+                dest[col] = Rgb(colours[colour & 0x1FFFF]);
+            } else if (colour) {
+                dest[col] = Blended(colours, colour >> 13, dest[col]);
+            }
         }
     }
 
     // The text layer: 64 x 32 characters of 8x8, 4 bits a pixel, over everything
+    if (!text) {
+        return;
+    }
     const int scrollY = f.textScrollY;
     const uint32_t paletteBase = f.textPalette;
     for (int line = 0; line < height; line++) {

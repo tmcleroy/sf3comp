@@ -16,8 +16,11 @@
 # compute) as the window's presenter shows it (Presenter::ShowNative: the compute passes and the render pass sampling the
 # picture in one command buffer, into a texture of its own at 1:1, no window), read back after its fence against the
 # rasteriser's (CHECKNATIVE_GPU_READ=1: the compute's picture read back itself instead; CHECKNATIVE_NO_GPU=1: neither). Over attract mode, a one-player game of made-up play (the computer's fights, the
-# screens between), a two-player versus game (with widescreen and its invisible walls: the margin and the world's shift) and a training
-# session. Then the same rewrites against the game's own
+# screens between), a two-player versus game (with widescreen and its invisible walls: the margin and the world's shift), a training
+# session, and two games on a guest stage (New Generation's in the one-player game, 2nd Impact's in the versus game with widescreen):
+# there the stage board's hand-offs (its game's rewrites run dry on it, src/video_games.cpp) are compared with its chips
+# as the game board's are, and the picture of its layers under 3rd Strike's (the CPU's) with the two board models'
+# composed picture, and the GPU's picture of each producer's layers with the CPU's. Then the same rewrites against the game's own
 # code (CPS3RECOMP_LIFT_CHECK, with only them registered) over attract mode and the one-player game. Exit 0 when all
 # the same.
 #
@@ -36,8 +39,11 @@ FRAMES=${3:-12000}
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=$(mktemp -d)
 REWRITES="AskPalette,StartNextDma,TextColours,ObjectScrolls,TilemapRegisters,ScreenRegisters,PictureZoom,TextPalette,ListHeads,ClearListArea"
-NAMES=(attract cpu7 versus training)
-ARGS=("" "--auto 7:300:1" "--auto 31:300:2 --features widescreen,widescreen_walls" "--keys 30:ctraining_start --auto 3:300:1")
+NAMES=(attract cpu7 versus training stage-ng stage-2i)
+# (the guest stages: the stage games' sets beside ROM, sfiiin.zip and sfiii2n.zip; src/stages.cpp's choices 12, New
+# Generation's Ken's, and 25, 2nd Impact's Ken's)
+ARGS=("" "--auto 7:300:1" "--auto 31:300:2 --features widescreen,widescreen_walls" "--keys 30:ctraining_start --auto 3:300:1"
+    "--auto 7:300:1 --features stages=12" "--auto 31:300:2 --features stages=25,widescreen,widescreen_walls")
 status=0
 pids=()
 run() { # name kind args...
@@ -55,7 +61,7 @@ run() { # name kind args...
             # from WindowServer until the watchdog restarted the Mac (twice, 2026-11-05). lockf lets go when the run ends. The lock is shared by every recomp project on this Mac (agreed with the cps2recomp and naomicomp sessions), and a run is ended after 30 minutes.
             gpulock=()
             [ -z "$CHECKNATIVE_NO_GPU" ] && gpulock=(lockf -k /tmp/recomp-gpu.lock gtimeout -k 30 1800)
-            CPS3RECOMP_NATIVE_CHECK=1 exec nice -n 20 "${gpulock[@]}" "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$FRAMES" \
+            CPS3RECOMP_STAGE_LOG=1 CPS3RECOMP_NATIVE_CHECK=1 exec nice -n 20 "${gpulock[@]}" "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$FRAMES" \
                 --settings "$OUT/$name.ini" --eeprom "$OUT/$name.bin" "${timing[@]}" $@ > /dev/null 2> "$OUT/$name.log"
         ) &
     else
@@ -126,6 +132,32 @@ for name in "${NAMES[@]}"; do
         grep "^native lists, frame" "$OUT/$name.log" | head -3
         status=1
     fi
+    case $name in stage-*)
+        # The guest stage: the stage board's own hand-overs (its rewrites run dry on it, video_games.cpp) are in the
+        # lines above beside the game board's; the picture of its layers under 3rd Strike's against the two board
+        # models' composed picture; the GPU's picture of each producer's layers against the CPU's
+        line=$(grep "cps3recomp: a second board runs" "$OUT/$name.log")
+        echo "$name: ${line#cps3recomp: }"
+        [ -z "$line" ] && status=1
+        line=$(grep "cps3recomp: the stage boards' hand-overs made by dry runs" "$OUT/$name.log")
+        echo "$name: ${line:-the stage board: no dry runs}"
+        [ -z "$line" ] && [ -z "$CHECKNATIVE_NO_REWRITES" ] && status=1
+        line=$(grep "cps3recomp: native pixels with a stage:" "$OUT/$name.log")
+        echo "$name: pixels with a stage: ${line#cps3recomp: native pixels with a stage: }"
+        if [ -z "$line" ] || ! echo "$line" | grep -q ", 0 different"; then
+            grep "^native pixels with a stage, frame" "$OUT/$name.log" | head -3
+            status=1
+        fi
+        if [ -z "$CHECKNATIVE_NO_GPU" ]; then
+            line=$(grep "cps3recomp: native GPU pixels of a stage board:" "$OUT/$name.log")
+            echo "$name: GPU pixels of the stage board: ${line#cps3recomp: native GPU pixels of a stage board: }"
+            if [ -z "$line" ] || ! echo "$line" | grep -q ", 0 different$"; then
+                grep "^native GPU pixels of a stage board" "$OUT/$name.log" | head -3
+                status=1
+            fi
+        fi
+        ;;
+    esac
 done
 for name in lifts-attract lifts-cpu7; do
     grep "cps3recomp: rewrite" "$OUT/$name.log" | sed "s/^cps3recomp: /$name: /"

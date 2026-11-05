@@ -11,6 +11,7 @@
 
 #include "native.h"
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -58,8 +59,11 @@ struct Frame {
     int textScrollY = 0;
     uint32_t textPalette = 0;
 };
+// Which of a frame's objects are drawn (none: all): a rule on each object, with its context. For a frame made of two
+// producers' layers (a guest stage's under the game's: docs/NATIVE.md), each producer's part.
+using Keep = bool (*)(const void *context, const Object &o);
 // (widescreen: `margin` columns more on each side, the world `shift` further left, as Renderer's)
-void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift, Frame &f);
+void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift, Frame &f, Keep keep = nullptr, const void *keepContext = nullptr);
 
 // The picture (0x00BBGGRR) from the interface: the draw list, the textures and palette, the tilemaps and line scroll
 // tables in sprite RAM (the game's own memory, 512 KB big-endian) and the text layer's map and characters (SS RAM, the
@@ -70,6 +74,15 @@ public:
     // Widescreen (as Renderer's): columns added on each side, the tilemaps drawn on into them, the objects and the text
     // layer moved over; and the world (objects, tilemaps) drawn `shift` columns further left than centred
     int margin = 0, shift = 0;
+    // The objects drawn (Keep), and whether the text layer is
+    Keep keep = nullptr;
+    const void *keepContext = nullptr;
+    bool text = true;
+    // Drawn over the picture already in `pixels` (when it is of this frame's size), as Renderer's overlay: where this
+    // frame drew nothing the picture shows; a blend of this frame's over nothing of its own makes the picture's colour
+    // as much darker or lighter as that blend makes this producer's colours (the palette's bank against its first, on
+    // the whole). So a guest stage's picture with the game's layers over it, as the board model composes it.
+    bool overlay = false;
     // The last frame drawn, made ready (for a GPU to draw the same)
     const Frame &LastFrame() const {
         return m_frame;
@@ -79,6 +92,9 @@ private:
     static constexpr int kBufferWidth = 1024, kBufferHeight = 448;
     std::vector<uint32_t> m_buffer;
     Frame m_frame;
+    std::array<bool, 16> m_blendKnown{};
+    uint32_t m_blendScale[16][3] = {};
+    uint32_t Blended(const uint16_t *colours, uint32_t bank, uint32_t pixel);
 };
 
 } // namespace cps3recomp::native

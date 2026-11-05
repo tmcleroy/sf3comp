@@ -159,6 +159,10 @@ public:
     // its own stage
     bool (*stageObject)(const machine::Machine &stage, uint32_t object) = nullptr;
     bool (*ownStageObject)(const machine::Machine &own, uint32_t object) = nullptr;
+    // ... the same rules on an object of the native interface (video/native.h: the flattened objects the board's DMA
+    // makes), for the native picture of the two producers' layers
+    bool (*nativeStageObject)(const native::Object &object) = nullptr;
+    bool (*nativeOwnStageObject)(const native::Object &object) = nullptr;
     bool (*composeNow)() = nullptr; // (none: whenever there is a stage board)
     // The stage board's sound mixed into this board's (its music, in the definitive version's stages): set by the
     // game's sources when it is wanted
@@ -201,6 +205,9 @@ private:
     mutable bool m_pictureOwed = false;
     void MakePicture() const;
     void BenchFrame();
+    // (... and with a stage board: its layers under this board's)
+    native::Rasteriser m_nativeStageRaster;
+    void NativeStagePixels();
     Pcm m_pcm;
     std::vector<uint32_t> m_picture;
     std::unique_ptr<RomSet> m_stageSet;

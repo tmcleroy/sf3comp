@@ -59,13 +59,14 @@ namespace {
     struct PixelTotals {
         uint64_t frames = 0, different = 0;
         unsigned reports = 6;
+        const char *label = "native pixels";
         ~PixelTotals() {
             if (frames) {
-                fprintf(stderr, "cps3recomp: native pixels: %llu frames compared, %llu different\n", static_cast<unsigned long long>(frames),
+                fprintf(stderr, "cps3recomp: %s: %llu frames compared, %llu different\n", label, static_cast<unsigned long long>(frames),
                         static_cast<unsigned long long>(different));
             }
         }
-    } g_pixelTotals;
+    } g_pixelTotals, g_stagePixelTotals{0, 0, 6, "native pixels with a stage"};
 } // namespace
 
 // (and with CPS3RECOMP_NATIVE_GPU=1: the GPU's picture of the same frame, read back, against the CPU rasteriser's)
@@ -83,9 +84,11 @@ namespace {
         uint64_t frames = 0, different = 0;
         unsigned reports = 6;
         std::vector<uint32_t> pixels;
+        const char *label = "native GPU pixels";
+        explicit GpuCheck(const char *l) : label(l) {}
         ~GpuCheck() {
             if (frames || tried) {
-                fprintf(stderr, "cps3recomp: native GPU pixels: %llu frames compared, %llu different%s\n", static_cast<unsigned long long>(frames),
+                fprintf(stderr, "cps3recomp: %s: %llu frames compared, %llu different%s\n", label, static_cast<unsigned long long>(frames),
                         static_cast<unsigned long long>(different), device ? "" : " (no GPU device)");
             }
             gpu.Close();
@@ -94,7 +97,9 @@ namespace {
                 SDL_DestroyGPUDevice(device);
             }
         }
-    } g_gpuCheck;
+    } g_gpuCheck{"native GPU pixels"}, g_stageGpuCheck{"native GPU pixels of a stage board"};
+    void GpuCompare(GpuCheck &c, const native::Frame &f, const native::Video &video, const uint8_t *ss, const std::vector<uint32_t> &cpu, int width,
+                    uint64_t frame, const char *whose);
 } // namespace
 
 void Machine::NativePixels() {
@@ -118,11 +123,72 @@ void Machine::NativePixels() {
                     width ? static_cast<int>(at / width) : 0, at < n ? m_picture[at] : 0, at < n ? m_nativePicture[at] : 0);
         }
     }
+    GpuCompare(g_gpuCheck, m_nativeRaster.LastFrame(), board.native, board.SsRam(), m_nativePicture, width, frame, "");
+}
+
+// The pixel check with a stage board (docs/NATIVE.md, "Guest stages"): the picture made from the two producers' layers
+// the native interfaces have, as the board model's is composed (the stage path in RunFrame): the stage board's stage
+// layers (nativeStageObject), no text layer; this board's layers but its own stage's (nativeOwnStageObject) over them,
+// with its text layer; against the picture the two boards' models made. And the GPU's pictures of each producer's part
+// against the CPU's (each drawn alone: the GPU draws a frame of one producer; the stage board's with no text layer,
+// given an empty SS RAM, as the CPU draws it).
+void Machine::NativeStagePixels() {
+    int width = 0, height = 0;
+    native::Rasteriser &stage = m_nativeStageRaster;
+    stage.margin = m_renderer.margin;
+    stage.shift = 0;
+    stage.text = false;
+    stage.keepContext = this;
+    stage.keep = [](const void *self, const native::Object &o) { return static_cast<const Machine *>(self)->nativeStageObject(o); };
+    stage.Draw(m_stage->native, m_stage->SpriteRamBytes(), m_stage->SsRam(), m_nativePicture, width, height);
+    static const std::vector<uint8_t> noText(0x10000, 0);
+    GpuCompare(g_stageGpuCheck, stage.LastFrame(), m_stage->native, noText.data(), m_nativePicture, width, frame, " of a stage board");
+    native::Rasteriser &own = m_nativeRaster;
+    own.margin = m_renderer.margin;
+    own.shift = m_renderer.shift;
+    own.text = m_renderer.text;
+    own.keepContext = this;
+    own.keep = [](const void *self, const native::Object &o) { return !static_cast<const Machine *>(self)->nativeOwnStageObject(o); };
+    static const bool gpu = getenv("CPS3RECOMP_NATIVE_GPU") != nullptr;
+    if (gpu) {
+        // (this board's part alone, for the GPU's)
+        std::vector<uint32_t> alone;
+        int w = 0, h = 0;
+        own.Draw(board.native, board.SpriteRamBytes(), board.SsRam(), alone, w, h);
+        GpuCompare(g_gpuCheck, own.LastFrame(), board.native, own.text ? board.SsRam() : noText.data(), alone, w, frame, "");
+    }
+    own.overlay = true;
+    own.Draw(board.native, board.SpriteRamBytes(), board.SsRam(), m_nativePicture, width, height);
+    own.overlay = false;
+    own.keep = nullptr;
+    own.text = true;
+    PixelTotals &t = g_stagePixelTotals;
+    t.frames++;
+    if (width != m_width || height != m_height || m_nativePicture.size() < static_cast<size_t>(width) * height ||
+        m_picture.size() < static_cast<size_t>(width) * height ||
+        !std::equal(m_nativePicture.begin(), m_nativePicture.begin() + static_cast<size_t>(width) * height, m_picture.begin())) {
+        t.different++;
+        if (t.reports) {
+            t.reports--;
+            size_t at = 0, n = std::min(m_nativePicture.size(), m_picture.size());
+            while (at < n && m_nativePicture[at] == m_picture[at]) {
+                at++;
+            }
+            fprintf(stderr, "native pixels with a stage, frame %llu: %dx%d (board) / %dx%d (native), the first to differ at %d,%d: %06X / %06X\n",
+                    static_cast<unsigned long long>(frame), m_width, m_height, width, height, width ? static_cast<int>(at % width) : 0,
+                    width ? static_cast<int>(at / width) : 0, at < n ? m_picture[at] : 0, at < n ? m_nativePicture[at] : 0);
+        }
+    }
+}
+
+namespace {
+// The GPU's picture of a frame (CPS3RECOMP_NATIVE_GPU=1), read back, against the CPU rasteriser's (`cpu`, `width` wide)
+void GpuCompare(GpuCheck &c, const native::Frame &f, const native::Video &video, const uint8_t *ss, const std::vector<uint32_t> &cpu, int width,
+                uint64_t frame, const char *whose) {
     static const bool gpu = getenv("CPS3RECOMP_NATIVE_GPU") != nullptr;
     if (!gpu) {
         return;
     }
-    GpuCheck &c = g_gpuCheck;
     if (!c.tried) {
         c.tried = true;
         // (no window: SDL's offscreen video driver, unless another is asked for)
@@ -183,28 +249,29 @@ void Machine::NativePixels() {
         return;
     }
     c.frames++;
-    if (!c.gpu.DrawAndRead(m_nativeRaster.LastFrame(), board.native, board.SsRam(), c.pixels) || c.pixels != m_nativePicture) {
+    if (!c.gpu.DrawAndRead(f, video, ss, c.pixels) || c.pixels != cpu) {
         c.different++;
         // (for looking into it: the same frame drawn again by the GPU at once, as it was, and with every texture page sent
         // again; whether each comes out as the CPU's)
         std::vector<uint32_t> again;
-        const bool sameAgain = c.gpu.DrawAndRead(m_nativeRaster.LastFrame(), board.native, board.SsRam(), again) && again == m_nativePicture;
+        const bool sameAgain = c.gpu.DrawAndRead(f, video, ss, again) && again == cpu;
         c.gpu.ResendTextures();
-        const bool sameResent = c.gpu.DrawAndRead(m_nativeRaster.LastFrame(), board.native, board.SsRam(), again) && again == m_nativePicture;
-        fprintf(stderr, "native GPU pixels, frame %llu: drawn again: %s; with the textures sent again: %s\n", static_cast<unsigned long long>(frame),
-                sameAgain ? "the same as the CPU's" : "different", sameResent ? "the same as the CPU's" : "different");
+        const bool sameResent = c.gpu.DrawAndRead(f, video, ss, again) && again == cpu;
+        fprintf(stderr, "native GPU pixels%s, frame %llu: drawn again: %s; with the textures sent again: %s\n", whose,
+                static_cast<unsigned long long>(frame), sameAgain ? "the same as the CPU's" : "different", sameResent ? "the same as the CPU's" : "different");
         if (c.reports) {
             c.reports--;
-            size_t at = 0, n = std::min(c.pixels.size(), m_nativePicture.size());
-            while (at < n && c.pixels[at] == m_nativePicture[at]) {
+            size_t at = 0, n = std::min(c.pixels.size(), cpu.size());
+            while (at < n && c.pixels[at] == cpu[at]) {
                 at++;
             }
-            fprintf(stderr, "native GPU pixels, frame %llu: %zu / %zu pixels, the first to differ no. %zu (%d,%d): %06X (CPU) / %06X (GPU)\n",
-                    static_cast<unsigned long long>(frame), m_nativePicture.size(), c.pixels.size(), at, width ? static_cast<int>(at % width) : 0,
-                    width ? static_cast<int>(at / width) : 0, at < n ? m_nativePicture[at] : 0, at < n ? c.pixels[at] : 0);
+            fprintf(stderr, "native GPU pixels%s, frame %llu: %zu / %zu pixels, the first to differ no. %zu (%d,%d): %06X (CPU) / %06X (GPU)\n", whose,
+                    static_cast<unsigned long long>(frame), cpu.size(), c.pixels.size(), at, width ? static_cast<int>(at % width) : 0,
+                    width ? static_cast<int>(at / width) : 0, at < n ? cpu[at] : 0, at < n ? c.pixels[at] : 0);
         }
     }
 }
+} // namespace
 
 // The bench (CPS3RECOMP_NATIVE_BENCH=WIDTHxHEIGHT, with the native interface kept, CPS3RECOMP_NATIVE=1, and no check):
 // every frame drawn the plain way is shown both ways by a presenter of its own into a texture of that size, as the window
@@ -454,6 +521,11 @@ void Machine::RunFrame() {
         }
         m_renderer.overlay = false;
         m_renderer.drawGroup = nullptr;
+        // (the pixel check of the two producers' layers: the plain composition only, no second stage, fade or stage alone)
+        const bool plain = !onlyStage && stageDarken <= 0 && !(m_stage2 && (stageBlend > 0 || stageSlide > 0));
+        if (board.nativeCheck && m_stage->nativeCheck && plain && nativeStageObject && nativeOwnStageObject) {
+            NativeStagePixels();
+        }
     } else if (drawing && onlyStage && ownStageObject) {
         m_renderer.drawGroupContext = this;
         m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
@@ -546,7 +618,7 @@ void Machine::SetStageBoard(std::unique_ptr<RomSet> set) {
         const bool plain = machine::g_flashPlain;
         m_stage = std::make_unique<machine::Machine>(*m_stageSet);
         m_stage->Reset();
-        m_stage->nativeCheck = native::On(); // (its hand-offs to its own interface checked as the game board's are)
+        m_stage->nativeCheck = native::Checking(); // (in the checks: its hand-offs to its own interface checked as the game board's are)
         machine::g_flashPlain = plain;
         // (its own translated code, if the program has it: tools/translate.sh with GAME=its id)
         AttachSecond(*m_stage);
@@ -592,7 +664,7 @@ void Machine::SetSecondStageBoard(bool on) {
     const bool plain = machine::g_flashPlain;
     m_stage2 = std::make_unique<machine::Machine>(*m_stageSet);
     m_stage2->Reset();
-    m_stage2->nativeCheck = native::On();
+    m_stage2->nativeCheck = native::Checking();
     machine::g_flashPlain = plain;
     AttachSecond(*m_stage2);
     m_stage2Pcm = std::make_unique<Pcm>(*m_stage2);
@@ -708,6 +780,7 @@ void Machine::StepStage() {
             }
             const bool plain = machine::g_flashPlain;
             Activate(*m_stage2);
+            m_stage2->nativeWanted = board.nativeWanted;
             m_stage2->RunFrame();
             Activate(board);
             machine::g_flashPlain = plain;

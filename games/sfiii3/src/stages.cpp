@@ -169,25 +169,32 @@ namespace {
     // blank objects every stage has). Not the round's banners, "ROUND 1" (0x1ED) and "FIGHT!" (0x1E0), drawn with
     // palettes of their own above the stages': over another game's stage they are 3rd Strike's to show. (Every stage's
     // objects, in an endless battle on each of the 21 at two moments of a fight: palettes 0x80-0xFC, and 0x1FF.)
+    // (both rules by an object's first and third words, as the board's object list and the native interface's objects
+    // have them alike)
+    bool OwnStageWords(uint32_t v1, uint32_t v3) {
+        const uint32_t palette = v1 & 0x1FF;
+        return (v3 & 3) == 0 || (palette >= 0x80 && palette < 0x100) || palette == 0x1FF;
+    }
     bool OwnStageObject(const machine::Machine &m, uint32_t object) {
         const uint32_t *list = m.SpriteList();
-        const uint32_t palette = list[object * 4] & 0x1FF;
-        return (list[object * 4 + 2] & 3) == 0 || (palette >= 0x80 && palette < 0x100) || palette == 0x1FF;
+        return OwnStageWords(list[object * 4], list[object * 4 + 2]);
     }
     // The stage board's stage: all but its fighters (6 bits a pixel and a palette below 0x40: New Generation's 0x08 and
     // 0x10, 2nd Impact's 0x00 and 0x18) and their shadows (palette 0, blending). Its stage's people and things have
     // palettes from 0x40 (or 8 bits a pixel); its HUD is in the text layer, not drawn.
-    bool StageObject(const machine::Machine &m, uint32_t object) {
+    bool StageWords(uint32_t v1, uint32_t v3) {
         if (kChoices[g.loaded].game == &kThirdStrike) {
-            return OwnStageObject(m, object);
+            return OwnStageWords(v1, v3);
         }
-        const uint32_t v1 = m.SpriteList()[object * 4];
         const uint32_t palette = v1 & 0x1FF;
         const bool sixBits = (v1 >> 9) & 1, blend = (v1 >> 10) & 1;
-        if ((m.SpriteList()[object * 4 + 2] & 3) == 0) {
+        if ((v3 & 3) == 0) {
             return true;
         }
         return !((sixBits && palette < 0x40) || (blend && palette == 0));
+    }
+    bool StageObject(const machine::Machine &m, uint32_t object) {
+        return StageWords(m.SpriteList()[object * 4], m.SpriteList()[object * 4 + 2]);
     }
 
     std::unique_ptr<RomSet> LoadSet(const StageGame &game) {
@@ -934,6 +941,8 @@ void RegisterStages(Game &game) {
     if (Machine *machine = TheMachine()) {
         machine->stageObject = StageObject;
         machine->ownStageObject = OwnStageObject;
+        machine->nativeStageObject = [](const native::Object &o) { return StageWords(o.words[0], o.words[2]); };
+        machine->nativeOwnStageObject = [](const native::Object &o) { return OwnStageWords(o.words[0], o.words[2]); };
         machine->beforeStage = BeforeStage;
         machine->beforeSecondStage = BeforeSecondStage;
         // (the second board, until it is ready (past its fight's banners): eight frames a frame, so that it is there before
