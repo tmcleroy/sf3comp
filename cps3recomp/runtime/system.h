@@ -230,6 +230,9 @@ private:
     int m_width = Video::kWidth, m_height = Video::kHeight;
 };
 
+// The checks' and the bench's GPU devices reported on and let go of (before the program ends: not at exit)
+void EndNativeGpu();
+
 // A long or a word as the CPU would read it, for a game's sources reading tables in the program SIMMs or the
 // cartridge's ROM as well as main RAM (reads with no side effects only: memory, not the board's registers)
 uint32_t Peek32(uint32_t address);

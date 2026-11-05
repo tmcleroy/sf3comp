@@ -161,7 +161,7 @@ bool Presenter::MakePipeline(SDL_GPUTextureFormat target, std::string &error) {
 }
 
 bool Presenter::OpenGpu(SDL_Window *window, std::string &error) {
-    m_device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL, false, nullptr);
+    m_device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL, getenv("CPS3RECOMP_GPU_DEBUG") != nullptr, nullptr);
     if (!m_device) {
         error = SDL_GetError();
         return false;
