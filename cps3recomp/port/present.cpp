@@ -637,8 +637,11 @@ void Presenter::Submit(SDL_GPUCommandBuffer *commands) {
         SDL_SubmitGPUCommandBuffer(commands);
         return;
     }
-    // (offscreen: fenced, for WaitShown)
+    // (offscreen: fenced, for WaitShown; and never more than one picture waiting on the GPU behind it: with no window,
+    // nothing else holds a program that draws faster than the GPU back, and its command buffers and their uploads pile
+    // up without end)
     if (m_shownFence) {
+        SDL_WaitForGPUFences(m_device, true, &m_shownFence, 1);
         SDL_ReleaseGPUFence(m_device, m_shownFence);
     }
     m_shownFence = SDL_SubmitGPUCommandBufferAndAcquireFence(commands);
