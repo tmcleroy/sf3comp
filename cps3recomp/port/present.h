@@ -140,7 +140,7 @@ private:
     static constexpr size_t kInFlight = 2, kInFlightOffscreen = 1;
     std::deque<SDL_GPUFence *> m_inFlight;
     size_t m_mostInFlight = 0;
-    uint64_t m_submits = 0, m_waits = 0, m_waitedNs = 0;
+    uint64_t m_submits = 0, m_waits = 0, m_waitedNs = 0, m_nativeShown = 0;
     SDL_GPUSampler *m_nearest = nullptr;
     bool m_useNearest = false, m_wantNative = true;
 

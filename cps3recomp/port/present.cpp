@@ -250,16 +250,16 @@ void Presenter::Close() {
     if (m_device) {
         static const bool stats = getenv("CPS3RECOMP_GPU_QUEUE_STATS") != nullptr;
         if (stats && m_submits) {
-            fprintf(stderr, "cps3recomp: presenter (%s): %llu pictures submitted, at most %zu in flight, %llu waits for the oldest (%.3f ms in all)\n",
-                    m_window ? "window" : "offscreen", static_cast<unsigned long long>(m_submits), m_mostInFlight, static_cast<unsigned long long>(m_waits),
-                    static_cast<double>(m_waitedNs) / 1e6);
+            fprintf(stderr, "cps3recomp: presenter (%s): %llu pictures submitted (%llu by the GPU from the native video), at most %zu in flight, %llu waits for the oldest (%.3f ms in all)\n",
+                    m_window ? "window" : "offscreen", static_cast<unsigned long long>(m_submits), static_cast<unsigned long long>(m_nativeShown), m_mostInFlight,
+                    static_cast<unsigned long long>(m_waits), static_cast<double>(m_waitedNs) / 1e6);
         }
         for (SDL_GPUFence *fence : m_inFlight) {
             SDL_WaitForGPUFences(m_device, true, &fence, 1);
             SDL_ReleaseGPUFence(m_device, fence);
         }
         m_inFlight.clear();
-        m_submits = m_waits = m_waitedNs = 0;
+        m_submits = m_waits = m_waitedNs = m_nativeShown = 0;
         m_mostInFlight = 0;
         if (m_offscreen) {
             SDL_ReleaseGPUTexture(m_device, m_offscreen);
@@ -689,6 +689,7 @@ bool Presenter::ShowNative(const cps3recomp::native::Frame &frame, const cps3rec
         // CPU, and the GPU orders the render pass after the passes that write what it samples (checked with the
         // picture read back: CPS3RECOMP_NATIVE_GPU_PRESENT, docs/NATIVE.md)
         commands = m_native.Draw(commands, frame, video, ssRam, overlay);
+        m_nativeShown++;
         const NativeGpu::Shown shown = m_native.LastShown();
         const bool zoom = zoomed && overlay && overlay->rawAbove;
         Draw(commands, screen, where, zoom ? zoomed : nullptr, screenWidth, screenHeight, shown.texture, static_cast<float>(shown.textureWidth),

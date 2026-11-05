@@ -2249,8 +2249,13 @@ int main(int argc, char **argv) {
                 if (gpuFrame) {
                     const bool isZoomed = p.WindowedOverlay(twinOverlay, zoomed);
                     const port::NativeGpu::Overlay over = {twinOverlay.data(), p.ShownWidth(), Video::kHeight, isZoomed, p.frame};
-                    shown = twin.ShowNative(*gpuFrame, getenv("TWIN_BOARD") ? p.machine->board.native : p.machine->GpuVideo(), getenv("TWIN_BOARD") ? p.machine->board.SsRam() : p.machine->GpuText(), where, twinOverlay.empty() ? nullptr : &over,
-                                            isZoomed ? &zoomed : nullptr);
+                    // (CPS3RECOMP_TWIN_REPEAT=N: each frame shown N times, a program that draws far faster than the GPU: the
+                    // GPU's queue measured, Presenter::Submit)
+                    static const int repeat = std::max(1, getenv("CPS3RECOMP_TWIN_REPEAT") ? atoi(getenv("CPS3RECOMP_TWIN_REPEAT")) : 1);
+                    for (int n = 0; n < repeat; n++) {
+                        shown = twin.ShowNative(*gpuFrame, p.machine->GpuVideo(), p.machine->GpuText(), where, twinOverlay.empty() ? nullptr : &over,
+                                                isZoomed ? &zoomed : nullptr);
+                    }
                 }
                 twinNative += shown ? 1 : 0;
                 static const bool twinWait = getenv("TWIN_WAIT") != nullptr; // (debugging aid: each frame waited for)
