@@ -161,9 +161,12 @@ the board keeps the interface beside its own memories, `Machine::nativeCheck`), 
 - **(a) the interface**: what the board's memories and registers say, decoded into the interface's terms, equals
   what the rewrites handed over, every frame. For the palette (done: `games/sfiii3/checknative.sh`): the board's
   palette DMAs as its registers had them at each start and the colours the game's code wrote to colour RAM, in
-  order, against the rewrites' transfers and colours; and the whole of colour RAM against the native palette. Next:
-  the object list (the flattened list the board's DMA makes against the quads the native lists make), the frame's
-  registers, the textures (character RAM against the store), the text layer's settings.
+  order, against the rewrites' transfers and colours; and the whole of colour RAM against the native palette. The
+  frame's registers (done): the board's latched scrolls, tilemap words, screen timing and zoom and the text layer's
+  registers against those handed over, every frame. The textures (done): all 8 MB of character RAM against the native
+  store, every frame (the store made by the native loader from the lists the rewrites hand over). The object lists'
+  heads (done): at every object DMA the game starts, the heads the DMA takes against those handed over; and the
+  objects (done): the flattened list the board's DMA makes against the native interface's (FlattenObjects). Next: pixels.
 - **(b) pixels**: the native rasteriser's picture from the interface equals renderer.cpp's from the board, every
   frame (and the GPU's capture equals the rasteriser's, on the machines that have one).
 - **(c) samples**: the native mixer's output from the voice events equals pcm.cpp's from the registers, every frame.

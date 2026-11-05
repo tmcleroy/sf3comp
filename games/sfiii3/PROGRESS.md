@@ -119,9 +119,11 @@ writing the video and sound chips' registers and memories. The board model (mach
 sound/pcm.cpp) stays only as the reference. Checks run the two side by side: the same interface decoded from the
 board's memories against the one the rewrites hand over, every frame, then pixels and samples. The interface and
 the checks: cps3recomp/docs/NATIVE.md; this game's routines, read-backs, timing and plan: games/sfiii3/NATIVE.md.
-Done: the palette (src/video_palette.cpp: the palette DMA's request and start and the text layer's colours hand their
-transfers and colours to video/native.h; checknative.sh: all the same over attract mode, a one-player game, a versus
-game and a training session, 12000 frames each). Next: the frame registers, then the object lists and the textures. Wanted features this makes possible, both asked for by the user: GPU rendering (SDL_GPU drawing
+Done, level (a), all the same in checknative.sh over attract mode, a one-player game, a versus game and a training
+session (12000 frames each): the palette (src/video_palette.cpp), the frame registers (src/video_registers.cpp), the
+textures (the character DMA's lists and transfers, src/video_palette.cpp and video_textures.cpp, made by the native
+loader), the object lists' heads (src/video_lists.cpp) and the objects made from them (native::FlattenObjects). Next:
+the rasteriser (the objects to quads and layer lines) and its pixel check. Wanted features this makes possible, both asked for by the user: GPU rendering (SDL_GPU drawing
 the interface's objects and layers, not a software renderer's picture handed over), and the guest stages drawn as
 layers through the same interface (DEFINITIVE.md item 10). The readable work below stops at the move code and boxes that are done; the rest waits.
 

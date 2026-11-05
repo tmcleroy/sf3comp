@@ -4,9 +4,13 @@
 #
 # The native interface's check, level (a) (cps3recomp/docs/NATIVE.md): with CPS3RECOMP_NATIVE_CHECK=1 the board keeps
 # what the rewritten drawing code hands the native interface beside its own memories, and after every frame compares
-# them: so far the palette (src/video_palette.cpp): the palette DMAs as the board's registers had them and the colours
-# the game's code wrote, in order, against the transfers and colours the rewrites handed over; and the whole of colour
-# RAM against the native palette. Over attract mode, a one-player game of made-up play (the computer's fights, the
+# them: the palette (src/video_palette.cpp: the palette DMAs as the board's registers had them and the colours the
+# game's code wrote, in order, against the transfers and colours the rewrites handed over; and the whole of colour RAM
+# against the native palette); the frame registers (src/video_registers.cpp: the board's latched ones against those
+# handed over); the textures (all 8 MB of character RAM against the native store, made from the character DMA lists
+# handed over: video_palette.cpp, video_textures.cpp); at every object DMA the game starts, the lists' heads it takes
+# against those handed over (src/video_lists.cpp) and the objects it makes against those the interface makes from the
+# heads, the registers and sprite RAM's object words (native::FlattenObjects). Over attract mode, a one-player game of made-up play (the computer's fights, the
 # screens between), a two-player versus game and a training session. Then the same rewrites against the game's own
 # code (CPS3RECOMP_LIFT_CHECK, with only them registered) over attract mode and the one-player game. Exit 0 when all
 # the same.
@@ -20,7 +24,7 @@ BUILD=${2:-build/sfiii3}
 FRAMES=${3:-12000}
 HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=$(mktemp -d)
-REWRITES="AskPalette,StartNextDma,TextColours"
+REWRITES="AskPalette,StartNextDma,TextColours,ObjectScrolls,TilemapRegisters,ScreenRegisters,PictureZoom,TextPalette,ListHeads,ClearListArea"
 NAMES=(attract cpu7 versus training)
 ARGS=("" "--auto 7:300:1" "--auto 31:300:2" "--keys 30:ctraining_start --auto 3:300:1")
 status=0
@@ -52,9 +56,33 @@ for pid in "${pids[@]}"; do
 done
 for name in "${NAMES[@]}"; do
     line=$(grep "cps3recomp: native palette:" "$OUT/$name.log")
-    echo "$name: ${line#cps3recomp: native palette: }"
+    echo "$name: palette: ${line#cps3recomp: native palette: }"
     if [ -z "$line" ] || ! echo "$line" | grep -q " 0 different;.* 0 frames with the events different"; then
-        grep "^native palette, frame" "$OUT/$name.log" | head -3
+        grep "^native palette, frame" "$OUT/$name.log" | grep -v "frame registers" | head -3
+        status=1
+    fi
+    line=$(grep "cps3recomp: native frame registers:" "$OUT/$name.log")
+    echo "$name: frame registers: ${line#cps3recomp: native frame registers: }"
+    if [ -z "$line" ] || ! echo "$line" | grep -q ", 0 different"; then
+        grep "frame registers different" "$OUT/$name.log" | head -3
+        status=1
+    fi
+    line=$(grep "cps3recomp: native textures:" "$OUT/$name.log")
+    echo "$name: textures: ${line#cps3recomp: native textures: }"
+    if [ -z "$line" ] || ! echo "$line" | grep -q ", 0 different"; then
+        grep "textures different" "$OUT/$name.log" | head -3
+        status=1
+    fi
+    line=$(grep "cps3recomp: native objects:" "$OUT/$name.log")
+    echo "$name: objects: ${line#cps3recomp: native objects: }"
+    if [ -z "$line" ] || ! echo "$line" | grep -q ", 0 different"; then
+        grep "^native objects, frame" "$OUT/$name.log" | head -3
+        status=1
+    fi
+    line=$(grep "cps3recomp: native object lists:" "$OUT/$name.log")
+    echo "$name: object lists: ${line#cps3recomp: native object lists: }"
+    if [ -z "$line" ] || ! echo "$line" | grep -q " 0 different,"; then
+        grep "^native lists, frame" "$OUT/$name.log" | head -3
         status=1
     fi
 done

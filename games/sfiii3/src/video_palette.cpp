@@ -26,6 +26,7 @@
 #include "machine.h"
 
 #include <iterator>
+#include <vector>
 
 namespace cps3recomp {
 
@@ -60,6 +61,7 @@ namespace {
     constexpr uint32_t kTextColourBase = 0x02078CE4; // long: where the text layer's colours go (in the CPU's window on colour RAM)
     constexpr uint32_t kSetCharBank = 0x0613AA5E;  // r4: the CPU's character RAM bank set (the last kept)
     constexpr uint32_t kRestoreCharBank = 0x0613AAB0; // ... and the one before put back (r0: the bank)
+    constexpr uint32_t kCharBank = 0x02079C96;        // word: the CPU's character RAM bank now (its low 3 bits)
 
     uint32_t Signed(int32_t value) {
         return static_cast<uint32_t>(value);
@@ -166,6 +168,15 @@ namespace {
             g.R(15) -= 32; // (the routine's frame: pr, macl and 24 bytes)
             g.R(4) = Long(g, kCharListBank);
             g.Call(kSetCharBank);
+            // (the list written through the CPU's window: its place in character RAM's 8 MB, for the native textures)
+            Machine &board = g.Board();
+            const uint32_t bank = (static_cast<uint32_t>(g.Read16(kCharBank)) & 15 & 7) << 20;
+            std::vector<uint32_t> longs;
+            const auto put = [&](uint32_t at, uint32_t value) {
+                g.Write32(at, value);
+                board.NativeCharacterWrite(bank | (at & 0xFFFFC), value, 4);
+                longs.push_back(value);
+            };
             int32_t i = 0;
             for (; i < count; i++) {
                 const uint32_t drainSet = Long(g, kDrainSet);
@@ -173,20 +184,21 @@ namespace {
                 const int16_t setOffset = static_cast<int16_t>(static_cast<int16_t>(drainSet) * 0xFFC);
                 const uint32_t from = kCharQueue + Signed(setOffset) + Signed(slot);
                 const uint32_t to = list + Signed(i * 12);
-                g.Write32(to, Long(g, from));
-                g.Write32(to + 4, Long(g, from + 4));
-                g.Write32(to + 8, Long(g, from + 8));
+                put(to, Long(g, from));
+                put(to + 4, Long(g, from + 4));
+                put(to + 8, Long(g, from + 8));
                 g.Write32(BySet(kCharCount, drainSet), Long(g, BySet(kCharCount, drainSet)) - 1);
             }
             const uint32_t drainSet = Long(g, kDrainSet);
             g.Write32(BySet(kCharNext, drainSet), Long(g, BySet(kCharNext, drainSet)) + Signed(count));
             const uint32_t end = list + Signed(i * 12);
-            g.Write32(end, 0x01000000); // (the list's end)
-            g.Write32(end + 4, 0);
-            g.Write32(end + 8, 0);
+            put(end, 0x01000000); // (the list's end)
+            put(end + 4, 0);
+            put(end + 8, 0);
             const uint32_t offset = list + 0xDBF00000u; // (the list's place in character RAM)
             g.Write16(kCharListLow, static_cast<uint16_t>(offset >> 2));
             g.Write16(kCharListHigh, static_cast<uint16_t>(((offset >> 18) & 63) | 64));
+            board.NativeCharacterList(longs.data(), longs.size()); // (the character DMA: its transfers made)
             g.Call(kRestoreCharBank);
             g.R(15) += 32;
             g.Return(80 + 40 * static_cast<uint64_t>(count));

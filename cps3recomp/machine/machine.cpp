@@ -83,6 +83,7 @@ void Machine::UpdateFlashPlain() {
 void Machine::Reset() {
     std::fill(m_mainRam.begin(), m_mainRam.end(), 0);
     m_tableAddress = 0xFFFFFFFF;
+    native.textures.Reset();
     m_dmaStatus = 0;
     m_spriteDma = 0;
     m_spriteCount = 0;
@@ -319,11 +320,13 @@ uint32 Machine::BusRead32(uint32 a) {
 void Machine::BusWrite8(uint32 a, uint8 v) {
     if ((a & 0xFFF80000u) == 0x04000000u) {
         m_spriteRam[a & 0x7FFFF] = v;
+        NoteListWrite(a);
         return;
     }
     if ((a & 0xFFF00000u) == 0x04100000u) {
         TouchChar(((m_charBank & 7) << 20) | (a & 0xFFFFF));
         m_charRam[((m_charBank & 7) << 20) | (a & 0xFFFFF)] = v;
+        NoteCharWrite(((m_charBank & 7) << 20) | (a & 0xFFFFF), v, 1);
         return;
     }
     const uint32 shift = (3 - (a & 3)) * 8;
@@ -332,11 +335,13 @@ void Machine::BusWrite8(uint32 a, uint8 v) {
 void Machine::BusWrite16(uint32 a, uint16 v) {
     if ((a & 0xFFF80000u) == 0x04000000u) {
         Put16(&m_spriteRam[a & 0x7FFFE], v);
+        NoteListWrite(a);
         return;
     }
     if ((a & 0xFFF00000u) == 0x04100000u) {
         TouchChar(((m_charBank & 7) << 20) | (a & 0xFFFFF));
         Put16(&m_charRam[((m_charBank & 7) << 20) | (a & 0xFFFFE)], v);
+        NoteCharWrite(((m_charBank & 7) << 20) | (a & 0xFFFFE), v, 2);
         return;
     }
     const uint32 shift = (2 - (a & 2)) * 8;
@@ -345,11 +350,13 @@ void Machine::BusWrite16(uint32 a, uint16 v) {
 void Machine::BusWrite32(uint32 a, uint32 v) {
     if ((a & 0xFFF80000u) == 0x04000000u) {
         Put32(&m_spriteRam[a & 0x7FFFC], v);
+        NoteListWrite(a);
         return;
     }
     if ((a & 0xFFF00000u) == 0x04100000u) {
         TouchChar(((m_charBank & 7) << 20) | (a & 0xFFFFF));
         Put32(&m_charRam[((m_charBank & 7) << 20) | (a & 0xFFFFC)], v);
+        NoteCharWrite(((m_charBank & 7) << 20) | (a & 0xFFFFC), v, 4);
         return;
     }
     WriteMasked(a, v, 0xFFFFFFFFu);
@@ -485,6 +492,9 @@ void Machine::WriteMasked(uint32 a, uint32 v, uint32 mask) {
             if (reg < m_ssRegs.size()) {
                 m_ssRegs[reg] = data;
             }
+            if (nativeCheck) {
+                NoteRegisterWrite();
+            }
             switch (reg) {
             case 0x07: m_ssHScroll = static_cast<uint16>((m_ssHScroll & 0xFF00) | data); break;
             case 0x08: m_ssHScroll = static_cast<uint16>((m_ssHScroll & 0xFF) | (data << 8)); break;
@@ -532,13 +542,23 @@ void Machine::WritePpu(uint32 offset, uint32 v, uint32 mask) {
         Combine(m_videoRegs.tilemap[(word - 0x20) / 4], v, mask);
     } else if (word < 0x80) {
         Combine(m_videoRegs.crtc[(word - 0x60) / 4], v, mask);
+    }
+    if (word < 0x80 && nativeCheck) {
+        NoteRegisterWrite();
     } else if (word == 0x80) {
         if (mask & 0xFFFF) {
             const uint16 previous = m_spriteDma;
             m_spriteDma = static_cast<uint16>((m_spriteDma & ~mask) | (v & mask));
             // (the games write 8, 9, 8, 9: the list is taken at a 9 followed by an 8)
             if (!(m_dmaStatus & 1) && (m_spriteDma & 9) == 8 && (previous & 9) == 9) {
+                const bool compare = nativeCheck && m_cpu.PC >= 0x06000000u;
+                if (compare) {
+                    NativeCompareLists();
+                }
                 SpriteDma();
+                if (compare) {
+                    NativeCompareObjects();
+                }
                 m_dmaStatus |= 1;
                 m_spriteDmaDoneAt = Now() + 100; // (4 microseconds)
                 m_cpu.RequestYield();
@@ -816,7 +836,8 @@ void Machine::CharacterDma(uint32 listAddress) {
 // --- the native interface's check (video/native.h) ---
 namespace {
     struct NativeTotals {
-        uint64 frames = 0, different = 0, events = 0, eventsDifferent = 0, transfers = 0, colours = 0;
+        uint64 frames = 0, different = 0, events = 0, eventsDifferent = 0, transfers = 0, colours = 0, registersDifferent = 0;
+        uint64 lists = 0, listsDifferent = 0, listsBoot = 0, heads = 0, texturesDifferent = 0, objectDmas = 0, objects = 0, objectsDifferent = 0;
         unsigned reports = 8;
         bool used = false;
         ~NativeTotals() {
@@ -827,6 +848,15 @@ namespace {
                         static_cast<unsigned long long>(frames), static_cast<unsigned long long>(different), static_cast<unsigned long long>(events),
                         static_cast<unsigned long long>(transfers), static_cast<unsigned long long>(colours),
                         static_cast<unsigned long long>(eventsDifferent));
+                fprintf(stderr, "cps3recomp: native frame registers: %llu frames compared, %llu different\n", static_cast<unsigned long long>(frames),
+                        static_cast<unsigned long long>(registersDifferent));
+                fprintf(stderr, "cps3recomp: native object lists: %llu object DMAs compared (%llu heads), %llu different, %llu of the boot ROM's passed on\n",
+                        static_cast<unsigned long long>(lists), static_cast<unsigned long long>(heads), static_cast<unsigned long long>(listsDifferent),
+                        static_cast<unsigned long long>(listsBoot));
+                fprintf(stderr, "cps3recomp: native objects: %llu object DMAs compared (%llu objects), %llu different\n",
+                        static_cast<unsigned long long>(objectDmas), static_cast<unsigned long long>(objects), static_cast<unsigned long long>(objectsDifferent));
+                fprintf(stderr, "cps3recomp: native textures: %llu frames compared, %llu different\n", static_cast<unsigned long long>(frames),
+                        static_cast<unsigned long long>(texturesDifferent));
             }
         }
     } g_nativeTotals;
@@ -861,6 +891,98 @@ void Machine::NoteColourWrite(uint32 index) {
         return;
     }
     m_boardPaletteEvents.push_back({native::PaletteEvent::kColour, {value, index & 0x1FFFF, 1, 0}});
+}
+
+native::FrameRegisters Machine::BoardRegisters() const {
+    native::FrameRegisters r;
+    for (int i = 0; i < 8; i++) {
+        r.scroll[i][0] = static_cast<uint16>(m_videoRegs.globalScroll[i] >> 16);
+        r.scroll[i][1] = static_cast<uint16>(m_videoRegs.globalScroll[i]);
+    }
+    for (int n = 0; n < 4; n++) {
+        for (int k = 0; k < 8; k++) {
+            const uint32 word = m_videoRegs.tilemap[n * 4 + k / 2];
+            r.tilemap[n][k] = static_cast<uint16>(k & 1 ? word : word >> 16);
+        }
+    }
+    for (int h = 0; h < 16; h++) {
+        r.screen[h] = static_cast<uint16>(h & 1 ? m_videoRegs.crtc[h / 2] : m_videoRegs.crtc[h / 2] >> 16);
+    }
+    std::copy(m_ssRegs.begin(), m_ssRegs.end(), r.text);
+    return r;
+}
+
+// A frame register written by the boot ROM (not the game's code): passed on to the interface as the board has it now.
+// (Only the boot ROM writes these before the game's code starts; after, the rewrites alone.)
+void Machine::NoteRegisterWrite() {
+    if (m_cpu.PC < 0x80000) {
+        native.registers = BoardRegisters();
+    }
+}
+
+std::vector<native::ListHead> Machine::BoardLists() const {
+    std::vector<native::ListHead> heads;
+    for (uint32 i = 0; i < 0x2000 / 4; i += 4) {
+        const uint32 head = SpriteRam(i);
+        if (head & 0x80000000u) {
+            break;
+        }
+        heads.push_back({head, SpriteRam(i + 1), SpriteRam(i + 2)});
+    }
+    return heads;
+}
+
+// An object DMA the game starts: the heads it takes against those the game handed over (the boot ROM's, written since
+// the game last handed some over, passed on)
+void Machine::NativeCompareLists() {
+    NativeTotals &t = g_nativeTotals;
+    t.used = true;
+    std::vector<native::ListHead> board = BoardLists();
+    if (m_bootLists) {
+        native.lists = board;
+        m_bootLists = false;
+        t.listsBoot++;
+        return;
+    }
+    t.lists++;
+    t.heads += board.size();
+    if (board != native.lists) {
+        t.listsDifferent++;
+        size_t i = 0;
+        while (i < board.size() && i < native.lists.size() && board[i] == native.lists[i]) {
+            i++;
+        }
+        if (t.reports) {
+            t.reports--;
+            const native::ListHead none{}, &a = i < board.size() ? board[i] : none, &b = i < native.lists.size() ? native.lists[i] : none;
+            fprintf(stderr, "native lists, frame %llu: %zu heads (board) / %zu (native), the first to differ no. %zu: %08X %08X %08X / %08X %08X %08X\n",
+                    static_cast<unsigned long long>(m_frame), board.size(), native.lists.size(), i, a.head, a.position, a.settings, b.head, b.position,
+                    b.settings);
+        }
+    }
+}
+
+// ... and the objects the board's DMA made against those the native interface makes from what was handed over
+void Machine::NativeCompareObjects() {
+    NativeTotals &t = g_nativeTotals;
+    native::FlattenObjects(native.lists, native.registers, m_spriteRam.data(), native.objects);
+    t.objectDmas++;
+    t.objects += m_spriteCount;
+    bool same = native.objects.size() == m_spriteCount;
+    size_t i = 0;
+    for (; same && i < m_spriteCount; i++) {
+        const native::Object &o = native.objects[i];
+        same = o.group == m_spriteGroup[i] && o.words[0] == m_spriteList[i * 4] && o.words[1] == m_spriteList[i * 4 + 1] &&
+               o.words[2] == m_spriteList[i * 4 + 2] && o.words[3] == m_spriteList[i * 4 + 3];
+    }
+    if (!same) {
+        t.objectsDifferent++;
+        if (t.reports) {
+            t.reports--;
+            fprintf(stderr, "native objects, frame %llu: %u objects (board) / %zu (native), the first to differ about no. %zu\n",
+                    static_cast<unsigned long long>(m_frame), m_spriteCount, native.objects.size(), i ? i - 1 : 0);
+        }
+    }
 }
 
 void Machine::NativeCompare() {
@@ -901,6 +1023,29 @@ void Machine::NativeCompare() {
     }
     m_boardPaletteEvents.clear();
     native.paletteEvents.clear();
+    {
+        const native::FrameRegisters board = BoardRegisters();
+        if (!(board == native.registers)) {
+            t.registersDifferent++;
+            const uint8 *a = reinterpret_cast<const uint8 *>(&board), *b = reinterpret_cast<const uint8 *>(&native.registers);
+            size_t at = 0;
+            while (at < sizeof(board) && a[at] == b[at]) {
+                at++;
+            }
+            snprintf(text, sizeof(text), "frame registers different, the first at byte %zu of FrameRegisters: %02X (board) / %02X (native)", at,
+                     a[at], b[at]);
+            say(text);
+        }
+    }
+    if (memcmp(native.textures.Pixels(), m_charRam.data(), native::Textures::kSize) != 0) {
+        t.texturesDifferent++;
+        uint32 at = 0;
+        while (native.textures.Pixels()[at] == m_charRam[at]) {
+            at++;
+        }
+        snprintf(text, sizeof(text), "textures different, the first at %06X: %02X (board) / %02X (native)", at, m_charRam[at], native.textures.Pixels()[at]);
+        say(text);
+    }
     const uint16 *colours = native.palette.Colours();
     uint32 first = 0, count = 0;
     for (uint32 i = 0; i < native::Palette::kColours; i++) {

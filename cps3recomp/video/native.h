@@ -82,9 +82,84 @@ inline uint16_t FadeColour(uint16_t value, uint32_t fade) {
     return static_cast<uint16_t>((value & 0x8000) | r | (g << 5) | (b << 10));
 }
 
+// The registers the video chip takes once a frame, at the vertical blank (the game writes them all in its first 45
+// lines: no raster effects), as the game sets them, in 16-bit halves: what the native renderer reads as its frame's
+// settings (a GPU's uniforms)
+struct FrameRegisters {
+    // The object lists' eight global scrolls: x (10 bits) and y, by the list's scroll number
+    uint16_t scroll[8][2] = {};
+    // The four tilemaps: scroll x and y; the settings (high half: on 0x8000, line scroll 0x4000, flips 0x0800/0x0400;
+    // low half), the bases (high half: the line scroll table's and the map's places in sprite RAM, in KB) and a fourth
+    // the game leaves as it is
+    uint16_t tilemap[4][8] = {};
+    // The screen's timing and the whole picture's zoom (the board's eight words 040C0060-7F, in halves: the picture's
+    // edges in halves 0-3 and 8-11, the zooms in the low bytes of halves 7 and 15)
+    uint16_t screen[16] = {};
+    // The text layer's registers, a byte each (scrolls, palette base, its settings)
+    uint8_t text[0x30] = {};
+    bool operator==(const FrameRegisters &) const = default;
+};
+
+// An object list's head, as the game makes the frame's lists: where its objects are in sprite RAM and how many (and which
+// global scroll), its position, the settings for all its objects. The board's object DMA takes the heads at the next
+// vertical blank and flattens them with their objects into the frame's objects.
+struct ListHead {
+    uint32_t head = 0;     // bit 31 the end; 28-30 the global scroll; 16-24 the count; 4-14 the objects' place (16 bytes)
+    uint32_t position = 0; // x in bits 16-25, y in 0-9
+    uint32_t settings = 0; // bit 30: the list's bits a pixel for all, 29 its palette, 28/27 flips, 26 blend, 25 bits a
+                           // pixel, 16-24 the palette
+    bool operator==(const ListHead &) const = default;
+};
+
+// An object of the frame, its list's settings applied (what the board's object DMA makes of the heads and sprite RAM's
+// object words, and what a GPU makes quads of: a tile, or lines of a tilemap when it has no width): the tile and its
+// colour, flips, blend and bits a pixel (word 0), its place with the list's position and global scroll added (word 1:
+// x in 16-25, y in 0-9), its size and zoom (word 2), word 3 as the game left it; and the main list's head it came from
+struct Object {
+    uint32_t words[4] = {};
+    uint16_t group = 0;
+    bool operator==(const Object &) const = default;
+};
+// The frame's objects from the lists' heads, the frame's registers (the global scrolls) and sprite RAM's object words
+// (512 KB, big-endian: the game's own memory, read as it stands at the vertical blank), as the board's DMA has them
+// (MAME's rules: machine.cpp's SpriteDma, in the interface's terms): at most 511
+void FlattenObjects(const std::vector<ListHead> &heads, const FrameRegisters &registers, const uint8_t *spriteRam, std::vector<Object> &out);
+
+// The tiles the objects and tilemaps are drawn from: 8 MB of pixels, a byte each (16x16 tiles of 256 bytes), as the
+// character DMA's transfers bring them in from the graphics SIMMs (most compressed: 6 bits a pixel with runs, or 8 bits
+// with pairs from a table), and as the game's code writes a few itself (the DMA's own lists, a cleared area). What a
+// GPU keeps as its tile texture.
+class Textures {
+public:
+    static constexpr uint32_t kSize = 0x800000;
+    Textures();
+    // A character DMA's list (three longs a transfer, as the chip's list in character RAM has them, ended by a long with
+    // bit 24 set), its transfers made
+    void Load(const uint32_t *list, size_t longs, const uint8_t *graphics, size_t size);
+    // Bytes written by the game's code at a place in the 8 MB (big-endian, `bytes` of them from `value`'s low end)
+    void Write(uint32_t at, uint32_t value, int bytes);
+    const uint8_t *Pixels() const {
+        return m_pixels.data();
+    }
+    void Reset() {
+        m_table = 0xFFFFFFFF;
+    }
+    void Serialize(Archive &ar);
+
+private:
+    std::vector<uint8_t> m_pixels;
+    uint32_t m_table = 0xFFFFFFFF; // where in the graphics the compressed transfers' table of pairs is (a transfer sets it)
+};
+
 // What the game has handed over
 struct Video {
+    Textures textures;
     Palette palette;
+    FrameRegisters registers;
+    // The object lists' heads for the next object DMA (the last the game made), ended where the game ends them
+    std::vector<ListHead> lists;
+    // The frame's objects, made from the heads at the object DMA (FlattenObjects): what is drawn until the next
+    std::vector<Object> objects;
     // (the check: this frame's palette events as the rewrites made them)
     std::vector<PaletteEvent> paletteEvents;
     void Serialize(Archive &ar);

@@ -184,10 +184,40 @@ public:
     // and colour RAM: the board model is still what is drawn)
     void NativePaletteTransfer(const native::PaletteTransfer &t);
     void NativeColour(uint32 index, uint16 value);
+    // ... and the frame's registers, as the game sets them (null when the interface is not kept: nothing to hand over)
+    native::FrameRegisters *NativeRegisters() {
+        return native::On() ? &native.registers : nullptr;
+    }
+    // The frame's registers as the board holds them, in the interface's terms
+    native::FrameRegisters BoardRegisters() const;
+    // ... the object lists' heads the game made for the next object DMA
+    void NativeLists(std::vector<native::ListHead> heads) {
+        if (native::On()) {
+            native.lists = std::move(heads);
+            m_bootLists = false;
+        }
+    }
+    // ... a character DMA's list (its transfers made into the native textures), and bytes the game's code writes to
+    // character RAM, at their place in its 8 MB (the CPU's window's bank added)
+    void NativeCharacterList(const uint32 *list, size_t longs) {
+        if (native::On()) {
+            native.textures.Load(list, longs, m_rom.graphics.data(), m_rom.graphics.size());
+        }
+    }
+    void NativeCharacterWrite(uint32 at, uint32 value, int bytes) {
+        if (native::On()) {
+            native.textures.Write(at, value, bytes);
+        }
+    }
+    // The object lists' heads as sprite RAM holds them (as the object DMA reads them: up to the end)
+    std::vector<native::ListHead> BoardLists() const;
     // The check (CPS3RECOMP_NATIVE_CHECK=1, for the machine that runs the game whose code is rewritten): after every
     // frame, the palette events the board saw (its palette DMAs as its registers had them, the colours the game's code
     // wrote to colour RAM) against those the rewrites handed over, and colour RAM against the native palette. The boot
     // ROM's own colours (its memory test and warning screen: not the game's code) are passed on as they are written.
+    // And the frame's registers as the board latched them against those handed over (the boot ROM's passed on too), and
+    // at every object DMA the game starts, the lists' heads it takes against those handed over; and character RAM against
+    // the native textures, every frame (the boot ROM's writes to it passed on).
     // Reported at the end (NativeCheckReport)
     bool nativeCheck = false;
 
@@ -248,6 +278,20 @@ private:
     std::vector<native::PaletteEvent> m_boardPaletteEvents; // (the check: this frame's, as the board saw them)
     void NativeCompare();
     void NoteColourWrite(uint32 index);
+    void NoteRegisterWrite(); // (the check: a register written by the boot ROM passed on)
+    bool m_bootLists = false;  // (the check: the boot ROM has written list heads since the game last handed some over)
+    void NoteListWrite(uint32 address) {
+        if (nativeCheck && (address & 0x7FFFF) < 0x2000 && m_cpu.PC < 0x80000) {
+            m_bootLists = true;
+        }
+    }
+    void NativeCompareLists();
+    void NativeCompareObjects();
+    void NoteCharWrite(uint32 at, uint32 value, int bytes) {
+        if (nativeCheck && m_cpu.PC < 0x80000) {
+            native.textures.Write(at, value, bytes);
+        }
+    }
     uint64 m_dmaDoneAt = 0, m_spriteDmaDoneAt = 0; // 0: none pending
     FlashChip m_flash[7][8]; // [SIMM][chip]
 

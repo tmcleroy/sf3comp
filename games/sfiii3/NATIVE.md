@@ -141,9 +141,10 @@ text layer's registers, the status word and the two interrupts (as a timer).
 | Piece | Routines | Size | Check |
 | --- | --- | --- | --- |
 | Palette | 0x06137DF0, 0x06138168 (palette), 0x061388F0 | done | (a) all the same, 4 x 12000 frames |
-| Frame registers | 0x0612DDCC, 0x0612E610, 0x06005C00, 0x06005FB8, 0x0612E9C2-F6, 0x061388DA | small: six short routines | (a): the latched registers each frame |
-| Textures | 0x06138168 (characters, its rewrite done, the store's loader to write), the character request, 0x06137B08 | medium: the decompression as the store's loader | (a): character RAM against the store every frame |
-| Object lists | 0x06136F90 (+ the push and the flip), 0x061367FA | medium | (a): the board's flattened list (its DMA's) against the native lists' quads |
+| Frame registers | 0x0612DDCC, 0x0612E610 (with the text layer's scrolls), 0x06005C00, 0x06005FB8, 0x061388DA (video_registers.cpp) | done | (a) all the same: the latched registers every frame |
+| Textures | 0x06138168 (characters: the list's writes and its transfers handed over), 0x06136782 (video_textures.cpp); the store's loader (native.cpp, CharacterDma's rules) | done | (a) all the same: all 8 MB of character RAM against the store every frame |
+| Object lists' heads | 0x06136F90 (video_lists.cpp), 0x061367EE hooked (it waits on the DMA it starts) | done | (a) all the same: at every object DMA, the heads it takes against those handed over |
+| Objects | native::FlattenObjects: the heads, the registers and sprite RAM's object words flattened (SpriteDma's rules, in the interface's terms) | done | (a) all the same: the board's flattened list against the native objects, at every object DMA |
 | Native rasteriser | the toolkit: quads, layer lines, text, resolve, zoom | large (renderer.cpp's rules again, from the structs) | (b): pixels against renderer.cpp, every frame |
 | SDL_GPU renderer | the toolkit: instanced quads, layer lines, palette textures, resolve | large | (b) on a capture against the rasteriser |
 | DMA timer | the toolkit: status bits and level 10 without the chips | small | gates: state hashes the same with and without the chip functions |
@@ -151,6 +152,6 @@ text layer's registers, the status word and the two interrupts (as a timer).
 | Guest stages | New Generation's and 2nd Impact's same hand-offs (the shared engine: found by the census on their boards) | medium a game | (a) per producer, then the composed frame |
 | Board model out of the default build | machine.cpp's chip functions behind `--board` | small, last | every gate |
 
-Order: frame registers next (small, and they make the object lists checkable), then the object lists and the
-textures (with them the whole frame's interface exists), then the rasteriser and its pixel check, then the GPU
+Order: (done: the palette, the frame registers, the textures, the lists' heads, the objects: the whole frame's
+interface exists, level (a)) the rasteriser and its pixel check next, then the GPU
 renderer; sound events beside them (independent); guest stages once 3rd Strike's frame is native.

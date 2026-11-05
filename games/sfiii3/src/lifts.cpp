@@ -379,6 +379,9 @@ void RegisterFightBoxes();
 void RegisterBonusLifts();
 // The palette (video_palette.cpp): the first piece of the native video
 void RegisterVideoPalette();
+void RegisterVideoRegisters(); // (video_registers.cpp: the frame registers)
+void RegisterVideoLists();     // (video_lists.cpp: the object lists' heads)
+void RegisterVideoTextures();  // (video_textures.cpp: character RAM)
 
 void RegisterLifts3rdStrike() {
     RegisterGameLifts(kLifts, std::size(kLifts));
@@ -399,6 +402,9 @@ void RegisterLifts3rdStrike() {
     RegisterFightBoxes();
     RegisterBonusLifts();
     RegisterVideoPalette();
+    RegisterVideoRegisters();
+    RegisterVideoLists();
+    RegisterVideoTextures();
     AddHook("VerticalBlank", 0x06000528, 8, 0xF41697FE6C5AEE4Dull, VerticalBlank);
 }
 
