@@ -139,7 +139,8 @@ public:
     uint16 (*paletteColour)(uint32 word, uint32 index, uint16 colour) = nullptr;
     void WriteColour(uint32 index, uint16 value) {
         SetColour(index, value, 0);
-        if (NativeTaking()) {
+        // (whenever the interface is kept: written between frames (the colour editor), whatever the last frame took)
+        if (native::On()) {
             native.palette.Set(index, value);
         }
     }
