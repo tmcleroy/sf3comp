@@ -985,10 +985,45 @@ void Machine::RestoreStage(const std::vector<uint8_t> &data) {
     machine::g_flashPlain = plain;
 }
 
+namespace {
+    // (CPS3RECOMP_STAGE_TIMES=FROM: the stage boards' frames' CPU time (the thread's), each shown frame from FROM on,
+    // mean and 99th percentile at the end)
+    struct StageTimes {
+        std::vector<double> times;
+        ~StageTimes() {
+            if (times.empty()) {
+                return;
+            }
+            double sum = 0;
+            for (double t : times) {
+                sum += t;
+            }
+            std::sort(times.begin(), times.end());
+            fprintf(stderr, "cps3recomp: the stage boards' frames: %zu shown frames, %.3f ms CPU a frame (mean), %.3f ms (99th percentile)\n",
+                    times.size(), 1000 * sum / static_cast<double>(times.size()), 1000 * times[std::min(times.size() - 1, times.size() * 99 / 100)]);
+        }
+    } g_stageTimes;
+    double ThreadSeconds() {
+        timespec t;
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t);
+        return static_cast<double>(t.tv_sec) + static_cast<double>(t.tv_nsec) * 1e-9;
+    }
+} // namespace
+
 void Machine::StepStage() {
     if (!m_stage) {
         return;
     }
+    static const long long timesFrom = getenv("CPS3RECOMP_STAGE_TIMES") ? atoll(getenv("CPS3RECOMP_STAGE_TIMES")) : -1;
+    const double timedFrom = timesFrom >= 0 && static_cast<long long>(frame) >= timesFrom ? ThreadSeconds() : 0;
+    struct Timed {
+        double from;
+        ~Timed() {
+            if (from) {
+                g_stageTimes.times.push_back(ThreadSeconds() - from);
+            }
+        }
+    } timed{timedFrom};
     const int frames = stageFramesNow ? std::max(1, stageFramesNow()) : 1;
     // (the runtime runs the stage board's own code while it runs: its memory and its code's map; and the flash's
     // state, a global the translated code reads, is this board's again after it)

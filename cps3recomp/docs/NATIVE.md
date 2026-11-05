@@ -266,6 +266,27 @@ own palette and texture pages, a NativeGpu of its own) the same as the CPU; comp
 is the GPU side's to do. Still as before: the board model draws the stage frames shown (the presenter's GPU path is
 for plain frames), the second stage board's slide and blend, the stage alone.
 
+**As built (2026-11-05, later), one frame and the stage alone**: the guest's stage layers go into the game's frame as a
+second producer's: `native::AddGuest` builds the guest's draw list (its objects a `KeepObject` says are its stage, its
+tilemaps' lines, with the game's margin) and adds its tiles to the game's frame marked `Tile::producer` 1, with its
+zoom (`Frame::guestScreen`) and its palette and textures (`Frame::guestVideo`). The rasteriser draws them into a buffer of
+their own and resolves the two in one pass: the guest's colour number through its palette, then the game's over it by
+the overlay's rule (where the game drew nothing the guest's shows; a blend of the game's over nothing of its own scales
+the guest's colour by its bank's scales, `native::BlendScales`), the text layer the game's (`Rasteriser::DrawWithGuest`,
+`DrawFrame` for a frame made before). The GPU the same: the tiles pass bins the guest's tiles into rows 448-895 of the
+colour-number texture (1024 x 896 now), reading its textures from the second 8 MB of the textures buffer; the resolve
+pass reads both rows, the guest's palette after the game's and the 48 scales after both. So no second picture is drawn
+or handed between the two: `Machine::DrawWithStage` on the CPU, and frames with a stage made for the GPU in a window
+(`Machine::KeepGpuGuest`: the guest's interface as it was at the frame's end; an owed CPU picture drawn from the kept
+frame). Checked: "native pixels with a stage" (the one frame against the two board models' composition) and "native GPU
+pixels with a stage" (the GPU's one frame against the CPU's) all the same; the window's twin (CPS3RECOMP_PRESENT_COMPARE=1)
+the same. The guest itself is no longer a game played behind its stage: its stage code alone runs on its board
+(games/sfiii3/DEFINITIVE.md, "The way"), as cps2recomp's `guest_stages::Guest::StageAlone` (fight/guest_stages.h there)
+does for Vampire Savior, with these differences: the CPS-3 games' main loop is a task scheduler, so the routine
+replaced is the game task's modes (the title's and the game's, by its first step), not a loop's top; the screen's set-up
+waits for things, so it is jumped to (`Guest::Jump`, its way back on the stack) rather than called; and the guest's
+picture is not composed with the game's but drawn in the game's frame.
+
 ### Timing: what stays
 
 The game's slowdown is its CPU's: the main loop does a frame's work and waits for the vertical blank's count to move

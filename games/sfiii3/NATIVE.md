@@ -189,6 +189,15 @@ registers, textures, lists, objects), and the picture of its stage layers under 
 board models' composed picture, all the same (CPU; the GPU's picture of each part against the CPU's, all the same). A
 place set wrong (New Generation's screen place 2 off) is found: the stage board's lists and objects different.
 
+**The stage alone, one frame (2026-11-05).** The stage board no longer plays a match: its game task's modes are replaced
+by the stage's own routines (DEFINITIVE.md, "The way": the screen set up afresh, the stage built, then each frame the
+stage's frame and the effects' queues and lists), found from 3rd Strike's match's set-up and frame (0x06095AA0,
+0x06095B24), whose stage parts New Generation's (0x0602BFC0, 0x0602C04E) and 2nd Impact's (0x06085894, 0x06085916)
+have in the same order. Its hand-offs reach its interface as before, from its vertical blank. And its stage layers are
+drawn as part of 3rd Strike's frame: a second producer's tiles (video/raster.h, Frame::guest), one rasteriser, the same
+on the GPU; checknative.sh's stage runs compare that frame with the two board models' composed picture (CPU) and the
+GPU's with the CPU's.
+
 ## What stays plain memory
 
 Sprite RAM's object words and tilemaps (04002000 on), SS RAM (the text map and characters), the voices' registers
@@ -210,11 +219,11 @@ text layer's registers, the status word and the two interrupts (as a timer).
 | SDL_GPU renderer | the toolkit (port/native_gpu.cpp): two compute passes from BuildFrame's tiles, the palette, the textures by page, the text layer; shown by the presenter (Presenter::ShowNative), the window's default picture (2026-11-05; off by default for a few hours that day while offscreen runs' unwaited frames starved the Mac's WindowServer, back on with each offscreen frame waited for: cps3recomp/docs/NATIVE.md); a third pass puts the HUD, status lines, online names, zoom and menu over it | done for the plain picture and what the port puts over it | (b) all the same: the GPU's picture as the presenter shows it (render pass, 1:1) against the rasteriser's, every frame; 15 runs of 3000 frames with 0 different |
 | DMA timer | the toolkit: status bits and level 10 without the chips | small | gates: state hashes the same with and without the chip functions |
 | Sound events | 0x0613B3CC (every voice write and key site of the driver's step), 0x06139316 (set-up), 0x0613A334 (all off) (sound_driver.cpp; 0x0613A272, resume, written but left unregistered: nothing reaches it); the native mixer (sound/native_sound.cpp) | done | (c) all the same: samples against pcm.cpp, voice by voice, every frame (checksound.sh) |
-| Guest stages | New Generation's and 2nd Impact's same hand-offs (the shared engine: the same rewrites on each game's places, src/video_games.cpp, run dry on the stage board) | done on the producer's side; the GPU's composition of the two to come | (a) per producer, all the same; (b) the composed picture, all the same (CPU), each producer's part (GPU) |
+| Guest stages | New Generation's and 2nd Impact's same hand-offs (the shared engine: the same rewrites on each game's places, src/video_games.cpp, run dry on the stage board); their stages from their stage code alone (src/stages.cpp, StageAlone); one frame of the two producers (video/raster.cpp AddGuest, DrawWithGuest; port/native_gpu.cpp) | done | (a) per producer, all the same; (b) the one frame against the composed board models, all the same (CPU), the GPU's against the CPU's; the stage alone against the match's (SFIII3_STAGE_COMPARE=1: DEFINITIVE.md) |
 | Board model out of the default build | the picture from the interface by the CPU's rasteriser (system.cpp: Compose, DrawLayers), the board's video memories from the interface (machine.cpp: NativeMakes, TakeFromNative); renderer.cpp and the DMAs' model behind `--board` and in the checks | done for the video (CPU) | every gate; default against `--board` the same (state hashes, saved states) |
 
 Order: (done: the palette, the frame registers, the textures, the lists' heads, the objects: the whole frame's
 interface exists, level (a); the rasteriser, level (b), for the plain picture and widescreen; the GPU renderer, the
 window's default picture for frames drawn the plain way, 2026-11-05: cps3recomp/docs/NATIVE.md, "The presenter's GPU
 path"; the HUD, status lines, menu and zoom as a GPU layer over it) the rasteriser's features' object choices (the stage boards, objects left out); (sound events: done);
-guest stages once 3rd Strike's frame is native.
+guest stages once 3rd Strike's frame is native (done 2026-11-05: the stage alone, one frame).

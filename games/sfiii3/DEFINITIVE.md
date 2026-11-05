@@ -1,11 +1,83 @@
 # The definitive version: 3rd Strike with New Generation's and 2nd Impact's stages and music
 
-## The way: two boards, one picture
+## The way: the guest's stage code alone, one frame (2026-11-05)
 
-3rd Strike plays the fight on its own board, as it is. Beside it a second board runs New Generation or 2nd Impact in a
-fight on the stage wanted, unseen and unheard but for its stage: its camera follows 3rd Strike's, and the picture is
-its stage with 3rd Strike's fighters, effects and HUD drawn over it. The same way cps2recomp's battles put fighters over
-a stage another machine shows (fight/battle.h there).
+3rd Strike plays the fight on its own board, as it is. Beside it the stage board holds New Generation's or 2nd Impact's
+program and RAM, but no game of theirs is played on it: no mode, character select, fighters or match. It is started
+once, with no controls, and kept where its game task runs the game's modes each frame (the title's and attract mode's
+routine and the game's, by the task's first step: New Generation's 0x0602B454 and 0x0602B9BE, 2nd Impact's 0x06084C5C
+and 0x06085298), which a lift replaces (src/stages.cpp, `StageAlone`, `AloneFrame`). The first time it gets there (its
+start-up done, about 400 of its frames, run 16 a shown frame) it is kept, and every stage of that game starts from there:
+
+- **Built**, as the match's set-up builds it: the screen set up afresh (New Generation's 0x0602A69E, 2nd Impact's
+  0x06083B8E: the DMA queue, character RAM's areas, the object lists and layers; it waits for the object DMA and a frame,
+  so it is jumped to, with its way back to the lift kept, rather than called), then the stage's number at its head's
+  +4 and +5 (where the stage's choice puts it) and the game's stage byte, the match's set-up's clearing (four words and a
+  byte), the effects' lists emptied, the stage's state cleared and its first step (New Generation: 0x0609104C,
+  0x0607C054, 0x06079CB8, 0x06079FF0; 2nd Impact: 0x060C072C, 0x060A2438, 0x060A0158, 0x060A0480). New Generation's
+  match's set-up also asks for colours (0x0608BC5E, r4 1), and so does this.
+- **Each frame** only the stage's routines, those of the match's frame that are the stage's: the stage's frame (its
+  head's step: 0 its set-up, the layers, the textures and colours asked for; then its frame, the stage's own routine by
+  number), the effects' two queues and seven lists (the stage's people, waterfalls and things are effects: New
+  Generation 0x0608EF88 and 0x06090F34, 2nd Impact 0x060BE46C and 0x060C0614). Then the game task goes on as after its
+  modes: the objects' lists flipped, its wait for the frame.
+- **The frame's hand-off** is the board's vertical blank, as the game's own: its video hand-offs run dry into the stage
+  board's own native interface (video_games.cpp), its DMA-done interrupt chains the textures and colours the stage asked
+  for, its sound driver plays. The interrupts are kept: on the CPS-3 the frame's hand-offs and the sound driver are the
+  vertical blank's own code (there is no sound CPU), and they are the game's.
+- **The camera in**: as before, the words the stage's camera code reads: its fighters' records' places (+0x64 across,
+  +0x68 up) and the camera words, given from 3rd Strike's camera (BeforeStage). Nothing else of 3rd Strike's reaches it.
+- **The music**: the game's own routine for the stage's tune, called once its stage's frame runs (New Generation's
+  0x0602940C, by the head's stage number from a table; 2nd Impact's 0x06082848, r4 the stage's number): the same tune
+  the round's management asks for in a match (New Generation's Ken stage: the same song data, 0x0638DC9A, both ways).
+  The board's sound is made as it was: its driver writes its sound chip, the stage board's pcm.cpp mixes it, and that is
+  added to 3rd Strike's in a fight on the stage with 3rd Strike's music's voices left out (Machine::stageSound,
+  board.silenced). What is different is only what the driver is asked for: the stage's tune and nothing else (no
+  announcer, no fighters' voices or effects of a hidden match). Not changed: the guest's sound on the native mixer
+  (native_sound.h) would need New Generation's and 2nd Impact's drivers' rewrites or hooks of their own (their request
+  side is not 3rd Strike's: 0x063CD87C, 0x060F9D18), so the stage board's sound stays pcm.cpp's.
+
+**One frame.** The stage board's stage layers (its objects that `StageWords` says are its stage, its tilemaps' lines,
+with its own palette and textures) are a second producer's tiles in 3rd Strike's frame (video/raster.h, `Frame::guest`,
+`AddGuest`), drawn by one rasteriser (`Rasteriser::DrawWithGuest`) and on the GPU by the same passes (port/native_gpu.cpp:
+the guest's buffer in rows 448 on, its textures the second 8 MB, its palette and 3rd Strike's blends' scales after 3rd
+Strike's), under 3rd Strike's layers by the rule the two pictures were composed by: where 3rd Strike drew nothing the
+stage shows, and 3rd Strike's shadows (a blend over nothing of its own) darken the stage's colour as they do 3rd Strike's.
+No picture is handed between the two boards; in a window the GPU draws frames with a stage too (Machine::DrawWithStage,
+KeepGpuGuest). The modes' own 3rd Strike stages behind their fighters (battle.cpp: a 3rd Strike stage board, a second
+one sliding or fading in, darkened) are still composed as two pictures.
+
+**Before** (until 2026-11-05): the stage board played a hidden match on the chosen stage, coins, Start and a character on
+its way there (8 of its frames a frame), its clock and health held, its fighters made players' so that they stood. That
+way is kept behind SFIII3_STAGE_MATCH=1, for the check below.
+
+**The check** (SFIII3_STAGE_COMPARE=1): the stage board plays the match as before (the reference, shown), and before the
+frame its match is set up a second board is made as it is then, and makes the stage alone from there; each frame it is
+given what the match hands the match's stage (taken at the stage's frame routine: the fighters' records, the camera held
+and its reasons, the scripted moves' speeds and the zoom's asks, the head's stops, scripted moves and shakes, the dice's
+counters and the hit stop's and frame count's words: `StageAlone::matchHands`), and the two stages are compared each
+frame: their stage layers drawn alone (pixels), their stage objects (the three words drawn, not the tilemaps' line
+objects nor the blank filler objects whose places the fighters take) and tilemap registers, and 3rd Strike's frame
+composed over each. Both boards run one frame a frame. Results (2026-11-05, 5000 frames each, made-up play seed 7 and a
+widescreen versus game seed 31, the camera given across most of each stage):
+
+| | stages | stage layers different | composed picture different |
+| --- | --- | --- | --- |
+| New Generation, seed 7 | all 13 | 0 of 3466-3546 frames each | 0 |
+| New Generation, seed 31, widescreen | all 13 | 0 | 0 |
+| 2nd Impact, seed 7 | 12 of 15 | 0 of 3644 each | 0 |
+| | Ryu's (2), Dudley's (4) | 1 frame each (the fight's second) | 1 |
+| | Yang's (10) | 127 frames | 126 |
+| 2nd Impact, seed 31, widescreen | 12 of 15 | 0 | 0 |
+| | Ryu's, Dudley's | 1 frame each | 1 |
+| | Yang's | 480 frames | 480 |
+
+The objects of both Necro stages differ in their tile numbers only (the match's set-up takes character RAM's areas in
+another order: the textures 0x60 tiles further on), the pixels the same. 2nd Impact's Yang stage: its far tilemap is
+2 columns behind the match's now and then (its scroll register 0x140 against 0x142), the rest of the stage the same.
+Not found yet; ruled out: the fighters' records, the dice, the hit stop, the camera held and zoom's asks, the frame's
+shake and offsets, all of RAM below the stage's head and the low RAM (handed whole: no change), a match frame that runs
+long (none) or late (its stage's frame runs at 0.10-0.12 of the frame).
 
 Proved with `sfiii3-headless --stage-cfg games/sfiii2n/game.cfg --stage-rom sfiii2n.zip` (an experiment in
 port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbour stage, its camera following.
@@ -97,6 +169,8 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
 
 1. The stage board on the stage chosen, its way to a fight worked unseen and held there: done (every stage of both
    games in the choice; four of its frames a frame on its way, so it is there when 3rd Strike's fight starts).
+   2026-11-05: replaced by the stage alone ("The way"): a stage is built from the kept start-up in two of its frames,
+   so the opponent's comes at once and "load ahead" (stages_preload) is passed over for these games.
 2. Its music in place of 3rd Strike's: done; to listen to, and the stage board's own effects (its round's announcer
    before 3rd Strike's fight starts is not heard: its sound is only mixed in during a fight). A custom soundtrack's
    file, when one plays, is heard in place of both.
@@ -145,5 +219,7 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
    and RAM (no video chip model for it). The interface is to be designed with this in mind from the start.
    2026-11-05, the producer's side done: both stage games hand their frames to the stage board's own interface
    (their hand-off routines are 3rd Strike's, run dry on it: games/sfiii3/NATIVE.md, "Guest stages"), and the
-   picture made from the two interfaces' layers is the board models' (checknative.sh's stage runs). The GPU drawing
-   the two as one frame, and the board model out of the stage board, are next.
+   picture made from the two interfaces' layers is the board models' (checknative.sh's stage runs).
+   2026-11-05, later: done. The stage from the stage games' stage code alone (no match), and drawn with 3rd Strike's
+   layers as one frame by one renderer, the CPU's and the GPU's ("The way", above). Still the board's on the stage
+   board: its sound (pcm.cpp), its frame's interrupts and DMA timing (the game's own code, as on 3rd Strike's board).

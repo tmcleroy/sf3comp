@@ -19,8 +19,9 @@
 # screens between), a two-player versus game (with widescreen and its invisible walls: the margin and the world's shift), a training
 # session, and two games on a guest stage (New Generation's in the one-player game, 2nd Impact's in the versus game with widescreen):
 # there the stage board's hand-offs (its game's rewrites run dry on it, src/video_games.cpp) are compared with its chips
-# as the game board's are, and the picture of its layers under 3rd Strike's (the CPU's) with the two board models'
-# composed picture, and the GPU's picture of each producer's layers with the CPU's. Then the same rewrites against the game's own
+# as the game board's are, and the one frame of its stage's layers under 3rd Strike's (the CPU's) with the two board
+# models' composed picture, and the GPU's picture of the same frame with the CPU's (New Generation's stage made from its
+# stage code alone, src/stages.cpp's StageAlone; 2nd Impact's with its match played behind it). Then the same rewrites against the game's own
 # code (CPS3RECOMP_LIFT_CHECK, with only them registered) over attract mode and the one-player game. Exit 0 when all
 # the same.
 #
@@ -33,6 +34,8 @@
 # code.)
 # CHECKNATIVE_NO_REWRITES=1: the native runs with the game's own code in place of the rewrites and no dry runs
 # (nothing handed over), to see that the check finds that
+# CHECKNATIVE_JOBS: how many runs at once (6: each takes about 1 GB; all eight at once filled a 16 GB Mac's memory with
+# the other checks)
 ROM=${1:?usage: checknative.sh ROM [BUILD] [FRAMES]}
 BUILD=${2:-build/sfiii3}
 FRAMES=${3:-12000}
@@ -45,10 +48,15 @@ NAMES=(attract cpu7 versus training stage-ng stage-2i)
 ARGS=("" "--auto 7:300:1" "--auto 31:300:2 --features widescreen,widescreen_walls" "--keys 30:ctraining_start --auto 3:300:1"
     "--auto 7:300:1 --features stages=12" "--auto 31:300:2 --features stages=25,widescreen,widescreen_walls")
 status=0
-pids=()
+JOBS=${CHECKNATIVE_JOBS:-6}
 run() { # name kind args...
     local name=$1 kind=$2
     shift 2
+    # (JOBS at a time; each run's exit status kept in a file: macOS's bash 3.2 forgets a job that ended while `jobs` was
+    # asked, and then cannot `wait` for it)
+    while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do
+        sleep 1
+    done
     if [ "$kind" = native ]; then
         # shellcheck disable=SC2068
         (
@@ -61,23 +69,31 @@ run() { # name kind args...
             # from WindowServer until the watchdog restarted the Mac (twice, 2026-11-05). lockf lets go when the run ends. The lock is shared by every recomp project on this Mac (agreed with the cps2recomp and naomicomp sessions), and a run is ended after 30 minutes.
             gpulock=()
             [ -z "$CHECKNATIVE_NO_GPU" ] && gpulock=(lockf -k /tmp/recomp-gpu.lock gtimeout -k 30 1800)
-            CPS3RECOMP_STAGE_LOG=1 CPS3RECOMP_NATIVE_CHECK=1 exec nice -n 20 "${gpulock[@]}" "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$FRAMES" \
+            CPS3RECOMP_STAGE_LOG=1 CPS3RECOMP_NATIVE_CHECK=1 nice -n 20 "${gpulock[@]}" "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$FRAMES" \
                 --settings "$OUT/$name.ini" --eeprom "$OUT/$name.bin" "${timing[@]}" $@ > /dev/null 2> "$OUT/$name.log"
+            echo $? > "$OUT/$name.status"
         ) &
     else
         # shellcheck disable=SC2068
-        SFIII3_LIFTS_ONLY="$REWRITES" CPS3RECOMP_LIFT_CHECK=1 nice -n 20 "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$FRAMES" \
-            --settings "$OUT/$name.ini" --eeprom "$OUT/$name.bin" $@ > /dev/null 2> "$OUT/$name.log" &
+        (
+            SFIII3_LIFTS_ONLY="$REWRITES" CPS3RECOMP_LIFT_CHECK=1 nice -n 20 "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$FRAMES" \
+                --settings "$OUT/$name.ini" --eeprom "$OUT/$name.bin" $@ > /dev/null 2> "$OUT/$name.log"
+            echo $? > "$OUT/$name.status"
+        ) &
     fi
-    pids+=($!)
 }
 for i in "${!NAMES[@]}"; do
     run "${NAMES[$i]}" native ${ARGS[$i]}
 done
 run lifts-attract lifts
 run lifts-cpu7 lifts --auto 7:300:1
-for pid in "${pids[@]}"; do
-    wait "$pid" || { echo "a run failed"; status=1; }
+wait
+for name in "${NAMES[@]}" lifts-attract lifts-cpu7; do
+    if [ "$(cat "$OUT/$name.status" 2>/dev/null)" != 0 ]; then
+        echo "$name: the run failed"
+        tail -3 "$OUT/$name.log"
+        status=1
+    fi
 done
 for name in "${NAMES[@]}"; do
     if [ -n "$CHECKNATIVE_ARCADE" ]; then
@@ -134,8 +150,9 @@ for name in "${NAMES[@]}"; do
     fi
     case $name in stage-*)
         # The guest stage: the stage board's own hand-overs (its rewrites run dry on it, video_games.cpp) are in the
-        # lines above beside the game board's; the picture of its layers under 3rd Strike's against the two board
-        # models' composed picture; the GPU's picture of each producer's layers against the CPU's
+        # lines above beside the game board's; the one frame of the two producers' layers (its stage's under 3rd
+        # Strike's), drawn by the native rasteriser, against the two board models' composed picture; and the GPU's
+        # picture of the same one frame against the CPU's
         line=$(grep "cps3recomp: a second board runs" "$OUT/$name.log")
         echo "$name: ${line#cps3recomp: }"
         [ -z "$line" ] && status=1
@@ -149,10 +166,10 @@ for name in "${NAMES[@]}"; do
             status=1
         fi
         if [ -z "$CHECKNATIVE_NO_GPU" ]; then
-            line=$(grep "cps3recomp: native GPU pixels of a stage board:" "$OUT/$name.log")
-            echo "$name: GPU pixels of the stage board: ${line#cps3recomp: native GPU pixels of a stage board: }"
+            line=$(grep "cps3recomp: native GPU pixels with a stage:" "$OUT/$name.log")
+            echo "$name: GPU pixels with a stage: ${line#cps3recomp: native GPU pixels with a stage: }"
             if [ -z "$line" ] || ! echo "$line" | grep -q ", 0 different$"; then
-                grep "^native GPU pixels of a stage board" "$OUT/$name.log" | head -3
+                grep "^native GPU pixels with a stage" "$OUT/$name.log" | head -3
                 status=1
             fi
         fi

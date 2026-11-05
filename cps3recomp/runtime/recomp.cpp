@@ -1546,6 +1546,9 @@ uint32_t &Guest::R(unsigned n) {
 uint32_t Guest::PR() const {
     return m_dry ? m_dry->pr : m_cpu.PR;
 }
+void Guest::SetPR(uint32_t pr) {
+    (m_dry ? m_dry->pr : m_cpu.PR) = pr;
+}
 uint32_t Guest::PC() const {
     return m_dry ? m_dry->pc : m_cpu.PC;
 }
@@ -1688,6 +1691,16 @@ void Guest::Return(uint64_t cycles) {
         return;
     }
     m_cpu.PC = m_cpu.PR;
+    m_cpu.m_cyclesExecuted += cycles;
+}
+
+void Guest::Jump(uint32_t address, uint64_t cycles) {
+    if (m_dry) {
+        m_dry->pc = address;
+        m_dry->cycles += cycles;
+        return;
+    }
+    m_cpu.PC = address;
     m_cpu.m_cyclesExecuted += cycles;
 }
 

@@ -61,6 +61,7 @@ public:
     }
     uint32_t &R(unsigned n);
     uint32_t PR() const;
+    void SetPR(uint32_t pr);
     uint32_t PC() const; // (in a lift or hook, before it has done anything: the routine's own address)
     uint32_t GBR() const;
     bool T() const;
@@ -78,6 +79,9 @@ public:
     void Call(uint32_t address);
     // Leaves the routine as rts does; `cycles` is the time it is said to have taken
     void Return(uint64_t cycles = 100);
+    // Leaves the routine as a jump to another does (a tail call: that one returns to this one's caller), the game's code
+    // run from there as ever (so it may wait for things, as Call's may not)
+    void Jump(uint32_t address, uint64_t cycles = 10);
     // The board this CPU is on: for rewrites that hand the native interface what they draw (video/native.h)
     machine::Machine &Board();
     // (in a hook) Whether the rewrites run now, by the dispatcher's rule: not with CPS3RECOMP_NO_REWRITES, and with the

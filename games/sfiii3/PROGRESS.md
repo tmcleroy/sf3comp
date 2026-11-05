@@ -131,6 +131,12 @@ timing"): `CHECKNATIVE_ARCADE=1 checknative.sh` all the same, the state hashes t
 Guest stages (2026-11-05): New Generation's and 2nd Impact's hand-offs are 3rd Strike's routines on their own places
 (src/video.h, video_games.cpp), run dry on the stage board into its own interface; the picture made from the two
 interfaces' layers is the board models' (checknative.sh's stage runs, CPU; each producer's part on the GPU).
+Later that day: no match is played behind a borrowed stage any more. The stage board runs only the guest's stage code
+(its game task's modes replaced: the stage built, then each frame its stage's frame and effects; its tune by the game's
+own routine), and its stage layers are drawn with 3rd Strike's as one frame by one renderer, CPU or GPU (DEFINITIVE.md,
+"The way"). Checked against the match's stage given the same inputs, frame for frame: New Generation's 13 stages all the
+same, 2nd Impact's 12 of 15 (Ryu's and Dudley's one frame each, Yang's far layer 2 columns off on 127 of 3644 frames;
+DEFINITIVE.md).
 Sound, level (c), done: the driver's voice step, set-up, all-off and resume rewritten (src/sound_driver.cpp) to hand
 voice events (key on and off, the sample, looping, pitch, volume) to a native mixer (cps3recomp/sound/native_sound.h);
 checksound.sh compares the mixer's samples with pcm.cpp's, voice by voice, every frame of the same four runs (12000 frames each:
