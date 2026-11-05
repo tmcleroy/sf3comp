@@ -51,17 +51,23 @@ while [ -n "$left" ]; do
     pids=()
     for i in "${!NAMES[@]}"; do
         name=${NAMES[$i]}
+        # (each run's exit status kept in a file: macOS's bash 3.2 forgets a job that ended while `jobs` was asked, and then
+        # cannot `wait` for it)
         # shellcheck disable=SC2086
-        CPS3RECOMP_POKE="${POKES[$i]}" SFIII3_LIFTS_ONLY="$only" CPS3RECOMP_LIFT_CHECK=1 nice -n 20 "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$FRAMES" \
-            --settings "$OUT/$name-$round.ini" --eeprom "$OUT/$name-$round.bin" ${ARGS[$i]} > /dev/null 2> "$OUT/$name-$round.log" &
+        (
+            CPS3RECOMP_POKE="${POKES[$i]}" SFIII3_LIFTS_ONLY="$only" CPS3RECOMP_LIFT_CHECK=1 nice -n 20 "$BUILD/sfiii3" --rom "$ROM" --headless \
+                --frames "$FRAMES" --settings "$OUT/$name-$round.ini" --eeprom "$OUT/$name-$round.bin" ${ARGS[$i]} > /dev/null 2> "$OUT/$name-$round.log"
+            echo $? > "$OUT/$name-$round.status"
+        ) &
         pids+=($!)
         # (six at a time)
         while [ "$(jobs -rp | wc -l)" -ge 6 ]; do
             sleep 1
         done
     done
+    wait
     for i in "${!NAMES[@]}"; do
-        if ! wait "${pids[$i]}"; then
+        if [ "$(cat "$OUT/${NAMES[$i]}-$round.status" 2>/dev/null)" != 0 ]; then
             echo "round $round, ${NAMES[$i]}: the run failed"; tail -3 "$OUT/${NAMES[$i]}-$round.log"; status=1
         fi
     done
