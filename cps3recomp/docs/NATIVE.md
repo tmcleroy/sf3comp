@@ -136,7 +136,7 @@ run for it:
   run-ahead's frames, the menu's, a stage board's or a headless run's, which so cost nothing more. The object DMA
   flattens the handed-over lists into the frame's objects as the check does.
 - **In step with the board** (`machine::Machine::NativeInSync`): a frame is in step when the game's code handed over its
-  lists' heads and its registers (the rewrites ran: not under arcade timing's own code, not CPS3RECOMP_NO_REWRITES). A
+  lists' heads and its registers (the rewrites ran, or under arcade timing their dry runs; not with CPS3RECOMP_NO_REWRITES). A
   frame that hands over after one that did not, or after a state was put back, first makes the interface again from the
   board's memories (`SyncNative`: colour RAM, the character RAM pages whose stamps changed since the two last agreed, the
   latched registers, the lists' heads, the flattened objects).
@@ -144,7 +144,8 @@ run for it:
   and without the GPU path exchange the same states, and run-ahead's and rollback's states copy nothing more.
   CPS3RECOMP_NATIVE_SYNC_CHECK=1 compares the interface with the board every frame it is in step: 0 different over
   attract mode, a one-player game, a versus game, a rollback test, run-ahead 2 and a state saved and loaded (6000
-  frames each), and the state hashes the same as with the interface not kept.
+  frames each; and 3000 frames of a versus game under arcade timing, by its dry runs), and the state hashes the same
+  as with the interface not kept.
 - **The frame** (`Machine::gpuPicture`, set by the port each frame: the GPU presenter, the menu closed, no run-ahead,
   and the last frame shown could have been the GPU's): drawn the plain way (no stage board, nothing left out, the panel
   and the backdrop the board's) and in step, it is made ready (`native::BuildFrame`, `Machine::GpuFrame`) and the CPU's
