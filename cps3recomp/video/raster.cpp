@@ -125,87 +125,87 @@ void BuildDrawList(const std::vector<Object> &objects, const FrameRegisters &r, 
     }
 }
 
-namespace {
-    // A 16x16 tile zoomed into the buffer as colour numbers (a pixel of 0 not drawn; a blend sets bits of what is under it)
-    void DrawTile(uint32_t *buffer, int stride, const uint8_t *textures, const Clip &clip, uint32_t code, uint32_t colour, int granularity, bool flipX,
-                  bool flipY, int sx, int sy, bool blend, uint32_t scaleX, uint32_t scaleY) {
-        if (!scaleX || !scaleY) {
-            return;
-        }
-        const uint32_t paletteBase = (static_cast<uint32_t>(granularity) * colour) & 0x1FFFF;
-        const uint8_t *source = textures + static_cast<size_t>(code & 0x7FFF) * 256;
-        const int height = static_cast<int>((scaleY * 16 + 0x8000) >> 16), width = static_cast<int>((scaleX * 16 + 0x8000) >> 16);
-        if (!width || !height) {
-            return;
-        }
-        int dx = (16 << 16) / width, dy = (16 << 16) / height;
-        int ex = sx + width, ey = sy + height;
-        int xBase = 0, yIndex = 0;
-        if (flipX) {
-            xBase = (width - 1) * dx;
-            dx = -dx;
-        }
-        if (flipY) {
-            yIndex = (height - 1) * dy;
-            dy = -dy;
-        }
-        if (sx < clip.left) {
-            xBase += (clip.left - sx) * dx;
-            sx = clip.left;
-        }
-        if (sy < clip.top) {
-            yIndex += (clip.top - sy) * dy;
-            sy = clip.top;
-        }
-        ex = std::min(ex, clip.right + 1);
-        ey = std::min(ey, clip.bottom + 1);
-        if (ex <= sx) {
-            return;
-        }
-        for (int y = sy; y < ey; y++, yIndex += dy) {
-            const uint8_t *row = source + (yIndex >> 16) * 16;
-            uint32_t *dest = &buffer[static_cast<size_t>(y) * stride];
-            int xIndex = xBase;
-            for (int x = sx; x < ex; x++, xIndex += dx) {
-                const uint8_t c = row[xIndex >> 16];
-                if (!c) {
-                    continue;
-                }
-                if (!blend) {
-                    dest[x] = c | paletteBase;
-                } else if (granularity == 64) {
-                    dest[x] |= static_cast<uint32_t>(c & 0xF) << 13;
-                } else {
-                    dest[x] |= (static_cast<uint32_t>(c & 1) << 15) | ((colour & 1) << 16);
-                }
-            }
-        }
+// A 16x16 tile zoomed (scale 16.16) to its drawn size at sx, sy, clipped, as the steps through its pixels
+static bool MakeTile(const Clip &clip, uint32_t code, uint32_t colour, int granularity, bool flipX, bool flipY, int sx, int sy, bool blend, uint32_t scaleX,
+                     uint32_t scaleY, Tile &t) {
+    if (!scaleX || !scaleY) {
+        return false;
     }
-} // namespace
+    const int height = static_cast<int>((scaleY * 16 + 0x8000) >> 16), width = static_cast<int>((scaleX * 16 + 0x8000) >> 16);
+    if (!width || !height) {
+        return false;
+    }
+    int dx = (16 << 16) / width, dy = (16 << 16) / height;
+    int ex = sx + width, ey = sy + height;
+    int xBase = 0, yIndex = 0;
+    if (flipX) {
+        xBase = (width - 1) * dx;
+        dx = -dx;
+    }
+    if (flipY) {
+        yIndex = (height - 1) * dy;
+        dy = -dy;
+    }
+    if (sx < clip.left) {
+        xBase += (clip.left - sx) * dx;
+        sx = clip.left;
+    }
+    if (sy < clip.top) {
+        yIndex += (clip.top - sy) * dy;
+        sy = clip.top;
+    }
+    ex = std::min(ex, clip.right + 1);
+    ey = std::min(ey, clip.bottom + 1);
+    if (ex <= sx || ey <= sy) {
+        return false;
+    }
+    t.sx = sx;
+    t.sy = sy;
+    t.ex = ex;
+    t.ey = ey;
+    t.xBase = xBase;
+    t.yIndex = yIndex;
+    t.dx = dx;
+    t.dy = dy;
+    t.source = static_cast<int32_t>((code & 0x7FFF) * 256);
+    if (!blend) {
+        t.mode = 0;
+        t.base = static_cast<int32_t>((static_cast<uint32_t>(granularity) * colour) & 0x1FFFF);
+    } else if (granularity == 64) {
+        t.mode = 1;
+        t.base = 0;
+    } else {
+        t.mode = 2;
+        t.base = static_cast<int32_t>((colour & 1) << 16);
+    }
+    return true;
+}
 
-void Rasteriser::Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *ss, std::vector<uint32_t> &pixels, int &width, int &height) {
+void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift, Frame &f) {
     const FrameRegisters &r = v.registers;
-    const Screen screen = ScreenOf(r);
-    width = screen.width + 2 * margin;
-    height = screen.height;
-    pixels.assign(static_cast<size_t>(width) * height, 0);
-    m_buffer.assign(static_cast<size_t>(kBufferWidth) * kBufferHeight, 0);
-    Clip clip = {0, width - 1, 0, screen.clipBottom};
-    if (screen.zoomX != 0x40 || screen.zoomY != 0x40) {
-        clip.right = std::min(static_cast<int>((static_cast<uint32_t>(width) * ((screen.zoomX << 16) / 0x40) + 0x8000) >> 16) - 1, kBufferRight);
+    f.screen = ScreenOf(r);
+    f.width = f.screen.width + 2 * margin;
+    f.height = f.screen.height;
+    Clip clip = {0, f.width - 1, 0, f.screen.clipBottom};
+    if (f.screen.zoomX != 0x40 || f.screen.zoomY != 0x40) {
+        clip.right = std::min(static_cast<int>((static_cast<uint32_t>(f.width) * ((f.screen.zoomX << 16) / 0x40) + 0x8000) >> 16) - 1, kBufferRight);
     }
-    const uint8_t *textures = v.textures.Pixels();
-    BuildDrawList(v.objects, r, screen, m_items);
-    for (const DrawItem &d : m_items) {
+    f.bufferWidth = std::min(std::max(f.width, clip.right + 1), kBufferRight + 1);
+    f.bufferHeight = std::min(std::max(f.height, clip.bottom + 1), kBufferBottom + 1);
+    f.tiles.clear();
+    BuildDrawList(v.objects, r, f.screen, f.items);
+    Tile t;
+    for (const DrawItem &d : f.items) {
         if (d.kind == DrawItem::kQuad) {
-            DrawTile(m_buffer.data(), kBufferWidth, textures, clip, d.tile, d.colour, d.granularity64 ? 64 : 256, d.flipX, d.flipY, d.x + margin - shift,
-                     d.y, d.blend, d.scaleX, d.scaleY);
+            if (MakeTile(clip, d.tile, d.colour, d.granularity64 ? 64 : 256, d.flipX, d.flipY, d.x + margin - shift, d.y, d.blend, d.scaleX, d.scaleY, t)) {
+                f.tiles.push_back(t);
+            }
             continue;
         }
         // A tilemap's line (64 x 64 tiles of 16x16 in sprite RAM): its scroll, line scroll, flips and bases
-        const uint16_t *t = r.tilemap[d.tilemap];
-        const uint32_t regs[3] = {(static_cast<uint32_t>(t[0]) << 16) | t[1], (static_cast<uint32_t>(t[2]) << 16) | t[3],
-                                  (static_cast<uint32_t>(t[4]) << 16) | t[5]};
+        const uint16_t *tm = r.tilemap[d.tilemap];
+        const uint32_t regs[3] = {(static_cast<uint32_t>(tm[0]) << 16) | tm[1], (static_cast<uint32_t>(tm[2]) << 16) | tm[3],
+                                  (static_cast<uint32_t>(tm[4]) << 16) | tm[5]};
         if (!(regs[1] & 0x00008000u)) {
             continue;
         }
@@ -231,8 +231,46 @@ void Rasteriser::Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *s
         for (int x = clip.left / 16; x < clip.right / 16 + 2; x++) {
             const uint32_t tile = Long(spriteRam, mapBase + ((tileLine & 63) << 6) + (((x + (scrollX >> 4)) & 63) ^ xFlipMask));
             const bool flipX = (((tile >> 12) & 1) ^ (xFlipMask & 1)) != 0;
-            DrawTile(m_buffer.data(), kBufferWidth, textures, row, tile >> 17, tile & 0x1FF, ((tile >> 9) & 1) ? 64 : 256, flipX, (tile >> 11) & 1,
-                     x * 16 - (scrollX & 15), line - subLine, (tile >> 10) & 1, 0x10000, 0x10000);
+            if (MakeTile(row, tile >> 17, tile & 0x1FF, ((tile >> 9) & 1) ? 64 : 256, flipX, (tile >> 11) & 1, x * 16 - (scrollX & 15), line - subLine,
+                         (tile >> 10) & 1, 0x10000, 0x10000, t)) {
+                f.tiles.push_back(t);
+            }
+        }
+    }
+    // The text layer's settings
+    f.textScrollY = (-static_cast<int>((r.text[0x11] << 8) | r.text[0x10])) & 0x100;
+    f.textPalette = r.text[0x12];
+    f.margin = margin;
+}
+
+void Rasteriser::Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *ss, std::vector<uint32_t> &pixels, int &width, int &height) {
+    BuildFrame(v, spriteRam, margin, shift, m_frame);
+    const Frame &f = m_frame;
+    const Screen &screen = f.screen;
+    width = f.width;
+    height = f.height;
+    pixels.assign(static_cast<size_t>(width) * height, 0);
+    m_buffer.assign(static_cast<size_t>(kBufferWidth) * kBufferHeight, 0);
+    const uint8_t *textures = v.textures.Pixels();
+    for (const Tile &t : f.tiles) {
+        int yIndex = t.yIndex;
+        for (int y = t.sy; y < t.ey; y++, yIndex += t.dy) {
+            const uint8_t *row = textures + t.source + (yIndex >> 16) * 16;
+            uint32_t *dest = &m_buffer[static_cast<size_t>(y) * kBufferWidth];
+            int xIndex = t.xBase;
+            for (int x = t.sx; x < t.ex; x++, xIndex += t.dx) {
+                const uint8_t c = row[xIndex >> 16];
+                if (!c) {
+                    continue;
+                }
+                if (t.mode == 0) {
+                    dest[x] = c | static_cast<uint32_t>(t.base);
+                } else if (t.mode == 1) {
+                    dest[x] |= static_cast<uint32_t>(c & 0xF) << 13;
+                } else {
+                    dest[x] |= (static_cast<uint32_t>(c & 1) << 15) | static_cast<uint32_t>(t.base);
+                }
+            }
         }
     }
 
@@ -250,8 +288,8 @@ void Rasteriser::Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *s
     }
 
     // The text layer: 64 x 32 characters of 8x8, 4 bits a pixel, over everything
-    const int scrollY = (-static_cast<int>((r.text[0x11] << 8) | r.text[0x10])) & 0x100;
-    const uint32_t paletteBase = r.text[0x12];
+    const int scrollY = f.textScrollY;
+    const uint32_t paletteBase = f.textPalette;
     for (int line = 0; line < height; line++) {
         const int sub = line - line / 8 * 8;
         int offset = ((line + scrollY) / 8 * 128) & 0x1FFF;

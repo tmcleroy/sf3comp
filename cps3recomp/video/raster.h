@@ -41,6 +41,26 @@ Screen ScreenOf(const FrameRegisters &r);
 // The frame's draw list from its objects
 void BuildDrawList(const std::vector<Object> &objects, const FrameRegisters &r, const Screen &screen, std::vector<DrawItem> &out);
 
+// A tile as it is rasterised (a GPU's work item): the buffer's pixels it covers (sx..ex, sy..ey, clipped), the steps through
+// its 16x16 texels (16.16: the index at sx, sy and the step per pixel, negative when flipped), its first texel's place
+// in the textures, and what it writes: mode 0 its texel | base (the colour's row), 1 a blend (texel & 15 into bits
+// 13-16), 2 a blend (texel & 1 into bit 15, and base)
+struct Tile {
+    int32_t sx = 0, sy = 0, ex = 0, ey = 0, xBase = 0, yIndex = 0, dx = 0, dy = 0, source = 0, base = 0, mode = 0, pad = 0;
+};
+// The frame made ready to draw: its draw list and tiles in the board's order, the picture's size, the buffer's part
+// drawn into, the text layer's settings
+struct Frame {
+    Screen screen;
+    std::vector<DrawItem> items;
+    std::vector<Tile> tiles;
+    int width = 0, height = 0, bufferWidth = 0, bufferHeight = 0, margin = 0;
+    int textScrollY = 0;
+    uint32_t textPalette = 0;
+};
+// (widescreen: `margin` columns more on each side, the world `shift` further left, as Renderer's)
+void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift, Frame &f);
+
 // The picture (0x00BBGGRR) from the interface: the draw list, the textures and palette, the tilemaps and line scroll
 // tables in sprite RAM (the game's own memory, 512 KB big-endian) and the text layer's map and characters (SS RAM, the
 // game's memory: 32 KB, a byte per two of the board's addresses)
@@ -50,11 +70,15 @@ public:
     // Widescreen (as Renderer's): columns added on each side, the tilemaps drawn on into them, the objects and the text
     // layer moved over; and the world (objects, tilemaps) drawn `shift` columns further left than centred
     int margin = 0, shift = 0;
+    // The last frame drawn, made ready (for a GPU to draw the same)
+    const Frame &LastFrame() const {
+        return m_frame;
+    }
 
 private:
     static constexpr int kBufferWidth = 1024, kBufferHeight = 448;
     std::vector<uint32_t> m_buffer;
-    std::vector<DrawItem> m_items;
+    Frame m_frame;
 };
 
 } // namespace cps3recomp::native

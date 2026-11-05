@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include "native_gpu.h"
 #include "png_write.h"
 #include <cstdlib>
 
@@ -65,6 +66,28 @@ namespace {
     } g_pixelTotals;
 } // namespace
 
+// (and with CPS3RECOMP_NATIVE_GPU=1: the GPU's picture of the same frame, read back, against the CPU rasteriser's)
+namespace {
+    struct GpuCheck {
+        SDL_GPUDevice *device = nullptr;
+        port::NativeGpu gpu;
+        bool tried = false;
+        uint64_t frames = 0, different = 0;
+        unsigned reports = 6;
+        std::vector<uint32_t> pixels;
+        ~GpuCheck() {
+            if (frames || tried) {
+                fprintf(stderr, "cps3recomp: native GPU pixels: %llu frames compared, %llu different%s\n", static_cast<unsigned long long>(frames),
+                        static_cast<unsigned long long>(different), device ? "" : " (no GPU device)");
+            }
+            gpu.Close();
+            if (device) {
+                SDL_DestroyGPUDevice(device);
+            }
+        }
+    } g_gpuCheck;
+} // namespace
+
 void Machine::NativePixels() {
     int width = 0, height = 0;
     m_nativeRaster.margin = m_renderer.margin;
@@ -84,6 +107,41 @@ void Machine::NativePixels() {
             fprintf(stderr, "native pixels, frame %llu: %dx%d (board) / %dx%d (native), the first to differ at %d,%d: %06X / %06X\n",
                     static_cast<unsigned long long>(frame), m_width, m_height, width, height, width ? static_cast<int>(at % width) : 0,
                     width ? static_cast<int>(at / width) : 0, at < n ? m_picture[at] : 0, at < n ? m_nativePicture[at] : 0);
+        }
+    }
+    static const bool gpu = getenv("CPS3RECOMP_NATIVE_GPU") != nullptr;
+    if (!gpu) {
+        return;
+    }
+    GpuCheck &c = g_gpuCheck;
+    if (!c.tried) {
+        c.tried = true;
+        // (no window: SDL's offscreen video driver, unless another is asked for)
+        if (!SDL_WasInit(SDL_INIT_VIDEO)) {
+            SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "offscreen");
+            SDL_InitSubSystem(SDL_INIT_VIDEO);
+        }
+        c.device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL, false, nullptr);
+        std::string error;
+        if (!c.device || !c.gpu.Open(c.device, error)) {
+            fprintf(stderr, "native GPU check: %s\n", c.device ? error.c_str() : SDL_GetError());
+        }
+    }
+    if (!c.gpu.IsOpen()) {
+        return;
+    }
+    c.frames++;
+    if (!c.gpu.DrawAndRead(m_nativeRaster.LastFrame(), board.native, board.SsRam(), c.pixels) || c.pixels != m_nativePicture) {
+        c.different++;
+        if (c.reports) {
+            c.reports--;
+            size_t at = 0, n = std::min(c.pixels.size(), m_nativePicture.size());
+            while (at < n && c.pixels[at] == m_nativePicture[at]) {
+                at++;
+            }
+            fprintf(stderr, "native GPU pixels, frame %llu: %zu / %zu pixels, the first to differ no. %zu (%d,%d): %06X (CPU) / %06X (GPU)\n",
+                    static_cast<unsigned long long>(frame), m_nativePicture.size(), c.pixels.size(), at, width ? static_cast<int>(at % width) : 0,
+                    width ? static_cast<int>(at / width) : 0, at < n ? m_nativePicture[at] : 0, at < n ? c.pixels[at] : 0);
         }
     }
 }

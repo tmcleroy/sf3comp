@@ -1,0 +1,71 @@
+#version 450
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Tommy McLeroy. Part of cps3recomp (sf3comp).
+//
+// The native video's second pass (port/native_gpu.cpp, video/raster.h): the picture, each pixel the buffer's colour
+// number at its place (with the whole picture's zoom) through the palette, then the text layer over it (64 x 32
+// characters of 8x8, 4 bits a pixel, from SS RAM, twice across 1024 columns, each row scrolled), as the CPU's
+// rasteriser has it. (SDL_GPU's compute layout: read-only buffers in set 0, read-write textures in set 1.)
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(std430, set = 0, binding = 0) readonly buffer Params {
+    uint width, height, fx, fy;
+    int margin, textScrollY;
+    uint textPalette, pad;
+} params;
+layout(std430, set = 0, binding = 1) readonly buffer Palette {
+    uint rgb[]; // 0x20000 colours, 0x00BBGGRR
+};
+layout(std430, set = 0, binding = 2) readonly buffer Text {
+    uint ss[]; // SS RAM's 32 KB, four bytes a word, the first in the low byte
+};
+layout(set = 1, binding = 0, r32ui) uniform readonly uimage2D colours;
+layout(set = 1, binding = 1, rgba8) uniform writeonly image2D picture;
+
+uint SsByte(uint at) {
+    return (ss[at >> 2] >> ((at & 3u) * 8u)) & 0xFFu;
+}
+
+void main() {
+    const ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= int(params.width) || p.y >= int(params.height)) {
+        return;
+    }
+    const uint sx = uint(p.x) * params.fx, sy = uint(p.y) * params.fy;
+    const uint c = imageLoad(colours, ivec2(int(min(sx >> 16, 1023u)), int(min(sy >> 16, 447u)))).r;
+    uint colour = rgb[c & 0x1FFFFu];
+
+    // The text layer: of the two copies, the characters under this pixel, in the order the CPU draws them (by column,
+    // then copy)
+    const int line = p.y, scrollY = params.textScrollY;
+    const int sub = line - line / 8 * 8;
+    const int offset = ((line + scrollY) / 8 * 128) & 0x1FFF;
+    const int rowScroll = int(SsByte(uint(((line + scrollY - 1) & 0x1FF) * 2 + 0x2000)));
+    int column[2], px[2];
+    for (int copy = 0; copy < 2; copy++) {
+        const int rel = p.x - params.margin + rowScroll - copy * 512;
+        column[copy] = rel >= 0 && rel < 512 ? rel / 8 : -1;
+        px[copy] = rel - (rel / 8) * 8;
+    }
+    // (the one drawn first: the lower column, or copy 0 at the same column)
+    const int first = column[0] >= 0 && (column[1] < 0 || column[0] <= column[1]) ? 0 : 1;
+    for (int n = 0; n < 2; n++) {
+        const int copy = n == 0 ? first : 1 - first;
+        const int x = column[copy];
+        if (x < 0) {
+            continue;
+        }
+        const uint at = uint(offset + x * 2);
+        const uint data = SsByte(at) | (SsByte(at + 1u) << 8);
+        const uint tile = data & 0x1FFu;
+        const uint pal = ((data >> 9) & 0x1Fu) + (params.textPalette << 5);
+        const bool flipY = ((data >> 14) & 1u) != 0u, flipX = ((data >> 15) & 1u) != 0u;
+        const uint chr = 0x4000u + tile * 32u + uint(flipY ? 7 - sub : sub) * 4u;
+        const int q = flipX ? 7 - px[copy] : px[copy];
+        const uint t = (SsByte(chr + uint(q >> 1)) >> uint((q & 1) * 4)) & 0xFu;
+        if (t != 0u) {
+            colour = rgb[(((pal * 16u) & 0x1FFFFu) + t) & 0x1FFFFu];
+        }
+    }
+    imageStore(picture, p, vec4(float(colour & 0xFFu), float((colour >> 8) & 0xFFu), float((colour >> 16) & 0xFFu), 0.0) / 255.0);
+}

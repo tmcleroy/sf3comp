@@ -141,6 +141,11 @@ public:
     const uint8_t *Pixels() const {
         return m_pixels.data();
     }
+    // Each 64 KB page's version: it changes whenever the page is written (a GPU's copy sends only the pages changed)
+    static constexpr int kPages = 128;
+    uint64_t PageVersion(int page) const {
+        return m_versions[page];
+    }
     void Reset() {
         m_table = 0xFFFFFFFF;
     }
@@ -149,6 +154,13 @@ public:
 private:
     std::vector<uint8_t> m_pixels;
     uint32_t m_table = 0xFFFFFFFF; // where in the graphics the compressed transfers' table of pairs is (a transfer sets it)
+    std::vector<uint64_t> m_versions = std::vector<uint64_t>(kPages, 0);
+    uint64_t m_counter = 0;
+    void Touch(uint32_t from, uint32_t to) { // (bytes from..to-1 written, within the 8 MB or past its end)
+        for (uint32_t page = from >> 16; page <= ((to - 1) >> 16) && page < static_cast<uint32_t>(kPages) && to > from; page++) {
+            m_versions[page] = ++m_counter;
+        }
+    }
 };
 
 // What the game has handed over

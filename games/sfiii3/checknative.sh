@@ -12,7 +12,8 @@
 # against those handed over (src/video_lists.cpp) and the objects it makes against those the interface makes from the
 # heads, the registers and sprite RAM's object words (native::FlattenObjects). Level (b): every frame drawn the plain
 # way, the native rasteriser's picture (video/raster.cpp, from the interface alone and the game's own memories) against
-# renderer.cpp's from the board, pixel for pixel. Over attract mode, a one-player game of made-up play (the computer's fights, the
+# renderer.cpp's from the board, pixel for pixel; and the GPU's picture of the same frame (port/native_gpu.cpp, SDL_GPU's
+# compute on a device of its own, no window; CHECKNATIVE_NO_GPU=1 leaves it out) read back against the rasteriser's. Over attract mode, a one-player game of made-up play (the computer's fights, the
 # screens between), a two-player versus game (with widescreen and its invisible walls: the margin and the world's shift) and a training
 # session. Then the same rewrites against the game's own
 # code (CPS3RECOMP_LIFT_CHECK, with only them registered) over attract mode and the one-player game. Exit 0 when all
@@ -39,6 +40,7 @@ run() { # name kind args...
         # shellcheck disable=SC2068
         (
             [ -n "$CHECKNATIVE_NO_REWRITES" ] && export CPS3RECOMP_NO_REWRITES=1
+            [ -z "$CHECKNATIVE_NO_GPU" ] && export CPS3RECOMP_NATIVE_GPU=1
             CPS3RECOMP_NATIVE_CHECK=1 exec nice -n 20 "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$FRAMES" \
                 --settings "$OUT/$name.ini" --eeprom "$OUT/$name.bin" $@ > /dev/null 2> "$OUT/$name.log"
         ) &
@@ -87,6 +89,14 @@ for name in "${NAMES[@]}"; do
     if [ -z "$line" ] || ! echo "$line" | grep -q ", 0 different"; then
         grep "^native pixels, frame" "$OUT/$name.log" | head -3
         status=1
+    fi
+    if [ -z "$CHECKNATIVE_NO_GPU" ]; then
+        line=$(grep "cps3recomp: native GPU pixels:" "$OUT/$name.log")
+        echo "$name: GPU pixels: ${line#cps3recomp: native GPU pixels: }"
+        if [ -z "$line" ] || ! echo "$line" | grep -q ", 0 different$"; then
+            grep "^native GPU" "$OUT/$name.log" | head -3
+            status=1
+        fi
     fi
     line=$(grep "cps3recomp: native object lists:" "$OUT/$name.log")
     echo "$name: object lists: ${line#cps3recomp: native object lists: }"

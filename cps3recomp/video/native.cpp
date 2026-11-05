@@ -4,6 +4,7 @@
 
 #include "state.h"
 
+#include <algorithm>
 #include <cstdlib>
 
 namespace cps3recomp::native {
@@ -76,6 +77,7 @@ Textures::Textures()
     : m_pixels(kSize, 0) {}
 
 void Textures::Write(uint32_t at, uint32_t value, int bytes) {
+    Touch(at & (kSize - 1), (at & (kSize - 1)) + static_cast<uint32_t>(bytes));
     for (int i = 0; i < bytes; i++) {
         m_pixels[(at + i) & (kSize - 1)] = static_cast<uint8_t>(value >> (8 * (bytes - 1 - i)));
     }
@@ -130,6 +132,7 @@ void Textures::Load(const uint32_t *list, size_t longs, const uint8_t *g, size_t
         uint32_t length = ((d1 & 0x001FFFFFu) + 1) << 3;
         uint32_t to = d2 << 3;
         uint32_t from = (d3 << 1) - 0x400000;
+        const uint32_t first = to & (kSize - 1);
         switch (kind) {
         case 4:
             m_table = from;
@@ -187,12 +190,21 @@ void Textures::Load(const uint32_t *list, size_t longs, const uint8_t *g, size_t
         default:
             break;
         }
+        if (kind != 4) {
+            Touch(first, std::min<uint32_t>(first + (to - (d2 << 3)) + 0x200, kSize)); // (runs may go a little past)
+            if (first + (to - (d2 << 3)) > kSize) {
+                Touch(0, kSize); // (wrapped)
+            }
+        }
     }
 }
 
 void Textures::Serialize(Archive &ar) {
     ar.Vec(m_pixels);
     ar.Pod(m_table);
+    if (!ar.Saving()) {
+        Touch(0, kSize); // (all of it may have changed)
+    }
 }
 
 void Video::Serialize(Archive &ar) {

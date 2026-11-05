@@ -1,0 +1,58 @@
+#version 450
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Tommy McLeroy. Part of cps3recomp (sf3comp).
+//
+// The native video's first pass (port/native_gpu.cpp, video/raster.h): the buffer of colour numbers, each pixel from the
+// frame's tiles that cover its row, in the board's order (later over earlier; a blend sets bits of what is under it).
+// Integer steps exactly as the CPU's rasteriser takes them. (SDL_GPU's compute layout: read-only buffers in set 0,
+// read-write textures in set 1; no uniforms, so the bindings are the Metal indices too.)
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(std430, set = 0, binding = 0) readonly buffer Params {
+    uint width, height, pad0, pad1;
+} params;
+layout(std430, set = 0, binding = 1) readonly buffer Tiles {
+    int tiles[]; // 12 a tile: sx, sy, ex, ey, xBase, yIndex, dx, dy, source, base, mode, pad
+};
+layout(std430, set = 0, binding = 2) readonly buffer RowStarts {
+    uint rowStarts[]; // a row's first in rowTiles; and one past the last row's
+};
+layout(std430, set = 0, binding = 3) readonly buffer RowTiles {
+    uint rowTiles[];
+};
+layout(std430, set = 0, binding = 4) readonly buffer Textures {
+    uint texels[]; // 8 MB of bytes, four a word, the first in the low byte
+};
+layout(set = 1, binding = 0, r32ui) uniform writeonly uimage2D colours;
+
+void main() {
+    const ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= int(params.width) || p.y >= int(params.height)) {
+        return;
+    }
+    uint v = 0u;
+    for (uint k = rowStarts[p.y]; k < rowStarts[p.y + 1]; k++) {
+        const uint i = rowTiles[k] * 12u;
+        const int sx = tiles[i], ex = tiles[i + 2];
+        if (p.x < sx || p.x >= ex) {
+            continue;
+        }
+        const int xi = tiles[i + 4] + (p.x - sx) * tiles[i + 6];
+        const int yi = tiles[i + 5] + (p.y - tiles[i + 1]) * tiles[i + 7];
+        const uint at = uint(tiles[i + 8]) + uint(yi >> 16) * 16u + uint(xi >> 16);
+        const uint c = (texels[at >> 2] >> ((at & 3u) * 8u)) & 0xFFu;
+        if (c == 0u) {
+            continue;
+        }
+        const int mode = tiles[i + 10];
+        const uint base = uint(tiles[i + 9]);
+        if (mode == 0) {
+            v = c | base;
+        } else if (mode == 1) {
+            v |= (c & 0xFu) << 13;
+        } else {
+            v |= ((c & 1u) << 15) | base;
+        }
+    }
+    imageStore(colours, p, uvec4(v, 0u, 0u, 0u));
+}
