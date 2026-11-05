@@ -34,6 +34,13 @@ void Pcm::MixTo(size_t samples) {
         return;
     }
     m_mix.resize(samples * 2, 0);
+    // (the native check, level (c): kept voice by voice too, for the machine to compare with the native mixer's)
+    const bool byVoice = m_machine.nativeCheck;
+    if (byVoice) {
+        for (auto &v : m_voiceMix) {
+            v.resize(samples * 2, 0);
+        }
+    }
     const uint8_t *base = m_machine.Samples();
     const size_t size = m_machine.SamplesSize();
     for (int i = 0; i < 16; i++) {
@@ -69,6 +76,7 @@ void Pcm::MixTo(size_t samples) {
         const uint32_t step = (v.regs[3] >> 16) & 0xFFFF;
         const int32_t right = static_cast<int16_t>(v.regs[7] & 0xFFFF), left = static_cast<int16_t>(v.regs[7] >> 16);
         uint32_t pos = v.position, frac = v.fraction;
+        int32_t *own = byVoice ? m_voiceMix[i].data() : nullptr;
         for (size_t j = from; j < samples; j++) {
             pos += frac >> 12;
             frac &= 0xFFF;
@@ -85,6 +93,10 @@ void Pcm::MixTo(size_t samples) {
             frac += step;
             m_mix[j * 2] += sample * left / 256;
             m_mix[j * 2 + 1] += sample * right / 256;
+            if (own) {
+                own[j * 2] += sample * left / 256;
+                own[j * 2 + 1] += sample * right / 256;
+            }
         }
         v.position = pos;
         v.fraction = frac;
@@ -96,6 +108,12 @@ void Pcm::EndFrame(std::vector<int16_t> *out) {
     if (out) {
         for (int32_t s : m_mix) {
             out->push_back(static_cast<int16_t>(std::clamp(static_cast<int32_t>(std::lround(s * gain)), -32768, 32767)));
+        }
+    }
+    if (m_machine.nativeCheck) {
+        m_machine.NativeCompareSound(m_mix, m_voiceMix);
+        for (auto &v : m_voiceMix) {
+            v.clear();
         }
     }
     m_mix.clear();

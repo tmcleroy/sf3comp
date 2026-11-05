@@ -338,6 +338,19 @@ now), the mixer consumes the event list per frame; the voice registers and key-o
 the driver reads them back (they are its own state, in effect). Level (c) compares the mixer's samples with pcm.cpp's
 from the same frame.
 
+Done: `sound/native_sound.h` (the file's name keeps it apart from video/native.h on the include path). A
+`native::SoundEvent` is one of kKeyOn, kKeyOff, kKeys (the voices in a mask, or the whole word), kSample (a voice's
+start, loop and end as places in the sample stream, and whether it loops on), kLooping, kPitch (the step, 4.12 fixed
+point), kVolume (left and right), kVoice (all of a voice: the boot ROM's writes passed on); `Machine::NativeSound`
+stamps it with `FramePosition()` as it is handed over. `native::Mixer` keeps the sixteen voices (settings, place,
+fraction) and the keys, and at the frame's end plays the frame's events at their times by pcm.cpp's rules (the same
+frame lengths, the same step, loop and end, the same scale), all and voice by voice. With `nativeCheck`, pcm.cpp keeps
+its mix voice by voice too and hands both to `Machine::NativeCompareSound` at the end of the frame: the mixer's samples
+against the board's, and each voice's settings and the keys against the chip's registers ("native sound" and "native
+voices" in the report; the first frame, voice and sample that differ printed). The chip's registers that the board
+model gives no effect (a voice's first low half and seventh register, the mode word at 040E0210) are not part of the
+interface.
+
 ## The checks
 
 Three levels, each run with the board model beside the native interface in the same run (`CPS3RECOMP_NATIVE_CHECK=1`:
@@ -358,7 +371,7 @@ the board keeps the interface beside its own memories, `Machine::nativeCheck`), 
   frame drawn without widescreen, a second board or objects left out): the native rasteriser's picture from the
   interface equals renderer.cpp's from the board, every
   frame (and the GPU's capture equals the rasteriser's, on the machines that have one).
-- **(c) samples**: the native mixer's output from the voice events equals pcm.cpp's from the registers, every frame.
+- **(c) samples**: the native mixer's output from the voice events equals pcm.cpp's from the registers, every frame (done for 3rd Strike: `games/sfiii3/checksound.sh`, every sample of each side, voice by voice).
 
 Each level also runs with the game's own code in place of the rewrites (CHECKNATIVE_NO_REWRITES=1), to see that the
 check finds the difference; and the rewrites are checked against the game's code as all rewrites are

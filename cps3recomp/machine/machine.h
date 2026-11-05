@@ -27,6 +27,7 @@
 
 #include "flash.h"
 #include "native.h"
+#include "native_sound.h"
 #include "romset.h"
 #include "sh2.h"
 
@@ -177,6 +178,19 @@ public:
     void *soundContext = nullptr;
     // How far into the frame the CPU is (0..1), for the sound's timing
     double FramePosition() const;
+    // The native sound (sound/native_sound.h): what the game's rewritten sound driver hands over (kept when
+    // native::Checking(), and then in save states), stamped with the time now
+    native::Mixer nativeSound{kFrameRate};
+    void NativeSound(native::SoundEvent e) {
+        if (native::Checking()) {
+            e.at = FramePosition();
+            nativeSound.Add(e);
+        }
+    }
+    // The check, level (c) (nativeCheck: pcm.cpp calls it at the end of every frame with what it mixed, all and voice
+    // by voice): the native mixer's frame against the board's, sample for sample, and the voices as the driver set them
+    // against the chip's registers
+    void NativeCompareSound(const std::vector<int32_t> &mix, const std::array<std::vector<int32_t>, 16> &byVoice);
 
     // The settings EEPROM (128 bytes)
     std::array<uint32, 32> eeprom{};
@@ -351,6 +365,7 @@ private:
     std::array<uint64, 128> m_nativeStamps{}; // (character RAM's pages' stamps when the textures last held the same)
     void NativeFrameEnd();
     void SyncNative();
+    native::Voice BoardVoice(int v) const; // (the check: a voice's registers in the interface's terms)
     void NoteCharWrite(uint32 at, uint32 value, int bytes) {
         if (nativeCheck && m_cpu.PC < 0x80000) {
             native.textures.Write(at, value, bytes);

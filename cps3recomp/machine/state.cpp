@@ -133,6 +133,7 @@ void Machine::Serialize(Archive &ar) {
     ar.Pod(m_spillover);
     if (native::Checking()) {
         native.Serialize(ar);
+        nativeSound.Serialize(ar);
     } else if (native::On() && !ar.Saving()) {
         m_nativeInSync = false; // (made again from what was put back at the next frame that hands over: SyncNative)
         m_nativeSyncedAt = ~0ull;

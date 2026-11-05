@@ -107,11 +107,38 @@ a few lines of the old colours: not modelled, and not wanted).
   (040E0200) by read, mask and write at 0x0613B446/4A, 0x0613B554/58, 0x0613B6AE/B2, 0x0613B8BE/C2, 0x0613BC7E/82;
   0x061393F8 and 0x06139422 (start-up, silence everything, from 0x06133E50); 0x0613A384 (a key-on from a request,
   0x06094E18, 0x06095060); 05000C00 written by 0x06139396 (63 times: not in machine.cpp's map; ignored by the board).
-- **Read back**: the key-on word (85000 reads: every change is read, masked, written) and the voices' registers
-  (0x0613BC9C, 58000 reads of 040E0002-01FA: the driver steps its voices on from what the chip holds). So the voice
-  registers and the key-on word stay memory the driver owns; the native mixer takes the frame's writes to them as
-  events with their times (`Machine::FramePosition`, as pcm.cpp's BeforeWrite does) and plays from them.
+- **Read back**: the key-on word (85000 reads: every change is read, masked, written; 0x0613A21C keeps it for a
+  pause) and the voices' registers (0x0613BC9C, 58000 reads of 040E0002-01FA: 0x0613BC9A writes a register and
+  writes it again until it reads back as written; nothing else reads them). So the voice registers and the key-on
+  word stay memory the driver owns; the native mixer takes the driver's changes as events with their times
+  (`Machine::FramePosition`, as pcm.cpp's BeforeWrite does) and plays from them.
 - The game's request side (0x061394D0, "SE"/"Sound3rd"'s requests, 16 callers) never touches the chip.
+
+### Sound events (done: sound_driver.cpp, sound/native_sound.h, checksound.sh)
+
+- The driver keeps two sets of 16 channels of 116 bytes, the music's (0x02078D0C) and the effects' (0x0207944C), on
+  the chip's 16 voices: 0x0613A408 steps the music's channels, then the effects', each with 0x0613B3CC (r4 the
+  channel, r5 its voice, r6 1 for the music). A music channel has its voice only while no effect plays on it. The
+  channel's bytes are listed at the top of sound_driver.cpp.
+- 0x0613B3CC, rewritten whole (it owns every voice write but the start-up's): the channel's timers, a new note (the
+  voice keyed off, its sample set from the note's three longs, start, loop and end, with the bank 0x02079C0E added to
+  the high halves, looping when the loop is short of the end), the envelope (phases 1-4 at 108: attack, decay,
+  sustain, release), the pitch's slide, the vibrato and tremolo, an effect's pan, then the two volumes (0x0613B226,
+  called) and the pitch (0x0613B1D8, called) written, and the voice keyed on if a note started. Its events: kKeyOff,
+  kSample, kLooping (a note let go stops looping), kVolume (both sides, worked out first and written together),
+  kPitch, kKeyOn.
+- 0x06139316, the driver's set-up (four callers: start-up, a new game): every voice's registers cleared, the chip's
+  mode word (040E0210) and the other device (05000C02) set, the keys off: kVoice (cleared) for each voice and kKeys.
+- 0x0613A334, every channel stopped and the keys off (kKeys 0); 0x0613A272, the music let go on after a pause (the
+  kept keys keyed on again: kKeyOn).
+- The native mixer (native::Mixer) plays the events at their times with pcm.cpp's rules. Level (c), checksound.sh:
+  the mixer's frame against pcm.cpp's, each side's samples voice by voice, and the voices' settings and the keys
+  against the chip's registers, every frame of the four runs (all the same: see PROGRESS.md for the numbers). The
+  boot ROM's writes to the chip are passed on as the board has them (kVoice, kKeys), as the palette's are.
+- Timing: a rewrite's writes all fall at the moment it runs (the time of the routines it calls passes between them),
+  not spread over the routine as the game's code has them, so a register can change a sample or so earlier than on
+  the board. The game is not affected (nothing reads the sound back but the driver), and the check compares the
+  board and the mixer from the same writes.
 
 ## Timing the game waits on
 
@@ -181,12 +208,12 @@ text layer's registers, the status word and the two interrupts (as a timer).
 | Native rasteriser | the toolkit (video/raster.cpp): the draw list of quads and layer lines, text, resolve, zoom | done for the plain picture and widescreen; the features' object choices and a second producer to come | (b) all the same: pixels against renderer.cpp, every frame |
 | SDL_GPU renderer | the toolkit (port/native_gpu.cpp): two compute passes from BuildFrame's tiles, the palette, the textures by page, the text layer; shown by the presenter (Presenter::ShowNative), the window's default picture (2026-11-05; off by default for a few hours that day while offscreen runs' unwaited frames starved the Mac's WindowServer, back on with each offscreen frame waited for: cps3recomp/docs/NATIVE.md); a third pass puts the HUD, status lines, online names, zoom and menu over it | done for the plain picture and what the port puts over it | (b) all the same: the GPU's picture as the presenter shows it (render pass, 1:1) against the rasteriser's, every frame; 15 runs of 3000 frames with 0 different |
 | DMA timer | the toolkit: status bits and level 10 without the chips | small | gates: state hashes the same with and without the chip functions |
-| Sound events | 0x0613A408's writes (0x0613BBA8-0x0613BC9A, the key-on sites), 0x061393F8, 0x0613A384 | medium | (c): samples against pcm.cpp |
+| Sound events | 0x0613B3CC (every voice write and key site of the driver's step), 0x06139316 (set-up), 0x0613A334 (all off), 0x0613A272 (resume) (sound_driver.cpp); the native mixer (sound/native_sound.cpp) | done | (c) all the same: samples against pcm.cpp, voice by voice, every frame (checksound.sh) |
 | Guest stages | New Generation's and 2nd Impact's same hand-offs (the shared engine: the same rewrites on each game's places, src/video_games.cpp, run dry on the stage board) | done on the producer's side; the GPU's composition of the two to come | (a) per producer, all the same; (b) the composed picture, all the same (CPU), each producer's part (GPU) |
 | Board model out of the default build | the picture from the interface by the CPU's rasteriser (system.cpp: Compose, DrawLayers), the board's video memories from the interface (machine.cpp: NativeMakes, TakeFromNative); renderer.cpp and the DMAs' model behind `--board` and in the checks | done for the video (CPU) | every gate; default against `--board` the same (state hashes, saved states) |
 
 Order: (done: the palette, the frame registers, the textures, the lists' heads, the objects: the whole frame's
 interface exists, level (a); the rasteriser, level (b), for the plain picture and widescreen; the GPU renderer, the
 window's default picture for frames drawn the plain way, 2026-11-05: cps3recomp/docs/NATIVE.md, "The presenter's GPU
-path"; the HUD, status lines, menu and zoom as a GPU layer over it) the rasteriser's features' object choices (the stage boards, objects left out); sound events beside them (independent);
+path"; the HUD, status lines, menu and zoom as a GPU layer over it) the rasteriser's features' object choices (the stage boards, objects left out); (sound events: done);
 guest stages once 3rd Strike's frame is native.

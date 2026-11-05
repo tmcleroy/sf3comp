@@ -7,6 +7,7 @@
 // them into 16-bit stereo at the chip's rate, as the frame goes (a register write mixes what was playing up to then).
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -31,6 +32,7 @@ public:
 private:
     machine::Machine &m_machine;
     std::vector<int32_t> m_mix; // the frame so far (left and right in turn)
+    std::array<std::vector<int32_t>, 16> m_voiceMix; // (the native check's: the same voice by voice)
     double m_perFrame;
     double m_carry = 0; // samples owed from earlier frames
     size_t m_frameSamples = 0;

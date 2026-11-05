@@ -1280,6 +1280,122 @@ void Machine::WriteSound(uint32 offset, uint32 v, uint32 mask) {
         }
         keyOn = key;
     }
+    // (the check: the boot ROM's writes, not the game's code, passed on to the native sound as the board now has them)
+    if (nativeCheck && m_cpu.PC < 0x80000) {
+        native::SoundEvent e;
+        if (offset < 0x80) {
+            const native::Voice s = BoardVoice(static_cast<int>(offset / 8));
+            e = {native::SoundEvent::kVoice, static_cast<uint8>(offset / 8), 0, s.start, s.loop, s.end, s.looping, s.step, s.left, s.right};
+            NativeSound(e);
+        } else if (offset == 0x80) {
+            e.kind = native::SoundEvent::kKeys;
+            e.keys = keyOn;
+            NativeSound(e);
+        }
+    }
+}
+
+// A voice's registers as the mixer reads them (pcm.cpp), in the native interface's terms: the places in the sample
+// stream (the chip's addresses are 0x400000 bytes further on, each in two halves, low then high), whether it loops on,
+// the step, the volumes
+native::Voice Machine::BoardVoice(int i) const {
+    const uint32 *r = voices[i & 15].regs;
+    native::Voice v;
+    v.start = (((r[1] >> 16) & 0xFFFF) | ((r[1] << 16) & 0xFFFF0000u)) - 0x400000;
+    v.end = (((r[5] >> 16) & 0xFFFF) | ((r[5] << 16) & 0xFFFF0000u)) - 0x400000;
+    v.loop = ((r[3] & 0xFFFF) | ((r[4] << 16) & 0xFFFF0000u)) - 0x400000;
+    v.looping = r[2] & 1;
+    v.step = static_cast<uint16>((r[3] >> 16) & 0xFFFF);
+    v.left = static_cast<int16_t>(r[7] >> 16);
+    v.right = static_cast<int16_t>(r[7] & 0xFFFF);
+    return v;
+}
+
+namespace {
+    struct SoundTotals {
+        uint64 frames = 0, samples = 0, different = 0, voicesDifferent = 0;
+        unsigned reports = 8;
+        bool used = false;
+        ~SoundTotals() {
+            if (used) {
+                fprintf(stderr, "cps3recomp: native sound: %llu frames compared (%llu samples a side), %llu different\n",
+                        static_cast<unsigned long long>(frames), static_cast<unsigned long long>(samples), static_cast<unsigned long long>(different));
+                fprintf(stderr, "cps3recomp: native voices: %llu frames compared, %llu different\n", static_cast<unsigned long long>(frames),
+                        static_cast<unsigned long long>(voicesDifferent));
+            }
+        }
+    } g_soundTotals;
+} // namespace
+
+// The frame's sound (pcm.cpp's, all and voice by voice) against the native mixer's from the events the rewrites handed
+// over; and at the frame's end, each voice's registers and the key word against the voices as the events set them
+void Machine::NativeCompareSound(const std::vector<int32_t> &mix, const std::array<std::vector<int32_t>, 16> &byVoice) {
+    SoundTotals &t = g_soundTotals;
+    t.used = true;
+    t.frames++;
+    t.samples += mix.size() / 2;
+    nativeSound.EndFrame(Samples(), SamplesSize(), silenced, true);
+    const unsigned long long frame = static_cast<unsigned long long>(m_frame - 1); // (the frame just run)
+    bool voicesSame = nativeSound.Keys() == keyOn;
+    int first = 0;
+    for (; first < 16 && voicesSame; first++) {
+        if (!(nativeSound.Settings(first) == BoardVoice(first))) {
+            voicesSame = false;
+            break;
+        }
+    }
+    if (!voicesSame) {
+        t.voicesDifferent++;
+        if (t.reports) {
+            t.reports--;
+            if (nativeSound.Keys() != keyOn) {
+                fprintf(stderr, "native voices, frame %llu: keys %04X (board) / %04X (native)\n", frame, keyOn, nativeSound.Keys());
+            } else {
+                const native::Voice a = BoardVoice(first), &b = nativeSound.Settings(first);
+                fprintf(stderr,
+                        "native voices, frame %llu: voice %d: start %X loop %X end %X looping %d step %X volume %d %d (board) / "
+                        "start %X loop %X end %X looping %d step %X volume %d %d (native)\n",
+                        frame, first, a.start, a.loop, a.end, a.looping, a.step, a.left, a.right, b.start, b.loop, b.end, b.looping, b.step, b.left,
+                        b.right);
+            }
+        }
+    }
+    if (nativeSound.Mix() == mix) {
+        return;
+    }
+    t.different++;
+    if (!t.reports) {
+        return;
+    }
+    t.reports--;
+    if (nativeSound.Mix().size() != mix.size()) {
+        fprintf(stderr, "native sound, frame %llu: %zu samples (board) / %zu (native)\n", frame, mix.size() / 2, nativeSound.Mix().size() / 2);
+        return;
+    }
+    // (the first sample that differs, and the first voice that differs there)
+    size_t at = 0;
+    while (at < mix.size() && mix[at] == nativeSound.Mix()[at]) {
+        at++;
+    }
+    int voice = -1;
+    size_t voiceAt = mix.size();
+    for (int v = 0; v < 16; v++) {
+        const std::vector<int32_t> &a = byVoice[v], &b = nativeSound.VoiceMix(v);
+        for (size_t j = 0; j < a.size() && j < b.size() && j < voiceAt; j++) {
+            if (a[j] != b[j]) {
+                voice = v;
+                voiceAt = j;
+                break;
+            }
+        }
+    }
+    if (voice >= 0) {
+        fprintf(stderr, "native sound, frame %llu: voice %d, sample %zu (%s) the first to differ: %d (board) / %d (native); the mix's first: sample %zu\n",
+                frame, voice, voiceAt / 2, voiceAt & 1 ? "right" : "left", byVoice[voice][voiceAt], nativeSound.VoiceMix(voice)[voiceAt], at / 2);
+    } else {
+        fprintf(stderr, "native sound, frame %llu: sample %zu (%s) the first to differ: %d (board) / %d (native)\n", frame, at / 2, at & 1 ? "right" : "left",
+                mix[at], nativeSound.Mix()[at]);
+    }
 }
 
 // --- the flash SIMMs ---

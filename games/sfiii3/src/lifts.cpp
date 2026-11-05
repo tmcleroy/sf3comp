@@ -380,6 +380,7 @@ void RegisterBonusLifts();
 // The native video's hand-offs (video_games.cpp: the palette, frame registers, object lists' heads and character RAM, for
 // 3rd Strike and the stage games, and the native forms of what they call)
 void RegisterVideo();
+void RegisterSoundDriver(); // (sound_driver.cpp: the native sound)
 
 void RegisterLifts3rdStrike() {
     RegisterGameLifts(kLifts, std::size(kLifts));
@@ -400,6 +401,7 @@ void RegisterLifts3rdStrike() {
     RegisterFightBoxes();
     RegisterBonusLifts();
     RegisterVideo();
+    RegisterSoundDriver();
     AddHook("VerticalBlank", 0x06000528, 8, 0xF41697FE6C5AEE4Dull, VerticalBlank);
 }
 
