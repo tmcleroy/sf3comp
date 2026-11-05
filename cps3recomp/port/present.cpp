@@ -248,9 +248,19 @@ void Presenter::Close() {
     m_shading.reset();
     m_native.Close();
     if (m_device) {
-        if (m_shownFence) {
-            SDL_ReleaseGPUFence(m_device, m_shownFence);
+        static const bool stats = getenv("CPS3RECOMP_GPU_QUEUE_STATS") != nullptr;
+        if (stats && m_submits) {
+            fprintf(stderr, "cps3recomp: presenter (%s): %llu pictures submitted (%llu by the GPU from the native video), at most %zu in flight, %llu waits for the oldest (%.3f ms in all)\n",
+                    m_window ? "window" : "offscreen", static_cast<unsigned long long>(m_submits), static_cast<unsigned long long>(m_nativeShown), m_mostInFlight,
+                    static_cast<unsigned long long>(m_waits), static_cast<double>(m_waitedNs) / 1e6);
         }
+        for (SDL_GPUFence *fence : m_inFlight) {
+            SDL_WaitForGPUFences(m_device, true, &fence, 1);
+            SDL_ReleaseGPUFence(m_device, fence);
+        }
+        m_inFlight.clear();
+        m_submits = m_waits = m_waitedNs = m_nativeShown = 0;
+        m_mostInFlight = 0;
         if (m_offscreen) {
             SDL_ReleaseGPUTexture(m_device, m_offscreen);
         }
@@ -293,7 +303,6 @@ void Presenter::Close() {
     m_overlayTextureWidth = m_overlayTextureHeight = 0;
     m_overlayChanged = !m_overlay.empty(); // (sent again to whatever draws next)
     m_sampler = m_nearest = nullptr;
-    m_shownFence = nullptr;
     m_offscreen = nullptr;
     m_offscreenRead = nullptr;
     m_offscreenWidth = m_offscreenHeight = 0;
@@ -632,16 +641,36 @@ bool Presenter::Screen(SDL_GPUCommandBuffer *commands, SDL_GPUTexture *&screen, 
            screen;
 }
 
+// Each picture's command buffer submitted. Offscreen (the checks, the bench, the window's twin), as cps2recomp does: with
+// a fence, waited for at once, so exactly one frame is ever on the GPU (with no window nothing else holds back a program
+// that draws faster than the GPU: command buffers and their uploads piled up, and the GPU's queue with them, starving
+// everything else that draws, on the Mac WindowServer's compositing, 2026-11-05). In a window, the swapchain bounds it:
+// the acquire (Screen) hands out no texture while every image is in use (SDL's frames in flight), vsync or not, and a
+// frame without one draws nothing. (CPS3RECOMP_GPU_QUEUE_STATS=1: the most in flight said at the end, counted from the
+// fences)
 void Presenter::Submit(SDL_GPUCommandBuffer *commands) {
-    if (m_window) {
-        SDL_SubmitGPUCommandBuffer(commands);
+    while (!m_inFlight.empty() && SDL_QueryGPUFence(m_device, m_inFlight.front())) {
+        SDL_ReleaseGPUFence(m_device, m_inFlight.front());
+        m_inFlight.pop_front();
+    }
+    SDL_GPUFence *fence = SDL_SubmitGPUCommandBufferAndAcquireFence(commands);
+    m_submits++;
+    if (!fence) {
         return;
     }
-    // (offscreen: fenced, for WaitShown)
-    if (m_shownFence) {
-        SDL_ReleaseGPUFence(m_device, m_shownFence);
+    m_inFlight.push_back(fence);
+    m_mostInFlight = std::max(m_mostInFlight, m_inFlight.size());
+    if (!m_window) {
+        const Uint64 from = SDL_GetTicksNS();
+        SDL_WaitForGPUFences(m_device, true, &fence, 1);
+        m_lastWaitNs = SDL_GetTicksNS() - from;
+        m_waitedNs += m_lastWaitNs;
+        m_waits++;
+        for (SDL_GPUFence *f : m_inFlight) {
+            SDL_ReleaseGPUFence(m_device, f);
+        }
+        m_inFlight.clear();
     }
-    m_shownFence = SDL_SubmitGPUCommandBufferAndAcquireFence(commands);
 }
 
 bool Presenter::ShowNative(const cps3recomp::native::Frame &frame, const cps3recomp::native::Video &video, const uint8_t *ssRam,
@@ -661,6 +690,7 @@ bool Presenter::ShowNative(const cps3recomp::native::Frame &frame, const cps3rec
         // CPU, and the GPU orders the render pass after the passes that write what it samples (checked with the
         // picture read back: CPS3RECOMP_NATIVE_GPU_PRESENT, docs/NATIVE.md)
         commands = m_native.Draw(commands, frame, video, ssRam, overlay);
+        m_nativeShown++;
         const NativeGpu::Shown shown = m_native.LastShown();
         const bool zoom = zoomed && overlay && overlay->rawAbove;
         Draw(commands, screen, where, zoom ? zoomed : nullptr, screenWidth, screenHeight, shown.texture, static_cast<float>(shown.textureWidth),
@@ -696,15 +726,15 @@ bool Presenter::OpenOffscreen(int width, int height, bool nearest, std::string &
 }
 
 double Presenter::WaitShown() {
-    if (!m_shownFence) {
-        return 0;
+    // (offscreen the last picture was waited for as it was submitted: how long that took)
+    const double waited = static_cast<double>(m_lastWaitNs) / 1e9;
+    m_lastWaitNs = 0;
+    for (SDL_GPUFence *fence : m_inFlight) {
+        SDL_WaitForGPUFences(m_device, true, &fence, 1);
+        SDL_ReleaseGPUFence(m_device, fence);
     }
-    const Uint64 from = SDL_GetTicksNS();
-    SDL_WaitForGPUFences(m_device, true, &m_shownFence, 1);
-    const Uint64 to = SDL_GetTicksNS();
-    SDL_ReleaseGPUFence(m_device, m_shownFence);
-    m_shownFence = nullptr;
-    return static_cast<double>(to - from) / 1e9;
+    m_inFlight.clear();
+    return waited;
 }
 
 bool Presenter::ReadOffscreen(std::vector<uint32_t> &pixels) {

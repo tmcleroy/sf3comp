@@ -423,8 +423,8 @@ void Machine::BenchFrame() {
         const double draw = Seconds(at);
         at = Clock::now();
         b.presenter.Show(m_picture.data(), m_width, m_height, where);
-        const double show = Seconds(at);
         const double gpu = b.presenter.WaitShown();
+        const double show = Seconds(at) - gpu;
         b.draw += draw;
         b.show += show;
         b.drawEach.push_back(draw + show);
@@ -437,8 +437,8 @@ void Machine::BenchFrame() {
         const double build = Seconds(at);
         at = Clock::now();
         b.presenter.ShowNative(m_gpuFrame, board.native, board.SsRam(), where);
-        const double show = Seconds(at);
         const double wait = b.presenter.WaitShown();
+        const double show = Seconds(at) - wait;
         b.build += build;
         b.showNative += show;
         b.nativeEach.push_back(build + show);
