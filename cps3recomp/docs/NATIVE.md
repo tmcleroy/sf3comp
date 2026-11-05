@@ -215,6 +215,22 @@ This needs the guest game's drawing hand-offs (its palette DMA request, its list
 its frame registers) found and rewritten for each guest game: the three games share the engine, so 3rd Strike's
 routines are the map (games/sfiii3/NATIVE.md).
 
+**As built (2026-11-05), the producer's side**: the stage board is a second producer. Its game's hand-off routines are
+3rd Strike's, as the same engine has them: the same rewrites, written against a game's places, are made for each game
+and attached to the stage board, run there only dry (lift.h: `Lift::boards`; attached only while the interface is kept
+and only where the code is), so they hand the stage board's own `native::Video` its palette, textures, registers and
+lists and change nothing of that game but which calls come back to the dispatcher. The stage board takes them for the
+frames the game board takes its own (`nativeWanted`): in step for a GPU (`NativeInSync`) or made again from its
+memories after its unseen frames (`SyncNative`). Checked as the game board's are: its own level (a) against its chips
+(the check's totals count both boards), and its in-step check. The composition the stage path does is reproduced from
+the two interfaces: `native::Rasteriser` draws a chosen part of a frame's objects (`KeepObject`: the stage board's stage,
+this board's all but its own stage), with or without the text layer, and over another picture as renderer.cpp's overlay
+does (a blend over nothing of its own scales the colour under it, from its palette's banks): the picture is the same as
+the two board models' ("native pixels with a stage"). The GPU draws each producer's part (a frame of one producer: its
+own palette and texture pages, a NativeGpu of its own) the same as the CPU; composing the two on the GPU (an overlay pass)
+is the GPU side's to do. Still as before: the board model draws the stage frames shown (the presenter's GPU path is
+for plain frames), the second stage board's slide and blend, the stage alone.
+
 ### Timing: what stays
 
 The game's slowdown is its CPU's: the main loop does a frame's work and waits for the vertical blank's count to move

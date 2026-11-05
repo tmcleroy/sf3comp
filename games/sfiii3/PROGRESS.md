@@ -125,7 +125,10 @@ textures (the character DMA's lists and transfers, src/video_palette.cpp and vid
 loader), the object lists' heads (src/video_lists.cpp) and the objects made from them (native::FlattenObjects). With the
 arcade timing too (2026-11-05): the hand-off rewrites are run dry before the game's own code, charged nothing, and hand
 over the same (runtime/lift.h's DryRun, src/video_forms.cpp's native forms of what they call; NATIVE.md, "Arcade
-timing"): `CHECKNATIVE_ARCADE=1 checknative.sh` all the same, the state hashes the same with the dry runs and without. Next:
+timing"): `CHECKNATIVE_ARCADE=1 checknative.sh` all the same, the state hashes the same with the dry runs and without.
+Guest stages (2026-11-05): New Generation's and 2nd Impact's hand-offs are 3rd Strike's routines on their own places
+(src/video.h, video_games.cpp), run dry on the stage board into its own interface; the picture made from the two
+interfaces' layers is the board models' (checknative.sh's stage runs, CPU; each producer's part on the GPU). Next:
 the rasteriser's pixel check (b) passes for the plain picture (video/raster.cpp: draw list of quads and tilemap lines,
 the same pixels as renderer.cpp's every frame, widescreen too). SDL_GPU (2026-11-05): the window's picture is now drawn
 by the GPU from the interface (port/native_gpu.cpp's compute passes, then the presenter's render pass, one command

@@ -144,6 +144,23 @@ screen's turn changed; nothing of it is handed over), the CPU's character bank 0
 list: its place in character RAM's 8 MB), the list area's page 0x061379EC and its place 0x06137980 (ClearListArea).
 Each does what the routine does to main RAM and r0; they are checked by what the dry runs hand over.
 
+## Guest stages: New Generation's and 2nd Impact's hand-offs
+
+The stage board runs the other game, whose drawing code is 3rd Strike's engine. Found from 3rd Strike's routines: the
+vertical blank's handler (0x06000528) and the DMA-done one (0x060004D0) are the same code in the three games, and their
+calls name each game's frame routines (New Generation's near 0x063BBxxx and 0x063CAxxx-0x063CExxx, 2nd Impact's near
+0x060EDxxx-0x060FBxxx); those are 3rd Strike's code instruction for instruction but for their literals, save three
+compiled otherwise (2nd Impact's screen registers 0x060EDC00 and zoom 0x060EE184, New Generation's text palette and
+colours 0x063CC44A, 0x063CC478: their steps read and the same). Their RAM is 3rd Strike's moved in blocks (the frame's
+words, 0x0200DCA4 on, are New Generation's 0x0205E124 on and 2nd Impact's 0x020644E4 on; the DMA queue's, the lists', the
+layers' each a block of their own). So the hand-off rewrites are written against a game's places (src/video.h,
+VideoPlaces; video_games.cpp has the three games' places, routines and hashes) and the native forms too, and the
+stage games' run on the stage board only dry. Checked over a one-player game on New Generation's Ken stage and a
+widescreen versus game on 2nd Impact's: the stage board's hand-overs against its chips, all the same (palette,
+registers, textures, lists, objects), and the picture of its stage layers under 3rd Strike's other layers against the
+board models' composed picture, all the same (CPU; the GPU's picture of each part against the CPU's, all the same). A
+place set wrong (New Generation's screen place 2 off) is found: the stage board's lists and objects different.
+
 ## What stays plain memory
 
 Sprite RAM's object words and tilemaps (04002000 on), SS RAM (the text map and characters), the voices' registers
@@ -165,7 +182,7 @@ text layer's registers, the status word and the two interrupts (as a timer).
 | SDL_GPU renderer | the toolkit (port/native_gpu.cpp): two compute passes from BuildFrame's tiles, the palette, the textures by page, the text layer; shown by the presenter (Presenter::ShowNative), the window's default picture where nothing is put over it (2026-11-05) | done for the plain picture; the HUD, status lines, menu and zoom still the CPU's | (b) all the same: the GPU's picture as the presenter shows it (render pass, 1:1) against the rasteriser's, every frame; 15 runs of 3000 frames with 0 different |
 | DMA timer | the toolkit: status bits and level 10 without the chips | small | gates: state hashes the same with and without the chip functions |
 | Sound events | 0x0613A408's writes (0x0613BBA8-0x0613BC9A, the key-on sites), 0x061393F8, 0x0613A384 | medium | (c): samples against pcm.cpp |
-| Guest stages | New Generation's and 2nd Impact's same hand-offs (the shared engine: found by the census on their boards) | medium a game | (a) per producer, then the composed frame |
+| Guest stages | New Generation's and 2nd Impact's same hand-offs (the shared engine: the same rewrites on each game's places, src/video_games.cpp, run dry on the stage board) | done on the producer's side; the GPU's composition of the two to come | (a) per producer, all the same; (b) the composed picture, all the same (CPU), each producer's part (GPU) |
 | Board model out of the default build | machine.cpp's chip functions behind `--board` | small, last | every gate |
 
 Order: (done: the palette, the frame registers, the textures, the lists' heads, the objects: the whole frame's

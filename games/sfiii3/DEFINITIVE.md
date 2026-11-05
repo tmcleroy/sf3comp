@@ -143,3 +143,7 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
    into 3rd Strike's frame as layers of their own: no second picture to blend, no colour ranges to tell apart, the
    camera and widescreen taken from the layers themselves, and the second board kept only as the guest game's code
    and RAM (no video chip model for it). The interface is to be designed with this in mind from the start.
+   2026-11-05, the producer's side done: both stage games hand their frames to the stage board's own interface
+   (their hand-off routines are 3rd Strike's, run dry on it: games/sfiii3/NATIVE.md, "Guest stages"), and the
+   picture made from the two interfaces' layers is the board models' (checknative.sh's stage runs). The GPU drawing
+   the two as one frame, and the board model out of the stage board, are next.
