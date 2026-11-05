@@ -645,7 +645,7 @@ void Presenter::Submit(SDL_GPUCommandBuffer *commands) {
 }
 
 bool Presenter::ShowNative(const cps3recomp::native::Frame &frame, const cps3recomp::native::Video &video, const uint8_t *ssRam,
-                           const SDL_FRect &where) {
+                           const SDL_FRect &where, const NativeGpu::Overlay *overlay, const Zoomed *zoomed) {
     if (!CanShowNative()) {
         return false;
     }
@@ -660,9 +660,11 @@ bool Presenter::ShowNative(const cps3recomp::native::Frame &frame, const cps3rec
         // samples it, all in the one command buffer Show would use, submitted where Show submits: nothing waits on the
         // CPU, and the GPU orders the render pass after the passes that write what it samples (checked with the
         // picture read back: CPS3RECOMP_NATIVE_GPU_PRESENT, docs/NATIVE.md)
-        commands = m_native.Draw(commands, frame, video, ssRam);
-        Draw(commands, screen, where, nullptr, screenWidth, screenHeight, m_native.Picture(), static_cast<float>(NativeGpu::kPictureWidth),
-             static_cast<float>(NativeGpu::kPictureHeight), static_cast<float>(m_native.Width()), static_cast<float>(m_native.Height()));
+        commands = m_native.Draw(commands, frame, video, ssRam, overlay);
+        const NativeGpu::Shown shown = m_native.LastShown();
+        const bool zoom = zoomed && overlay && overlay->rawAbove;
+        Draw(commands, screen, where, zoom ? zoomed : nullptr, screenWidth, screenHeight, shown.texture, static_cast<float>(shown.textureWidth),
+             static_cast<float>(shown.textureHeight), static_cast<float>(shown.width), static_cast<float>(shown.height));
     }
     Submit(commands);
     return true;

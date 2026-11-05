@@ -368,7 +368,8 @@ int RunWindowed(Port &port) {
     // The in-game menu: opened and closed by Esc, F1, a gamepad stick's click or its Start and Select
     // together (the game is left from its "Quit game"). While it is open the game stands still and the
     // controls work the menu; buttons held as it closes do not reach the game until let go.
-    std::vector<uint32_t> menuBase, menuPicture, shown;
+    std::vector<uint32_t> menuBase, menuPicture, shown, overlay;
+    uint64_t menuVersion = 0, overlayVersion = 0; // (NativeGpu::Overlay's)
     uint32_t menuWidth = 0, menuHeight = 0;
     bool menuDirty = false;
     uint16_t previousPad = 0, heldAtClose = 0;
@@ -392,7 +393,12 @@ int RunWindowed(Port &port) {
         if (port.menu.IsOpen()) {
             port.menu.Close();
         } else {
-            port.MenuPicture(menuBase, menuWidth, menuHeight);
+            // (the game's picture under the menu: the GPU's, with the menu over it on the GPU, where the last frame was
+            // made for it; else the CPU's)
+            menuBase.clear();
+            if (!port.machine->GpuFrame() || !presenter.CanShowNative()) {
+                port.MenuPicture(menuBase, menuWidth, menuHeight);
+            }
             port.menu.Open(true);
             menuDirty = true;
         }
@@ -764,14 +770,31 @@ int RunWindowed(Port &port) {
         }
 
         if (port.menu.IsOpen()) {
-            // The game's picture as it was, with the menu over it
-            if (menuDirty) {
-                menuDirty = false;
-                menuPicture = menuBase;
-                port.menu.Draw(menuPicture.data(), static_cast<int>(menuWidth), static_cast<int>(menuHeight));
+            // The game's picture as it was, with the menu over it: on the GPU (the menu, and what Shown puts over the
+            // picture, an overlay of the menu's picture's size over the frame's picture made as large: NativeGpu::Overlay),
+            // or the CPU's picture (not through a shader: the menu is drawn three times the board's size, and is not the
+            // game's picture)
+            const native::Frame *gpuFrame = port.machine->GpuFrame();
+            if (gpuFrame && presenter.CanShowNative()) {
+                if (menuDirty) {
+                    menuDirty = false;
+                    port.MenuOverlay(menuPicture, menuWidth, menuHeight);
+                    menuVersion++;
+                }
+                const NativeGpu::Overlay over = {menuPicture.data(), static_cast<int>(menuWidth), static_cast<int>(menuHeight), false, menuVersion};
+                presenter.ShowNative(*gpuFrame, port.machine->GpuVideo(), port.machine->GpuText(), where, &over);
+            } else {
+                if (menuBase.empty()) {
+                    port.MenuPicture(menuBase, menuWidth, menuHeight); // (the GPU's frame gone meanwhile)
+                    menuDirty = true;
+                }
+                if (menuDirty) {
+                    menuDirty = false;
+                    menuPicture = menuBase;
+                    port.menu.Draw(menuPicture.data(), static_cast<int>(menuWidth), static_cast<int>(menuHeight));
+                }
+                presenter.Show(menuPicture.data(), static_cast<int>(menuWidth), static_cast<int>(menuHeight), where, nullptr, false);
             }
-            // (not through a shader: the menu is drawn three times the board's size, and is not the game's picture)
-            presenter.Show(menuPicture.data(), static_cast<int>(menuWidth), static_cast<int>(menuHeight), where, nullptr, false);
             SDL_Delay(8);
             nextFrame = SDL_GetTicksNS();
             continue;
@@ -848,14 +871,20 @@ int RunWindowed(Port &port) {
         }
 
         // The frame drawn by the GPU from the native video interface (Presenter::ShowNative), where the machine made it
-        // for the GPU and nothing is put over it; else the CPU's picture as Shown makes it (zoomed: the part of the
-        // picture the camera looks at, the readout's panels as they are). Either way one command buffer, submitted here
+        // for the GPU, what Shown puts over it put over it there (an overlay: NativeGpu::Overlay); else the CPU's
+        // picture as Shown makes it. Zoomed: the part of the picture the camera looks at, the readout's panels as they
+        // are. Either way one command buffer, submitted here
         port.WindowedStep();
         const native::Frame *gpuFrame = port.machine->GpuFrame();
-        port.nativeShowable = port.ShownPlain();
-        if (!(gpuFrame && port.nativeShowable &&
-              presenter.ShowNative(*gpuFrame, port.machine->board.native, port.machine->board.SsRam(), where))) {
-            Zoomed zoomed;
+        Zoomed zoomed;
+        bool shownNative = false;
+        if (gpuFrame && presenter.CanShowNative()) {
+            const bool isZoomed = port.WindowedOverlay(overlay, zoomed);
+            const NativeGpu::Overlay over = {overlay.data(), port.ShownWidth(), Video::kHeight, isZoomed, ++overlayVersion};
+            shownNative = presenter.ShowNative(*gpuFrame, port.machine->GpuVideo(), port.machine->GpuText(), where, overlay.empty() ? nullptr : &over,
+                                               isZoomed ? &zoomed : nullptr);
+        }
+        if (!shownNative) {
             const bool isZoomed = port.WindowedPicture(shown, zoomed);
             presenter.Show(shown.data(), port.ShownWidth(), Video::kHeight, where, isZoomed ? &zoomed : nullptr);
         }

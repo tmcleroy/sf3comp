@@ -725,8 +725,81 @@ bool Port::Tick() {
 }
 
 void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels) const {
+    const Machine &m = *machine;
+    pixels.assign(m.Picture(), m.Picture() + ShownWidth() * Video::kHeight);
+    ShownOver(pixels, panels);
+}
+
+namespace {
+    // What drawing did to a picture, from what it made of an all black one and of an all white one: per pixel, its colour
+    // over black and how much of what was under it it covers (NativeGpu::Overlay: drawn over the GPU's picture, the same
+    // to within one in 255 of a colour where something translucent was drawn, the same elsewhere). False: nothing drawn
+    bool Probe(const std::vector<uint32_t> &black, const std::vector<uint32_t> &white, std::vector<uint32_t> &overlay) {
+        overlay.resize(black.size());
+        bool any = false;
+        for (size_t i = 0; i < black.size(); i++) {
+            const uint32_t b = black[i] & 0xFFFFFFu, w = white[i] & 0xFFFFFFu;
+            if (b == 0 && w == 0xFFFFFFu) {
+                overlay[i] = 0;
+                continue;
+            }
+            any = true;
+            const int left = std::clamp(static_cast<int>((w >> 8) & 0xFF) - static_cast<int>((b >> 8) & 0xFF), 0, 255);
+            overlay[i] = (static_cast<uint32_t>(255 - left) << 24) | b;
+        }
+        return any;
+    }
+    // The menu's picture from the game's (MenuPicture): 4:3, three times the lines, each pixel the nearest
+    void MenuSized(const std::vector<uint32_t> &shown, int across, std::vector<uint32_t> &pixels, uint32_t &width, uint32_t &height) {
+        height = Video::kHeight * 3;
+        width = height * 4 / 3 * static_cast<uint32_t>(across) / Video::kWidth;
+        pixels.resize(static_cast<size_t>(width) * height);
+        for (uint32_t y = 0; y < height; y++) {
+            const uint32_t *from = &shown[static_cast<size_t>(y / 3) * across];
+            uint32_t *to = &pixels[static_cast<size_t>(y) * width];
+            for (uint32_t x = 0; x < width; x++) {
+                to[x] = from[x * across / width];
+            }
+        }
+    }
+} // namespace
+
+bool Port::WindowedOverlay(std::vector<uint32_t> &overlay, Zoomed &zoomed) const {
     const int across = ShownWidth();
-    pixels.assign(machine->Picture(), machine->Picture() + across * Video::kHeight);
+    zoomed.keep.clear();
+    const bool isZoomed = zoom.View(across, Video::kHeight, zoomed.view);
+    if (!isZoomed && ShownPlain()) {
+        overlay.clear();
+        return false;
+    }
+    const size_t n = static_cast<size_t>(across) * Video::kHeight;
+    m_probeBlack.assign(n, 0);
+    m_probeWhite.assign(n, 0x00FFFFFFu);
+    ShownOver(m_probeBlack, isZoomed ? &zoomed.keep : nullptr);
+    ShownOver(m_probeWhite, nullptr);
+    if (!Probe(m_probeBlack, m_probeWhite, overlay) && !isZoomed) {
+        overlay.clear();
+    }
+    return isZoomed;
+}
+
+void Port::MenuOverlay(std::vector<uint32_t> &overlay, uint32_t &width, uint32_t &height) const {
+    const int across = ShownWidth();
+    const size_t n = static_cast<size_t>(across) * Video::kHeight;
+    m_probeBlack.assign(n, 0);
+    m_probeWhite.assign(n, 0x00FFFFFFu);
+    ShownOver(m_probeBlack, nullptr);
+    ShownOver(m_probeWhite, nullptr);
+    std::vector<uint32_t> black, white;
+    MenuSized(m_probeBlack, across, black, width, height);
+    MenuSized(m_probeWhite, across, white, width, height);
+    menu.Draw(black.data(), static_cast<int>(width), static_cast<int>(height));
+    menu.Draw(white.data(), static_cast<int>(width), static_cast<int>(height));
+    Probe(black, white, overlay);
+}
+
+void Port::ShownOver(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels) const {
+    const int across = ShownWidth();
     DrawHud(pixels.data(), across, Video::kHeight, panels);
     // A line at the bottom, in the middle (`up` lines higher)
     auto status = [&](const char *text, int up) {
@@ -942,24 +1015,15 @@ bool Port::WindowedPicture(std::vector<uint32_t> &pixels, Zoomed &zoomed) {
     }
     // (the game's own picture above, the one with the readout below)
     Shown(pixels, &zoomed.keep);
-    pixels.insert(pixels.begin(), machine->Picture(), machine->Picture() + across * Video::kHeight);
+    const Machine &m = *machine;
+    pixels.insert(pixels.begin(), m.Picture(), m.Picture() + across * Video::kHeight);
     return true;
 }
 
 void Port::MenuPicture(std::vector<uint32_t> &pixels, uint32_t &width, uint32_t &height) const {
     std::vector<uint32_t> shown;
     Shown(shown);
-    const uint32_t across = static_cast<uint32_t>(ShownWidth());
-    height = Video::kHeight * 3;
-    width = height * 4 / 3 * across / Video::kWidth;
-    pixels.resize(static_cast<size_t>(width) * height);
-    for (uint32_t y = 0; y < height; y++) {
-        const uint32_t *from = &shown[static_cast<size_t>(y / 3) * across];
-        uint32_t *to = &pixels[static_cast<size_t>(y) * width];
-        for (uint32_t x = 0; x < width; x++) {
-            to[x] = from[x * across / width];
-        }
-    }
+    MenuSized(shown, ShownWidth(), pixels, width, height);
 }
 
 std::string Port::PlayerFolder() const {
@@ -1188,7 +1252,6 @@ void Port::RunAhead() {
     uint16_t held[Machine::kMaxPlayers];
     memcpy(held, machine->players, sizeof(held));
     SetRunningAhead(true);
-    machine->gpuPicture = false; // (the last frame's picture is the one shown, after the machine is put back: the CPU's)
     for (int n = 0; n < ahead; n++) {
         memcpy(machine->players, held, sizeof(held));
         if (TheGame().beforeFrame) {
@@ -1590,10 +1653,9 @@ void Port::RunFrame() {
         menu.Close();
     }
     memcpy(machine->players, pad, sizeof(pad));
-    // (Machine::gpuPicture; run ahead, the frame shown is run-ahead's last, the CPU's)
-    // (only with CPS3RECOMP_NATIVE_PRESENT=1 for now: the GPU path wedged the Mac, main())
+    // (Machine::gpuPicture; only with CPS3RECOMP_NATIVE_PRESENT=1 for now: the GPU path wedged the Mac, main())
     static const bool nativePresent = getenv("CPS3RECOMP_NATIVE_PRESENT") && strcmp(getenv("CPS3RECOMP_NATIVE_PRESENT"), "1") == 0;
-    machine->gpuPicture = nativePresent && !opt.headless && gpuPresent && nativeShowable && !menu.IsOpen() && (net || !RunsAhead());
+    machine->gpuPicture = nativePresent && gpuPresent && !menu.IsOpen();
     RapidFire();
     if (coinFrames > 0) {
         coinFrames--;
@@ -2150,6 +2212,29 @@ int main(int argc, char **argv) {
             fprintf(stderr, "--present-test: %s\n", error.empty() ? SDL_GetError() : error.c_str());
             return false;
         };
+        // (CPS3RECOMP_PRESENT_COMPARE=1 with --present-every N: the window's twin, with no window. Each frame is made for
+        // the GPU and shown as the window shows it (ShowNative, what Shown puts over it as an overlay, the zoom), into a
+        // presenter of its own; every Nth, the CPU's picture is shown the old way (Show) too, the two read back, compared
+        // and written: P000123.png the GPU's, P000123-cpu.png the CPU's. Reported at the end)
+        static const bool compare = getenv("CPS3RECOMP_PRESENT_COMPARE") != nullptr && p.opt.presentEvery;
+        port::Presenter twin;
+        int twinWidth = 0, twinHeight = 0;
+        uint64_t twinFrames = 0, twinDifferent = 0, twinNative = 0, twinPixels = 0;
+        int twinMost = 0;
+        std::vector<uint32_t> twinOverlay, twinGpu, twinCpu;
+        if (compare) {
+            SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "offscreen");
+            SDL_Init(SDL_INIT_VIDEO);
+            twinHeight = p.opt.presentHeight > 0 ? p.opt.presentHeight : 672;
+            twinWidth = p.opt.presentWidth > 0 ? p.opt.presentWidth : twinHeight * 16 / 9;
+            std::string error;
+            if (!twin.OpenOffscreen(twinWidth, twinHeight, false, error) || !twin.CanShowNative()) {
+                fprintf(stderr, "present compare: %s\n", error.c_str());
+                return 1;
+            }
+            twin.SetScaling(port::DisplayScaling());
+            p.gpuPresent = true;
+        }
         // (online: at the board's pace, as a window would be, unless --unthrottled)
         auto paced = std::chrono::steady_clock::now();
         while (!p.quit && (p.opt.frames == 0 || p.frame < p.opt.frames)) {
@@ -2161,7 +2246,52 @@ int main(int argc, char **argv) {
             if (!ran) {
                 continue;
             }
-            if (p.opt.presentEvery) {
+            if (compare) {
+                const SDL_FRect where = port::FitPicture(twinWidth, twinHeight, p.ShownWidth(), Video::kHeight, port::DisplayShape(), port::DisplayScaling());
+                p.WindowedStep();
+                port::Zoomed zoomed;
+                const native::Frame *gpuFrame = p.machine->GpuFrame();
+                bool shown = false;
+                if (gpuFrame) {
+                    const bool isZoomed = p.WindowedOverlay(twinOverlay, zoomed);
+                    const port::NativeGpu::Overlay over = {twinOverlay.data(), p.ShownWidth(), Video::kHeight, isZoomed, p.frame};
+                    shown = twin.ShowNative(*gpuFrame, p.machine->GpuVideo(), p.machine->GpuText(), where, twinOverlay.empty() ? nullptr : &over,
+                                            isZoomed ? &zoomed : nullptr);
+                }
+                twinNative += shown ? 1 : 0;
+                if (p.frame % p.opt.presentEvery == 0) {
+                    char path[512];
+                    snprintf(path, sizeof(path), "%s%06llu", p.opt.presentPrefix.c_str(), static_cast<unsigned long long>(p.frame));
+                    std::vector<uint32_t> cpuShown;
+                    port::Zoomed cpuZoomed;
+                    const bool cpuIsZoomed = p.WindowedPicture(cpuShown, cpuZoomed);
+                    if (shown && twin.ReadOffscreen(twinGpu)) {
+                        twin.Show(cpuShown.data(), p.ShownWidth(), Video::kHeight, where, cpuIsZoomed ? &cpuZoomed : nullptr);
+                        if (twin.ReadOffscreen(twinCpu)) {
+                            twinFrames++;
+                            int most = 0;
+                            uint64_t pixels = 0;
+                            for (size_t i = 0; i < twinGpu.size(); i++) {
+                                if (twinGpu[i] != twinCpu[i]) {
+                                    pixels++;
+                                    for (int shift = 0; shift < 24; shift += 8) {
+                                        most = std::max(most, std::abs(static_cast<int>((twinGpu[i] >> shift) & 0xFF) - static_cast<int>((twinCpu[i] >> shift) & 0xFF)));
+                                    }
+                                }
+                            }
+                            twinPixels += pixels;
+                            twinMost = std::max(twinMost, most);
+                            if (pixels) {
+                                twinDifferent++;
+                                fprintf(stderr, "present compare, frame %llu: %llu pixels different, by at most %d\n", static_cast<unsigned long long>(p.frame),
+                                        static_cast<unsigned long long>(pixels), most);
+                            }
+                            WritePng((std::string(path) + ".png").c_str(), twinGpu.data(), twinWidth, twinHeight);
+                            WritePng((std::string(path) + "-cpu.png").c_str(), twinCpu.data(), twinWidth, twinHeight);
+                        }
+                    }
+                }
+            } else if (p.opt.presentEvery) {
                 // (the window's picture made every frame, as the window would, so that the zoom eases as it does there)
                 std::vector<uint32_t> shown;
                 port::Zoomed zoomed;
@@ -2186,6 +2316,12 @@ int main(int argc, char **argv) {
                 music.insert(music.end(), musicMade.begin(), musicMade.end());
             }
             p.machine->audio.clear();
+        }
+        if (compare) {
+            fprintf(stderr, "cps3recomp: present compare: %llu frames shown by the GPU, %llu compared with the CPU's, %llu different (%llu pixels, by at most %d)\n",
+                    static_cast<unsigned long long>(twinNative), static_cast<unsigned long long>(twinFrames), static_cast<unsigned long long>(twinDifferent),
+                    static_cast<unsigned long long>(twinPixels), twinMost);
+            twin.Close();
         }
         if (!p.opt.presentTest.empty()) {
             // (the picture the run ended on, through the GPU path and read back: what a window would show)

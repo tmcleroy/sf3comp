@@ -83,7 +83,10 @@ public:
     // shown as Show shows a picture, in one command buffer: the compute passes that draw the picture, then the render
     // pass that fits it to the window, submitted where Show submits, with no wait on the CPU. False (nothing done) where
     // it cannot be: not through SDL's GPU API, or shaded, or the GPU's renderer could not be made; Show then
-    bool ShowNative(const cps3recomp::native::Frame &frame, const cps3recomp::native::Video &video, const uint8_t *ssRam, const SDL_FRect &where);
+    // With `overlay` (NativeGpu::Overlay), what the port puts over the picture put over it on the GPU (a third compute
+    // pass); zoomed (`zoomed`: the overlay rawAbove), as Show zooms
+    bool ShowNative(const cps3recomp::native::Frame &frame, const cps3recomp::native::Video &video, const uint8_t *ssRam, const SDL_FRect &where,
+                    const NativeGpu::Overlay *overlay = nullptr, const Zoomed *zoomed = nullptr);
     bool CanShowNative() const {
         return m_device && !m_shading && m_native.IsOpen();
     }
