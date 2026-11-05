@@ -182,6 +182,7 @@ namespace {
         };
         bool noRewrites = false;
         bool noDryRuns = false; // CPS3RECOMP_NO_DRY_RUNS=1: the hand-overs' dry runs left out (lift.h)
+        bool stageBoard = false; // a second board: its rewrites only run dry (Lift::boards)
         uint64_t dryRuns = 0;
         unsigned liftCheckEvery = 0;
         std::map<const Lift *, LiftCheck> liftChecks;
@@ -191,6 +192,7 @@ namespace {
 
     Runtime *g_rt = nullptr; // the board being run now (Activate): its runtime, owned by its Board below
     std::deque<Lift> g_lifts; // (a deque: entries point at them)
+    uint64_t g_stageDryRuns = 0; // (the stage boards' dry runs, for the report)
 
     bool IsUnconditionalDelayed(OpcodeType t) {
         switch (t) {
@@ -887,7 +889,7 @@ namespace {
                 continue;
             }
             if (lift.rewrite) {
-                if (rt.noRewrites || (timed && !(g_rewritesNeededNow && g_rewritesNeededNow()))) {
+                if (rt.stageBoard || rt.noRewrites || (timed && !(g_rewritesNeededNow && g_rewritesNeededNow()))) {
                     // (one that hands the native interface what it draws: run dry, charged nothing, before the game's
                     // code runs: lift.h)
                     if (lift.handsOver && !rt.noDryRuns && guest.Board().NativeTaking()) { // (machine.h: not for frames no GPU draws)
@@ -900,7 +902,7 @@ namespace {
                         dry.t = cpu.SR.T;
                         Guest dryGuest(cpu, dry);
                         if (lift.fn(dryGuest)) {
-                            rt.dryRuns++;
+                            (rt.stageBoard ? g_stageDryRuns : rt.dryRuns)++;
                         }
                     }
                     continue;
@@ -1302,9 +1304,21 @@ void AttachTables(Machine &m, const Options &options, const BlockTable *tables, 
     if (const char *v = getenv("CPS3RECOMP_LIFT_CHECK")) {
         rt.liftCheckEvery = static_cast<unsigned>(std::max(1, atoi(v)));
     }
-    if (first && !getenv("CPS3RECOMP_NO_LIFTS")) {
+    // (a second board: only the lifts for stage boards whose code it holds, and only while the native interface is kept:
+    // lift.h, Lift::boards)
+    rt.stageBoard = !first;
+    if ((first || native::On()) && !getenv("CPS3RECOMP_NO_LIFTS")) {
         for (const Lift &lift : g_lifts) {
             uint32_t offset;
+            if (!(lift.boards & (first ? Lift::kFirstBoard : Lift::kStageBoards))) {
+                continue;
+            }
+            if (!first) {
+                Region *r = RegionFor(rt, lift.address, offset);
+                if (!r || offset + lift.size > r->size || LiftHash(r->mem + offset, lift.size) != lift.hash) {
+                    continue;
+                }
+            }
             if (Region *r = RegionFor(rt, lift.address, offset)) {
                 Entry &e = rt.entries.emplace_back();
                 e = {};
@@ -1484,6 +1498,9 @@ bool Finish() {
     }
     if (rt.dryRuns) {
         fprintf(stderr, "cps3recomp: hand-overs made by dry runs of their rewrites: %llu\n", (unsigned long long)rt.dryRuns);
+    }
+    if (g_stageDryRuns) {
+        fprintf(stderr, "cps3recomp: the stage boards' hand-overs made by dry runs: %llu\n", (unsigned long long)g_stageDryRuns);
     }
     bool liftsOk = true;
     for (const auto &[lift, check] : rt.liftChecks) {

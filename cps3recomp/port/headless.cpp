@@ -323,6 +323,18 @@ int main(int argc, char **argv) {
         }
         stage = std::make_unique<machine::Machine>(*stageSet);
         stage->Reset();
+        if (!dumpDir.empty()) {
+            // (the stage game's program too, as its CPU fetches its instructions (<set>.program.bin) and reads its data
+            // (<set>.data.bin): never committed)
+            const auto write = [&](const char *kind, const uint8_t *bytes) {
+                if (FILE *f = fopen((dumpDir + "/" + stageList.set + kind).c_str(), "wb")) {
+                    fwrite(bytes, 1, stageSet->program.size() * 4, f);
+                    fclose(f);
+                }
+            };
+            write(".program.bin", stage->ProgramBytes());
+            write(".data.bin", stage->ProgramDataBytes());
+        }
     }
     std::vector<int16_t> audio;
     std::vector<uint32_t> pixels;

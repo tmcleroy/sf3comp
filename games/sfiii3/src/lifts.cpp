@@ -377,12 +377,9 @@ void RegisterFightMoves();
 void RegisterFightBoxes();
 // The bonus games' (bonus.cpp): character select's step out and the bonus check
 void RegisterBonusLifts();
-// The palette (video_palette.cpp): the first piece of the native video
-void RegisterVideoPalette();
-void RegisterVideoRegisters(); // (video_registers.cpp: the frame registers)
-void RegisterVideoLists();     // (video_lists.cpp: the object lists' heads)
-void RegisterVideoTextures();  // (video_textures.cpp: character RAM)
-void RegisterVideoForms();     // (video_forms.cpp: the native forms of what those call, for their dry runs)
+// The native video's hand-offs (video_games.cpp: the palette, frame registers, object lists' heads and character RAM, for
+// 3rd Strike and the stage games, and the native forms of what they call)
+void RegisterVideo();
 
 void RegisterLifts3rdStrike() {
     RegisterGameLifts(kLifts, std::size(kLifts));
@@ -402,11 +399,7 @@ void RegisterLifts3rdStrike() {
     RegisterFightMoves();
     RegisterFightBoxes();
     RegisterBonusLifts();
-    RegisterVideoPalette();
-    RegisterVideoRegisters();
-    RegisterVideoLists();
-    RegisterVideoTextures();
-    RegisterVideoForms();
+    RegisterVideo();
     AddHook("VerticalBlank", 0x06000528, 8, 0xF41697FE6C5AEE4Dull, VerticalBlank);
 }
 

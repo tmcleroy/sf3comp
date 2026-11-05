@@ -546,6 +546,7 @@ void Machine::SetStageBoard(std::unique_ptr<RomSet> set) {
         const bool plain = machine::g_flashPlain;
         m_stage = std::make_unique<machine::Machine>(*m_stageSet);
         m_stage->Reset();
+        m_stage->nativeCheck = native::On(); // (its hand-offs to its own interface checked as the game board's are)
         machine::g_flashPlain = plain;
         // (its own translated code, if the program has it: tools/translate.sh with GAME=its id)
         AttachSecond(*m_stage);
@@ -591,6 +592,7 @@ void Machine::SetSecondStageBoard(bool on) {
     const bool plain = machine::g_flashPlain;
     m_stage2 = std::make_unique<machine::Machine>(*m_stageSet);
     m_stage2->Reset();
+    m_stage2->nativeCheck = native::On();
     machine::g_flashPlain = plain;
     AttachSecond(*m_stage2);
     m_stage2Pcm = std::make_unique<Pcm>(*m_stage2);

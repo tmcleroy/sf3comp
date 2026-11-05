@@ -7,7 +7,7 @@
 // only other bytes the game's code writes to character RAM are a cleared area (0x06136782, at a screen's set-up), handed
 // over here. The game never reads character RAM. With CPS3RECOMP_NATIVE_CHECK=1 the board compares character RAM with
 // the native textures every frame (games/sfiii3/checknative.sh).
-#include "lift.h"
+#include "video.h"
 #include "machine.h"
 
 #include <iterator>
@@ -16,43 +16,36 @@ namespace cps3recomp {
 
 namespace {
     constexpr uint32_t kCharWindow = 0x24100000; // the CPU's window on character RAM
-    constexpr uint32_t kCharBank = 0x02079C96;   // word: the window's bank now
-    constexpr uint32_t kTakeArea = 0x061379EC;   // (r4 1, r5 0: an area of character RAM for the lists; r0 its page)
-    constexpr uint32_t kAreaPlace = 0x06137980;  // r4 a page (from 1): its place in the window (4 KB pages)
 
-    // 06136782: an area of a page taken for the character DMA's lists (kTakeArea with 1, 0) and its 4 KB cleared
-    bool ClearListArea(Guest &g) {
-        g.R(15) -= 12; // (pr and 8 bytes)
-        g.R(5) = 0;
-        g.R(4) = 1;
-        g.Call(kTakeArea);
-        g.R(4) = g.R(0);
-        g.Call(kAreaPlace);
-        const uint32_t at = g.R(0) + kCharWindow;
-        const uint32_t bank = (static_cast<uint32_t>(g.Read16(kCharBank)) & 15 & 7) << 20;
-        for (uint32_t k = 0; k < 0x800; k++) {
-            g.Write16(at + k * 2, 0);
-            g.Board().NativeCharacterWrite(bank | ((at + k * 2) & 0xFFFFE), 0, 2);
-        }
-        g.R(15) += 12;
-        g.R(0) = at;
-        g.R(1) = 0x800;
-        g.R(2) = 0x800;
-        g.R(3) = 0x800;
-        g.SetT(true);
-        g.Return(0x800 * 14 + 60);
-        return true;
-    }
-
-    const Lift kLifts[] = {
-        {"ClearListArea", 0x06136782, 0x6A, 0x64F2ABB38AEAC94Full, ClearListArea, true, 0x100FF, nullptr, kHandsOver},
-    };
 } // namespace
 
-void RegisterGameLifts(const Lift *lifts, size_t count); // lifts.cpp
-
-void RegisterVideoTextures() {
-    RegisterGameLifts(kLifts, std::size(kLifts));
+// 06136782: an area of a page taken for the character DMA's lists (P.takeArea with 1, 0) and its 4 KB cleared
+template <const VideoPlaces &P> bool ClearListArea(Guest &g) {
+    g.R(15) -= 12; // (pr and 8 bytes)
+    g.R(5) = 0;
+    g.R(4) = 1;
+    g.Call(P.takeArea);
+    g.R(4) = g.R(0);
+    g.Call(P.areaPlace);
+    const uint32_t at = g.R(0) + kCharWindow;
+    const uint32_t bank = (static_cast<uint32_t>(g.Read16(P.charBank)) & 15 & 7) << 20;
+    for (uint32_t k = 0; k < 0x800; k++) {
+        g.Write16(at + k * 2, 0);
+        g.Board().NativeCharacterWrite(bank | ((at + k * 2) & 0xFFFFE), 0, 2);
+    }
+    g.R(15) += 12;
+    g.R(0) = at;
+    g.R(1) = 0x800;
+    g.R(2) = 0x800;
+    g.R(3) = 0x800;
+    g.SetT(true);
+    g.Return(0x800 * 14 + 60);
+    return true;
 }
+
+// (made for each game: video_games.cpp registers them)
+template bool ClearListArea<kThirdStrikeVideo>(Guest &g);
+template bool ClearListArea<kNewGenerationVideo>(Guest &g);
+template bool ClearListArea<kSecondImpactVideo>(Guest &g);
 
 } // namespace cps3recomp
