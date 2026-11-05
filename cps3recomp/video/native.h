@@ -20,9 +20,16 @@ class Archive;
 
 namespace cps3recomp::native {
 
-// Whether the native interface is kept this run (CPS3RECOMP_NATIVE_CHECK; fixed at start): when not, handing it things
-// does nothing, and it is not in save states
+// Whether the native interface is kept this run (fixed at start): in the checks (CPS3RECOMP_NATIVE_CHECK), and wherever
+// the GPU draws the picture from it (Keep, before the first machine is made; CPS3RECOMP_NATIVE=1 or 0 says so whatever
+// the port chose). When not, handing it things does nothing
 bool On();
+// Whether this is a check run (CPS3RECOMP_NATIVE_CHECK): only then is the interface in save states. Elsewhere it is made
+// again from the board's memories after a state is put back (Machine::SyncNative): until the board model leaves the
+// default build, the two hold the same, as the checks show every frame, and save states stay as they were
+bool Checking();
+// The port's choice (before the first machine is made: native::On is fixed from then on)
+void Keep(bool on);
 
 // A palette transfer: `length` colours from the graphics, from word `source` of the graphics SIMMs' stream (the samples'
 // and the characters' stream: Machine::Samples), to colours `dest` on, faded by `fade`: three fade bytes, red in bits
@@ -55,14 +62,22 @@ public:
     // A colour set as it is (the game's code writing one)
     void Set(uint32_t index, uint16_t colour) {
         m_colours[index & (kColours - 1)] = colour;
+        m_version++;
     }
     const uint16_t *Colours() const {
         return m_colours.data();
+    }
+    // (made again from the board's colour RAM: all of it)
+    void SetAll(const uint16_t *colours);
+    // Changes whenever a colour may have changed (a GPU's copy sends the colours again only then)
+    uint64_t Version() const {
+        return m_version;
     }
     void Serialize(Archive &ar);
 
 private:
     std::vector<uint16_t> m_colours;
+    uint64_t m_version = 1;
 };
 
 // A colour component (5 bits) faded by a fade byte (as PaletteTransfer::fade's)
@@ -148,6 +163,11 @@ public:
     }
     void Reset() {
         m_table = 0xFFFFFFFF;
+    }
+    // (made again from the board's character RAM: a 64 KB page as it is there, and the compressed transfers' table)
+    void PutPage(int page, const uint8_t *from);
+    void SetTable(uint32_t table) {
+        m_table = table;
     }
     void Serialize(Archive &ar);
 

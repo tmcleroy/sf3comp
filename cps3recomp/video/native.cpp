@@ -9,12 +9,43 @@
 
 namespace cps3recomp::native {
 
-bool On() {
+namespace {
+    bool g_keep = false;
+    // (CPS3RECOMP_NATIVE: 1 kept, 0 not, whatever the port chose; unset: as it chose)
+    int Forced() {
+        static const int forced = [] {
+            const char *v = getenv("CPS3RECOMP_NATIVE");
+            return v && *v ? (*v != '0' ? 1 : 0) : -1;
+        }();
+        return forced;
+    }
+} // namespace
+
+bool Checking() {
     static const bool on = [] {
         const char *v = getenv("CPS3RECOMP_NATIVE_CHECK");
         return v && *v && *v != '0';
     }();
     return on;
+}
+
+bool On() {
+    return Checking() || (Forced() < 0 ? g_keep : Forced() == 1);
+}
+
+void Keep(bool on) {
+    g_keep = on;
+}
+
+void Palette::SetAll(const uint16_t *colours) {
+    std::copy(colours, colours + kColours, m_colours.begin());
+    m_version++;
+}
+
+void Textures::PutPage(int page, const uint8_t *from) {
+    const uint32_t at = static_cast<uint32_t>(page) * 0x10000;
+    std::copy(from, from + 0x10000, m_pixels.begin() + at);
+    Touch(at, at + 0x10000);
 }
 
 Palette::Palette()
@@ -35,6 +66,7 @@ void Palette::Transfer(const PaletteTransfer &t, const uint8_t *graphics, size_t
 
 void Palette::Serialize(Archive &ar) {
     ar.Vec(m_colours);
+    m_version++;
 }
 
 void FlattenObjects(const std::vector<ListHead> &heads, const FrameRegisters &registers, const uint8_t *ram, std::vector<Object> &out) {

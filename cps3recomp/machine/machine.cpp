@@ -227,6 +227,9 @@ void Machine::RunFrame() {
     if (nativeCheck) {
         NativeCompare();
     }
+    if (native::On()) {
+        NativeFrameEnd();
+    }
     if (g_traceDma) {
         fprintf(stderr, "frame %llu: %u character DMAs (%u bytes), %u palette, %u sprite lists (%u objects)\n", static_cast<unsigned long long>(m_frame),
                 g_charDmas, g_charBytes, g_palDmas, g_spriteDmas, m_spriteCount);
@@ -558,6 +561,9 @@ void Machine::WritePpu(uint32 offset, uint32 v, uint32 mask) {
                 SpriteDma();
                 if (compare) {
                     NativeCompareObjects();
+                } else if (NativeTaking() && !nativeCheck) {
+                    // (the frame's objects made from what was handed over, as the check makes them)
+                    native::FlattenObjects(native.lists, native.registers, m_spriteRam.data(), native.objects);
                 }
                 m_dmaStatus |= 1;
                 m_spriteDmaDoneAt = Now() + 100; // (4 microseconds)
@@ -863,7 +869,7 @@ namespace {
 } // namespace
 
 void Machine::NativePaletteTransfer(const native::PaletteTransfer &t) {
-    if (!native::On()) {
+    if (!NativeTaking()) {
         return;
     }
     native.palette.Transfer(t, m_rom.graphics.data(), m_rom.graphics.size(), paletteColour);
@@ -873,7 +879,7 @@ void Machine::NativePaletteTransfer(const native::PaletteTransfer &t) {
 }
 
 void Machine::NativeColour(uint32 index, uint16 value) {
-    if (!native::On()) {
+    if (!NativeTaking()) {
         return;
     }
     native.palette.Set(index, value);
@@ -910,6 +916,75 @@ native::FrameRegisters Machine::BoardRegisters() const {
     }
     std::copy(m_ssRegs.begin(), m_ssRegs.end(), r.text);
     return r;
+}
+
+// The frame's end: whether the interface holds the frame as the board does (machine.h, NativeInSync). In the checks it
+// is never made again from the board (the check compares the two instead), and holds the frame once the game's code
+// hands it over.
+bool Machine::SyncChecked() {
+    static const bool on = getenv("CPS3RECOMP_NATIVE_SYNC_CHECK") != nullptr;
+    return on;
+}
+
+void Machine::NativeFrameEnd() {
+    const bool handed = m_nativeHanded == 3 && NativeTaking();
+    m_nativeHanded = 0;
+    if (!handed) {
+        m_nativeInSync = false;
+        return;
+    }
+    if (!m_nativeInSync) {
+        // (made again only for a frame a GPU may draw: nativeWanted; run-ahead's frames, say, are not)
+        if (!nativeCheck) {
+            SyncNative();
+        }
+        m_nativeInSync = true;
+    }
+    m_nativeStamps = m_charStamp;
+    m_nativeStampsKnown = true;
+    // (debugging aid, CPS3RECOMP_NATIVE_SYNC_CHECK=1 outside the checks: the interface, in step, against the board, every
+    // frame: the colours, the textures, the registers and the frame's objects)
+    static const bool syncCheck = getenv("CPS3RECOMP_NATIVE_SYNC_CHECK") != nullptr;
+    if (syncCheck && !nativeCheck) {
+        static struct Totals {
+            uint64_t frames = 0, different = 0;
+            ~Totals() {
+                fprintf(stderr, "cps3recomp: native in step: %llu frames compared, %llu different\n", static_cast<unsigned long long>(frames),
+                        static_cast<unsigned long long>(different));
+            }
+        } totals;
+        totals.frames++;
+        bool same = memcmp(native.palette.Colours(), m_colourRam.data(), native::Palette::kColours * 2) == 0 &&
+                    memcmp(native.textures.Pixels(), m_charRam.data(), native::Textures::kSize) == 0 && native.registers == BoardRegisters() &&
+                    native.objects.size() == m_spriteCount;
+        for (uint32 i = 0; same && i < m_spriteCount; i++) {
+            const native::Object &o = native.objects[i];
+            same = o.group == m_spriteGroup[i] && std::equal(o.words, o.words + 4, &m_spriteList[static_cast<size_t>(i) * 4]);
+        }
+        if (!same && totals.different++ < 6) {
+            fprintf(stderr, "native in step, frame %llu: different from the board\n", static_cast<unsigned long long>(m_frame));
+        }
+    }
+}
+
+// The interface made from the board's memories and registers: the colours (colour RAM), the textures (character RAM's
+// pages changed since the two last held the same), the frame's registers, the lists' heads and the frame's objects
+void Machine::SyncNative() {
+    native.palette.SetAll(m_colourRam.data());
+    for (int page = 0; page < kCharPages; page++) {
+        if (!m_nativeStampsKnown || m_nativeStamps[page] != m_charStamp[page]) {
+            native.textures.PutPage(page, m_charRam.data() + static_cast<size_t>(page) * 0x10000);
+        }
+    }
+    native.textures.SetTable(m_tableAddress);
+    native.registers = BoardRegisters();
+    native.lists = BoardLists();
+    native.objects.resize(m_spriteCount);
+    for (uint32 i = 0; i < m_spriteCount; i++) {
+        native::Object &o = native.objects[i];
+        std::copy_n(&m_spriteList[static_cast<size_t>(i) * 4], 4, o.words);
+        o.group = m_spriteGroup[i];
+    }
 }
 
 // A frame register written by the boot ROM (not the game's code): passed on to the interface as the board has it now.

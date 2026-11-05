@@ -131,8 +131,10 @@ void Machine::Serialize(Archive &ar) {
     ar.Pod(m_now);
     ar.Pod(m_frameStart);
     ar.Pod(m_spillover);
-    if (native::On()) {
+    if (native::Checking()) {
         native.Serialize(ar);
+    } else if (native::On() && !ar.Saving()) {
+        m_nativeInSync = false; // (made again from what was put back at the next frame that hands over: SyncNative)
     }
 }
 

@@ -139,7 +139,7 @@ public:
     uint16 (*paletteColour)(uint32 word, uint32 index, uint16 colour) = nullptr;
     void WriteColour(uint32 index, uint16 value) {
         SetColour(index, value, 0);
-        if (native::On()) {
+        if (NativeTaking()) {
             native.palette.Set(index, value);
         }
     }
@@ -189,26 +189,31 @@ public:
     void NativeColour(uint32 index, uint16 value);
     // ... and the frame's registers, as the game sets them (null when the interface is not kept: nothing to hand over)
     native::FrameRegisters *NativeRegisters() {
-        return native::On() ? &native.registers : nullptr;
+        if (!NativeTaking()) {
+            return nullptr;
+        }
+        m_nativeHanded |= 2;
+        return &native.registers;
     }
     // The frame's registers as the board holds them, in the interface's terms
     native::FrameRegisters BoardRegisters() const;
     // ... the object lists' heads the game made for the next object DMA
     void NativeLists(std::vector<native::ListHead> heads) {
-        if (native::On()) {
+        if (NativeTaking()) {
             native.lists = std::move(heads);
             m_bootLists = false;
+            m_nativeHanded |= 1;
         }
     }
     // ... a character DMA's list (its transfers made into the native textures), and bytes the game's code writes to
     // character RAM, at their place in its 8 MB (the CPU's window's bank added)
     void NativeCharacterList(const uint32 *list, size_t longs) {
-        if (native::On()) {
+        if (NativeTaking()) {
             native.textures.Load(list, longs, m_rom.graphics.data(), m_rom.graphics.size());
         }
     }
     void NativeCharacterWrite(uint32 at, uint32 value, int bytes) {
-        if (native::On()) {
+        if (NativeTaking()) {
             native.textures.Write(at, value, bytes);
         }
     }
@@ -223,6 +228,24 @@ public:
     // the native textures, every frame (the boot ROM's writes to it passed on).
     // Reported at the end (NativeCheckReport)
     bool nativeCheck = false;
+    // Whether the interface holds the frame as the board does (a GPU may draw the picture from it): the game's code
+    // handed over this frame's lists' heads and registers (the rewrites ran: not with arcade timing's own code, nor
+    // CPS3RECOMP_NO_REWRITES), and nothing since put a state back that it was not made again from. Outside the checks,
+    // a frame that hands over after one that did not (or after a state put back) makes the interface again from the
+    // board's memories first (SyncNative)
+    bool NativeInSync() const {
+        return m_nativeInSync;
+    }
+    // Whether this frame's picture may be drawn from the interface (set by the port's machine before each frame): only
+    // then is the interface made again from the board when it must be
+    bool nativeWanted = false;
+    // Whether what the game's code hands over is taken this frame: in the checks, and for a frame a GPU may draw (not
+    // run-ahead's, nor a stage board's; CPS3RECOMP_NATIVE_SYNC_CHECK too). A frame not taken leaves the interface out of
+    // step, to be made again from the board (SyncNative) when one is wanted
+    bool NativeTaking() const {
+        return native::On() && (nativeWanted || native::Checking() || SyncChecked());
+    }
+    static bool SyncChecked();
 
     void Serialize(Archive &ar);
 
@@ -290,6 +313,12 @@ private:
     }
     void NativeCompareLists();
     void NativeCompareObjects();
+    // (outside the checks: whether the interface holds what the board does; SyncNative makes it so)
+    uint8 m_nativeHanded = 0; // (this frame: 1 the lists' heads, 2 the registers)
+    bool m_nativeInSync = false, m_nativeStampsKnown = false;
+    std::array<uint64, 128> m_nativeStamps{}; // (character RAM's pages' stamps when the textures last held the same)
+    void NativeFrameEnd();
+    void SyncNative();
     void NoteCharWrite(uint32 at, uint32 value, int bytes) {
         if (nativeCheck && m_cpu.PC < 0x80000) {
             native.textures.Write(at, value, bytes);
