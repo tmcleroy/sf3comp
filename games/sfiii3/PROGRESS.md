@@ -127,7 +127,12 @@ arcade timing too (2026-11-05): the hand-off rewrites are run dry before the gam
 over the same (runtime/lift.h's DryRun, src/video_forms.cpp's native forms of what they call; NATIVE.md, "Arcade
 timing"): `CHECKNATIVE_ARCADE=1 checknative.sh` all the same, the state hashes the same with the dry runs and without. Next:
 the rasteriser's pixel check (b) passes for the plain picture (video/raster.cpp: draw list of quads and tilemap lines,
-the same pixels as renderer.cpp's every frame, widescreen too); next the features' object choices, then SDL_GPU. Wanted features this makes possible, both asked for by the user: GPU rendering (SDL_GPU drawing
+the same pixels as renderer.cpp's every frame, widescreen too). SDL_GPU (2026-11-05): the window's picture is now drawn
+by the GPU from the interface (port/native_gpu.cpp's compute passes, then the presenter's render pass, one command
+buffer, no CPU wait) for every frame drawn the plain way with nothing put over it; the CPU's renderer runs then only if
+its picture is asked for. About half the CPU time for the picture, the picture done no later, no frame of queueing
+added (the numbers: cps3recomp/docs/NATIVE.md); checknative.sh checks the GPU's pixels as the presenter shows them.
+Not yet seen in a window. Next: the HUD, status lines, menu and zoom as a GPU layer; the features' object choices. Wanted features this makes possible, both asked for by the user: GPU rendering (SDL_GPU drawing
 the interface's objects and layers, not a software renderer's picture handed over), and the guest stages drawn as
 layers through the same interface (DEFINITIVE.md item 10). The readable work below stops at the move code and boxes that are done; the rest waits.
 

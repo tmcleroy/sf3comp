@@ -162,13 +162,15 @@ text layer's registers, the status word and the two interrupts (as a timer).
 | Objects | native::FlattenObjects: the heads, the registers and sprite RAM's object words flattened (SpriteDma's rules, in the interface's terms) | done | (a) all the same: the board's flattened list against the native objects, at every object DMA |
 | Arcade timing's hand-overs | the ten hand-off rewrites run dry (Lift::handsOver), src/video_forms.cpp's native forms | done | (a) and (b) all the same with CHECKNATIVE_ARCADE=1; state hashes the same with CPS3RECOMP_NO_DRY_RUNS=1 |
 | Native rasteriser | the toolkit (video/raster.cpp): the draw list of quads and layer lines, text, resolve, zoom | done for the plain picture and widescreen; the features' object choices and a second producer to come | (b) all the same: pixels against renderer.cpp, every frame |
-| SDL_GPU renderer | the toolkit: instanced quads, layer lines, palette textures, resolve | large | (b) on a capture against the rasteriser |
+| SDL_GPU renderer | the toolkit (port/native_gpu.cpp): two compute passes from BuildFrame's tiles, the palette, the textures by page, the text layer; shown by the presenter (Presenter::ShowNative), the window's default picture where nothing is put over it (2026-11-05) | done for the plain picture; the HUD, status lines, menu and zoom still the CPU's | (b) all the same: the GPU's picture as the presenter shows it (render pass, 1:1) against the rasteriser's, every frame; 15 runs of 3000 frames with 0 different |
 | DMA timer | the toolkit: status bits and level 10 without the chips | small | gates: state hashes the same with and without the chip functions |
 | Sound events | 0x0613A408's writes (0x0613BBA8-0x0613BC9A, the key-on sites), 0x061393F8, 0x0613A384 | medium | (c): samples against pcm.cpp |
 | Guest stages | New Generation's and 2nd Impact's same hand-offs (the shared engine: found by the census on their boards) | medium a game | (a) per producer, then the composed frame |
 | Board model out of the default build | machine.cpp's chip functions behind `--board` | small, last | every gate |
 
 Order: (done: the palette, the frame registers, the textures, the lists' heads, the objects: the whole frame's
-interface exists, level (a); the rasteriser, level (b), for the plain picture and widescreen) the rasteriser's
-features' object choices next, then the GPU
-renderer; sound events beside them (independent); guest stages once 3rd Strike's frame is native.
+interface exists, level (a); the rasteriser, level (b), for the plain picture and widescreen; the GPU renderer, the
+window's default picture for frames drawn the plain way, 2026-11-05: cps3recomp/docs/NATIVE.md, "The presenter's GPU
+path") the HUD, status lines, menu and zoom as a GPU layer next, so that no frame falls back to the CPU's picture; the
+rasteriser's features' object choices (the stage boards, objects left out); sound events beside them (independent);
+guest stages once 3rd Strike's frame is native.
