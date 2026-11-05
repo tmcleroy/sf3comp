@@ -130,7 +130,7 @@ a few lines of the old colours: not modelled, and not wanted).
 - 0x06139316, the driver's set-up (four callers: start-up, a new game): every voice's registers cleared, the chip's
   mode word (040E0210) and the other device (05000C02) set, the keys off: kVoice (cleared) for each voice and kKeys.
 - 0x0613A334, every channel stopped and the keys off (kKeys 0); 0x0613A272, the music let go on after a pause (the
-  kept keys keyed on again: kKeyOn).
+  kept keys keyed on again: kKeyOn; not reached by any check run yet, so not yet compared with the game's code).
 - The native mixer (native::Mixer) plays the events at their times with pcm.cpp's rules. Level (c), checksound.sh:
   the mixer's frame against pcm.cpp's, each side's samples voice by voice, and the voices' settings and the keys
   against the chip's registers, every frame of the four runs (all the same: see PROGRESS.md for the numbers). The

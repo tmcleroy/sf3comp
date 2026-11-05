@@ -130,7 +130,12 @@ over the same (runtime/lift.h's DryRun, src/video_forms.cpp's native forms of wh
 timing"): `CHECKNATIVE_ARCADE=1 checknative.sh` all the same, the state hashes the same with the dry runs and without.
 Guest stages (2026-11-05): New Generation's and 2nd Impact's hand-offs are 3rd Strike's routines on their own places
 (src/video.h, video_games.cpp), run dry on the stage board into its own interface; the picture made from the two
-interfaces' layers is the board models' (checknative.sh's stage runs, CPU; each producer's part on the GPU). Next:
+interfaces' layers is the board models' (checknative.sh's stage runs, CPU; each producer's part on the GPU).
+Sound, level (c), done: the driver's voice step, set-up, all-off and resume rewritten (src/sound_driver.cpp) to hand
+voice events (key on and off, the sample, looping, pitch, volume) to a native mixer (cps3recomp/sound/native_sound.h);
+checksound.sh compares the mixer's samples with pcm.cpp's, voice by voice, every frame of the same four runs (12000 frames each:
+7.5 million samples a side a run, 0 different; the voices against the chip's registers, 0 different; the rewrites against the game's code, 381056 calls a run, 0 different). A deliberate mistake (the pitch handed over one off) was found at its first frame, voice and sample. Nobody has listened to the native mixer (it is only compared with pcm.cpp, which nobody has listened to
+closely either); it is kept only in check runs, the default build still mixes with pcm.cpp. Next:
 the rasteriser's pixel check (b) passes for the plain picture (video/raster.cpp: draw list of quads and tilemap lines,
 the same pixels as renderer.cpp's every frame, widescreen too). SDL_GPU (2026-11-05): the window's picture is now drawn
 by the GPU from the interface (port/native_gpu.cpp's compute passes, then the presenter's render pass, one command
