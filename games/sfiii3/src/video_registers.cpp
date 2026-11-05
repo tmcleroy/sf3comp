@@ -289,11 +289,11 @@ namespace {
     }
 
     const Lift kLifts[] = {
-        {"ObjectScrolls", 0x0612DDCC, 0x9C, 0xBDC47072323497EDull, ObjectScrolls, true, 0x1003F},
-        {"TilemapRegisters", 0x0612E610, 0x404, 0x78CCA79ED47596D7ull, TilemapRegisters, true, 0x1001F},
-        {"ScreenRegisters", 0x06005C00, 0x11E, 0x90CC17B7165E52F1ull, ScreenRegisters, true, 0x1001F},
-        {"PictureZoom", 0x06005FB8, 0x58, 0xFC8223620916E67Full, PictureZoom, true, 0x1001F},
-        {"TextPalette", 0x061388DA, 0x16, 0xFDC3A59BA456D6DEull, TextPalette, true, 0x100F9},
+        {"ObjectScrolls", 0x0612DDCC, 0x9C, 0xBDC47072323497EDull, ObjectScrolls, true, 0x1003F, nullptr, kHandsOver},
+        {"TilemapRegisters", 0x0612E610, 0x404, 0x78CCA79ED47596D7ull, TilemapRegisters, true, 0x1001F, nullptr, kHandsOver},
+        {"ScreenRegisters", 0x06005C00, 0x11E, 0x90CC17B7165E52F1ull, ScreenRegisters, true, 0x1001F, nullptr, kHandsOver},
+        {"PictureZoom", 0x06005FB8, 0x58, 0xFC8223620916E67Full, PictureZoom, true, 0x1001F, nullptr, kHandsOver},
+        {"TextPalette", 0x061388DA, 0x16, 0xFDC3A59BA456D6DEull, TextPalette, true, 0x100F9, nullptr, kHandsOver},
     };
 } // namespace
 

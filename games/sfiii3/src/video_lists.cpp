@@ -115,7 +115,7 @@ namespace {
     }
 
     const Lift kLifts[] = {
-        {"ListHeads", 0x06136F90, 0x284, 0x06D76DCD2C3326A5ull, ListHeads, true, 0x1007F},
+        {"ListHeads", 0x06136F90, 0x284, 0x06D76DCD2C3326A5ull, ListHeads, true, 0x1007F, nullptr, kHandsOver},
     };
 
     // 061367EE (hooked: it ends by waiting for the object DMA it starts, which a rewrite cannot): the empty frame's

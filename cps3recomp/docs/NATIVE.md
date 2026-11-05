@@ -163,7 +163,7 @@ The game's slowdown is its CPU's: the main loop does a frame's work and waits fo
 - **the vertical blank and the DMA-done interrupt stay where they are**: they are the board's clock, kept by the
   frame loop (`Machine::RunFrame`) with or without a chip model.
 
-### Arcade timing: hooks at the hand-offs (decided 2026-11-04, to build)
+### Arcade timing: hooks at the hand-offs (decided 2026-11-04, built 2026-11-05)
 
 With arcade timing the game's own code runs in place of the rewrites (its cycles are the board's; a rewrite's are
 only said), so nothing would be handed over. Neither exact timing nor the board model is given up for it: hooks sit at
@@ -180,6 +180,27 @@ masks at 0x06605548 against 0x0206A1DE, then 0x0206A1DE from 0x0206A1DC), the CP
 0x0613AAB0: two words of RAM), and the list area's allocation (0x061379EC, 0x06137980; or ClearListArea's hand-over
 made after the routine, from its result). checknative.sh then runs its four games again with arcade timing on, and the
 rewrites' and the hooks' hand-overs must agree with the board's as they do now.
+
+**As built** (runtime/lift.h, recomp.cpp's RunLifts): no second copy of each rewrite. A rewrite that hands over is
+marked in its game's table (`Lift::handsOver`); where the dispatcher's rule leaves it out, RunLifts runs the same
+function dry before the game's code, with the bus's timing off (charged nothing), on a `Guest` given a `DryRun`: a copy
+of the registers, and an overlay that keeps the bytes it writes (main RAM, the stack) and drops its writes to the
+chips (04000000-05FFFFFF) and the CPU's registers; reads see the overlay over the guest's memory. `Guest::Call` in a dry
+run runs the routine's native form (`AddNativeForm`, the game's: what the routine does to main RAM and r0) instead of
+the game's code; a call with no native form is said once on stderr. What the dry run hands the board (`Board().Native*`)
+is handed over; nothing else stays. The live path is unchanged, so the rewrites are checked against the game's code as
+before (checklifts). Only when the interface is kept (`native::On()`); `CPS3RECOMP_NO_DRY_RUNS=1` leaves them out. The
+run's count is said at the end ("hand-overs made by dry runs of their rewrites").
+
+What it reads of the chips: only the DMA status word (the timer that stays). So with the board model gone, the game's
+own code's writes to the registers need only land in a latch (or nowhere) and its writes to colour RAM, character RAM
+and the list heads in plain memory: the interface has had all of it from the dry runs.
+
+A dry run says before the routine runs what it will do, from the state at its start. Two things could part them: an
+interrupt taken inside the routine that changes what it reads (only AskPalette runs outside an interrupt handler and
+is not masked: the DMA-done or the vertical blank's interrupt between its read of the status word and of the queue's
+state), and the frame's end falling inside the routine (the interface then a routine ahead of the board at that
+frame's compare: only in a frame the game overruns). Neither was met in checknative's runs (games/sfiii3/NATIVE.md).
 
 ## Sound
 

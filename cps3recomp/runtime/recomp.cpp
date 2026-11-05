@@ -181,6 +181,8 @@ namespace {
             unsigned reportsLeft = 6;
         };
         bool noRewrites = false;
+        bool noDryRuns = false; // CPS3RECOMP_NO_DRY_RUNS=1: the hand-overs' dry runs left out (lift.h)
+        uint64_t dryRuns = 0;
         unsigned liftCheckEvery = 0;
         std::map<const Lift *, LiftCheck> liftChecks;
         bool inCheck = false; // a rewrite is being run for a check (its calls run in the interpreter)
@@ -886,6 +888,21 @@ namespace {
             }
             if (lift.rewrite) {
                 if (rt.noRewrites || (timed && !(g_rewritesNeededNow && g_rewritesNeededNow()))) {
+                    // (one that hands the native interface what it draws: run dry, charged nothing, before the game's
+                    // code runs: lift.h)
+                    if (lift.handsOver && !rt.noDryRuns && native::On()) {
+                        BusOff off(cpu);
+                        DryRun dry;
+                        std::copy(cpu.R.begin(), cpu.R.end(), dry.r);
+                        dry.pc = cpu.PC;
+                        dry.pr = cpu.PR;
+                        dry.gbr = cpu.GBR;
+                        dry.t = cpu.SR.T;
+                        Guest dryGuest(cpu, dry);
+                        if (lift.fn(dryGuest)) {
+                            rt.dryRuns++;
+                        }
+                    }
                     continue;
                 }
                 LiftCheck &check = rt.liftChecks[&lift];
@@ -1281,6 +1298,7 @@ void AttachTables(Machine &m, const Options &options, const BlockTable *tables, 
     }
     // Lifted routines and hooks: an entry each at their address, asked before any code
     rt.noRewrites = getenv("CPS3RECOMP_NO_REWRITES") != nullptr;
+    rt.noDryRuns = getenv("CPS3RECOMP_NO_DRY_RUNS") != nullptr;
     if (const char *v = getenv("CPS3RECOMP_LIFT_CHECK")) {
         rt.liftCheckEvery = static_cast<unsigned>(std::max(1, atoi(v)));
     }
@@ -1464,6 +1482,9 @@ bool Finish() {
         fprintf(stderr, "cps3recomp: check: %llu dispatches compared, %llu different, %llu not comparable (touched hardware)\n",
                 (unsigned long long)rt.checked, (unsigned long long)rt.different, (unsigned long long)rt.notComparable);
     }
+    if (rt.dryRuns) {
+        fprintf(stderr, "cps3recomp: hand-overs made by dry runs of their rewrites: %llu\n", (unsigned long long)rt.dryRuns);
+    }
     bool liftsOk = true;
     for (const auto &[lift, check] : rt.liftChecks) {
         if (rt.liftCheckEvery) {
@@ -1489,42 +1510,111 @@ bool Finish() {
 // --- lifted routines and hooks (lift.h) ---
 
 uint32_t &Guest::R(unsigned n) {
-    return m_cpu.R[n & 15];
+    return m_dry ? m_dry->r[n & 15] : m_cpu.R[n & 15];
 }
 uint32_t Guest::PR() const {
-    return m_cpu.PR;
+    return m_dry ? m_dry->pr : m_cpu.PR;
 }
 uint32_t Guest::PC() const {
-    return m_cpu.PC;
+    return m_dry ? m_dry->pc : m_cpu.PC;
 }
 uint32_t Guest::GBR() const {
-    return m_cpu.GBR;
+    return m_dry ? m_dry->gbr : m_cpu.GBR;
 }
 bool Guest::T() const {
-    return m_cpu.SR.T;
+    return m_dry ? m_dry->t : m_cpu.SR.T;
 }
 void Guest::SetT(bool t) {
+    if (m_dry) {
+        m_dry->t = t;
+        return;
+    }
     m_cpu.SR.T = t ? 1 : 0;
 }
+
+namespace {
+    // A dry run's byte's key: main RAM and the program by their place (the cache-through mirror the same), the rest
+    // (the CPU's cache RAM) as it is
+    uint32_t DryKey(uint32_t address) {
+        return (address >> 29) <= 1 ? (address & 0x1FFFFFFFu) : address;
+    }
+    // The chips (video, sound, I/O: 04000000-05FFFFFF) and the CPU's own registers: a dry run's writes to them are
+    // dropped
+    bool DryChip(uint32_t address) {
+        const uint32_t a = address & 0x1FFFFFFFu;
+        return (address >> 29) == 7 || ((address >> 29) <= 1 && a >= 0x04000000u && a < 0x06000000u);
+    }
+    std::map<uint32_t, void (*)(Guest &)> g_nativeForms;
+} // namespace
+
+// (a dry run: the guest's memory, with what the run wrote over it)
+uint32_t Guest::DryRead(uint32_t address, int bytes) {
+    address &= ~static_cast<uint32_t>(bytes - 1);
+    uint32_t value = bytes == 1 ? m_cpu.Read8(address) : bytes == 2 ? m_cpu.Read16(address) : m_cpu.Read32(address);
+    if (m_dry->bytes.empty()) {
+        return value;
+    }
+    for (int i = 0; i < bytes; i++) {
+        const auto it = m_dry->bytes.find(DryKey(address + static_cast<uint32_t>(i)));
+        if (it != m_dry->bytes.end()) {
+            const int shift = 8 * (bytes - 1 - i);
+            value = (value & ~(0xFFu << shift)) | (static_cast<uint32_t>(it->second) << shift);
+        }
+    }
+    return value;
+}
+void Guest::DryWrite(uint32_t address, uint32_t value, int bytes) {
+    address &= ~static_cast<uint32_t>(bytes - 1);
+    if (DryChip(address)) {
+        return;
+    }
+    for (int i = 0; i < bytes; i++) {
+        m_dry->bytes[DryKey(address + static_cast<uint32_t>(i))] = static_cast<uint8_t>(value >> (8 * (bytes - 1 - i)));
+    }
+}
 uint8_t Guest::Read8(uint32_t address) {
-    return m_cpu.Read8(address);
+    return m_dry ? static_cast<uint8_t>(DryRead(address, 1)) : m_cpu.Read8(address);
 }
 uint16_t Guest::Read16(uint32_t address) {
-    return m_cpu.Read16(address);
+    return m_dry ? static_cast<uint16_t>(DryRead(address, 2)) : m_cpu.Read16(address);
 }
 uint32_t Guest::Read32(uint32_t address) {
-    return m_cpu.Read32(address);
+    return m_dry ? DryRead(address, 4) : m_cpu.Read32(address);
 }
 void Guest::Write8(uint32_t address, uint8_t value) {
+    if (m_dry) {
+        DryWrite(address, value, 1);
+        return;
+    }
     m_cpu.Write8(address, value);
 }
 void Guest::Write16(uint32_t address, uint16_t value) {
+    if (m_dry) {
+        DryWrite(address, value, 2);
+        return;
+    }
     m_cpu.Write16(address, value);
 }
 void Guest::Write32(uint32_t address, uint32_t value) {
+    if (m_dry) {
+        DryWrite(address, value, 4);
+        return;
+    }
     m_cpu.Write32(address, value);
 }
 void Guest::Call(uint32_t address) {
+    if (m_dry) {
+        const auto it = g_nativeForms.find(address);
+        if (it != g_nativeForms.end()) {
+            it->second(*this);
+            return;
+        }
+        static std::set<uint32_t> told;
+        if (told.insert(address).second) {
+            fprintf(stderr, "cps3recomp: a dry run calls %08X, which has no native form (AddNativeForm): not called\n", address);
+        }
+        return;
+    }
     // (an address no code is at stands for "back in the caller")
     constexpr uint32_t kBack = 0x0FFFFFF0;
     Runtime &rt = *g_rt;
@@ -1557,6 +1647,11 @@ machine::Machine &Guest::Board() {
     return Access::Board(m_cpu);
 }
 void Guest::Return(uint64_t cycles) {
+    if (m_dry) {
+        m_dry->pc = m_dry->pr;
+        m_dry->cycles += cycles;
+        return;
+    }
     m_cpu.PC = m_cpu.PR;
     m_cpu.m_cyclesExecuted += cycles;
 }
@@ -1577,6 +1672,10 @@ void AddHook(const char *name, uint32_t address, uint32_t size, uint64_t hash, v
     Lift lift{name, address, size, hash, nullptr};
     lift.hookFn = fn;
     g_lifts.push_back(lift);
+}
+
+void AddNativeForm(uint32_t address, void (*fn)(Guest &guest)) {
+    g_nativeForms[address] = fn;
 }
 
 } // namespace cps3recomp

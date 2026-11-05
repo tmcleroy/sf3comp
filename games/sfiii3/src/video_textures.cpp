@@ -45,7 +45,7 @@ namespace {
     }
 
     const Lift kLifts[] = {
-        {"ClearListArea", 0x06136782, 0x6A, 0x64F2ABB38AEAC94Full, ClearListArea, true, 0x100FF},
+        {"ClearListArea", 0x06136782, 0x6A, 0x64F2ABB38AEAC94Full, ClearListArea, true, 0x100FF, nullptr, kHandsOver},
     };
 } // namespace
 

@@ -268,9 +268,9 @@ namespace {
     }
 
     const Lift kLifts[] = {
-        {"AskPalette", 0x06137DF0, 0x1B8, 0xC2DBCF8B57239313ull, AskPalette, true, 0x100FE},
-        {"StartNextDma", 0x06138168, 0x230, 0xD09F1A5FC6A6A73Full, StartNext, true, 0x100FE},
-        {"TextColours", 0x061388F0, 0x28, 0x93363361932173FCull, TextColours, true, 0x10B7F},
+        {"AskPalette", 0x06137DF0, 0x1B8, 0xC2DBCF8B57239313ull, AskPalette, true, 0x100FE, nullptr, kHandsOver},
+        {"StartNextDma", 0x06138168, 0x230, 0xD09F1A5FC6A6A73Full, StartNext, true, 0x100FE, nullptr, kHandsOver},
+        {"TextColours", 0x061388F0, 0x28, 0x93363361932173FCull, TextColours, true, 0x10B7F, nullptr, kHandsOver},
     };
 } // namespace
 

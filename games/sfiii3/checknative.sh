@@ -21,8 +21,13 @@
 #
 #   games/sfiii3/checknative.sh ROM [BUILD] [FRAMES]     (BUILD: build/sfiii3; FRAMES: 12000 a run)
 #
-# CHECKNATIVE_NO_REWRITES=1: the native runs with the game's own code in place of the rewrites (nothing handed over),
-# to see that the check finds that
+# CHECKNATIVE_ARCADE=1: the native runs with the arcade timing on (the arcade_timing feature: the board's exact cycles).
+# The game's own code then runs in place of the rewrites (but in the port's own modes, Game::rewritesNeeded: the
+# training session), and the hand-off rewrites are run dry before it (runtime/lift.h, Lift::handsOver): what they hand
+# over must be the board's as the rewrites' is. (The lift runs are the same either way: the rewrites against the game's
+# code.)
+# CHECKNATIVE_NO_REWRITES=1: the native runs with the game's own code in place of the rewrites and no dry runs
+# (nothing handed over), to see that the check finds that
 ROM=${1:?usage: checknative.sh ROM [BUILD] [FRAMES]}
 BUILD=${2:-build/sfiii3}
 FRAMES=${3:-12000}
@@ -39,10 +44,12 @@ run() { # name kind args...
     if [ "$kind" = native ]; then
         # shellcheck disable=SC2068
         (
-            [ -n "$CHECKNATIVE_NO_REWRITES" ] && export CPS3RECOMP_NO_REWRITES=1
+            [ -n "$CHECKNATIVE_NO_REWRITES" ] && export CPS3RECOMP_NO_REWRITES=1 CPS3RECOMP_NO_DRY_RUNS=1
             [ -z "$CHECKNATIVE_NO_GPU" ] && export CPS3RECOMP_NATIVE_GPU=1
+            timing=()
+            [ -n "$CHECKNATIVE_ARCADE" ] && timing=(--features arcade_timing)
             CPS3RECOMP_NATIVE_CHECK=1 exec nice -n 20 "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$FRAMES" \
-                --settings "$OUT/$name.ini" --eeprom "$OUT/$name.bin" $@ > /dev/null 2> "$OUT/$name.log"
+                --settings "$OUT/$name.ini" --eeprom "$OUT/$name.bin" "${timing[@]}" $@ > /dev/null 2> "$OUT/$name.log"
         ) &
     else
         # shellcheck disable=SC2068
@@ -60,6 +67,13 @@ for pid in "${pids[@]}"; do
     wait "$pid" || { echo "a run failed"; status=1; }
 done
 for name in "${NAMES[@]}"; do
+    if [ -n "$CHECKNATIVE_ARCADE" ]; then
+        line=$(grep "cps3recomp: hand-overs made by dry runs" "$OUT/$name.log")
+        echo "$name: arcade timing: ${line:-no dry runs}"
+        grep "has no native form" "$OUT/$name.log" | head -3
+        grep -q "has no native form" "$OUT/$name.log" && status=1
+        [ -z "$line" ] && [ -z "$CHECKNATIVE_NO_REWRITES" ] && status=1
+    fi
     line=$(grep "cps3recomp: native palette:" "$OUT/$name.log")
     echo "$name: palette: ${line#cps3recomp: native palette: }"
     if [ -z "$line" ] || ! echo "$line" | grep -q " 0 different;.* 0 frames with the events different"; then

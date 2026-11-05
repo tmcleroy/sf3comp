@@ -129,6 +129,21 @@ a few lines of the old colours: not modelled, and not wanted).
   hand-offs must keep charging the bus as the writes did, or run the game's own code with arcade timing (as all
   rewrites do now).
 
+## Arcade timing: the hand-overs by dry runs
+
+With the arcade timing on (the arcade_timing feature) the game's own code runs in place of the rewrites, outside the
+port's own modes (Game::rewritesNeeded: a training session, the battles), so that its cycles are the board's. The ten
+hand-off rewrites (AskPalette, StartNextDma, TextColours, ObjectScrolls, TilemapRegisters, ScreenRegisters,
+PictureZoom, TextPalette, ListHeads, ClearListArea: marked `kHandsOver` in their tables) are then run dry at the
+routine's start, charged nothing (the toolkit's NATIVE.md, "Arcade timing"): the same functions, on an overlay, so
+they hand over what the game's code is about to write. EmptyFrame (0x061367EE) is a hook already and runs either way.
+
+What they call has a native form (src/video_forms.cpp): the divide 0x0612D428 (ListHeads' pads), the tilemaps' tile
+banks 0x0612E14C (TilemapRegisters, when 0x0206A1E0 asks), the screen's mode 0x06005AFC (ScreenRegisters, when the
+screen's turn changed; nothing of it is handed over), the CPU's character bank 0x0613AA5E and 0x0613AAB0 (StartNextDma's
+list: its place in character RAM's 8 MB), the list area's page 0x061379EC and its place 0x06137980 (ClearListArea).
+Each does what the routine does to main RAM and r0; they are checked by what the dry runs hand over.
+
 ## What stays plain memory
 
 Sprite RAM's object words and tilemaps (04002000 on), SS RAM (the text map and characters), the voices' registers

@@ -382,6 +382,7 @@ void RegisterVideoPalette();
 void RegisterVideoRegisters(); // (video_registers.cpp: the frame registers)
 void RegisterVideoLists();     // (video_lists.cpp: the object lists' heads)
 void RegisterVideoTextures();  // (video_textures.cpp: character RAM)
+void RegisterVideoForms();     // (video_forms.cpp: the native forms of what those call, for their dry runs)
 
 void RegisterLifts3rdStrike() {
     RegisterGameLifts(kLifts, std::size(kLifts));
@@ -405,6 +406,7 @@ void RegisterLifts3rdStrike() {
     RegisterVideoRegisters();
     RegisterVideoLists();
     RegisterVideoTextures();
+    RegisterVideoForms();
     AddHook("VerticalBlank", 0x06000528, 8, 0xF41697FE6C5AEE4Dull, VerticalBlank);
 }
 
