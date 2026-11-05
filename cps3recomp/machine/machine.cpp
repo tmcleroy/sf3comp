@@ -944,7 +944,7 @@ void Machine::NativeFrameEnd() {
     m_nativeStampsKnown = true;
     // (debugging aid, CPS3RECOMP_NATIVE_SYNC_CHECK=1 outside the checks: the interface, in step, against the board, every
     // frame: the colours, the textures, the registers and the frame's objects)
-    static const bool syncCheck = getenv("CPS3RECOMP_NATIVE_SYNC_CHECK") != nullptr;
+    static const bool syncCheck = getenv("CPS3RECOMP_NATIVE_SYNC_CHECK") || getenv("CPS3RECOMP_NATIVE_SYNC_VERIFY"); // (VERIFY: compared only)
     if (syncCheck && !nativeCheck) {
         static struct Totals {
             uint64_t frames = 0, different = 0;

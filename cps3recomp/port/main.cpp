@@ -2253,6 +2253,10 @@ int main(int argc, char **argv) {
                                             isZoomed ? &zoomed : nullptr);
                 }
                 twinNative += shown ? 1 : 0;
+                static const bool twinWait = getenv("TWIN_WAIT") != nullptr; // (debugging aid: each frame waited for)
+                if (twinWait) {
+                    twin.WaitShown();
+                }
                 if (p.frame % p.opt.presentEvery == 0) {
                     char path[512];
                     snprintf(path, sizeof(path), "%s%06llu", p.opt.presentPrefix.c_str(), static_cast<unsigned long long>(p.frame));
