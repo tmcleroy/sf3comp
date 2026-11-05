@@ -181,7 +181,7 @@ static bool MakeTile(const Clip &clip, uint32_t code, uint32_t colour, int granu
     return true;
 }
 
-void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift, Frame &f, Keep keep, const void *keepContext) {
+void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift, Frame &f, KeepObject keep, const void *keepContext) {
     const FrameRegisters &r = v.registers;
     f.screen = ScreenOf(r);
     f.width = f.screen.width + 2 * margin;

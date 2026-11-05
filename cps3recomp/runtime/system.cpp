@@ -213,9 +213,10 @@ void GpuCompare(GpuCheck &c, const native::Frame &f, const native::Video &video,
         }
     }
     // (presented: as the window would, its picture's part read back)
+    const int height = width ? static_cast<int>(cpu.size() / static_cast<size_t>(width)) : 0;
     auto presented = [&](std::vector<uint32_t> &out) {
         const SDL_FRect where = {0, 0, static_cast<float>(width), static_cast<float>(height)};
-        if (!c.presenter.ShowNative(m_nativeRaster.LastFrame(), board.native, board.SsRam(), where) || !c.presenter.ReadOffscreen(c.target)) {
+        if (!c.presenter.ShowNative(f, video, ss, where) || !c.presenter.ReadOffscreen(c.target)) {
             return false;
         }
         out.resize(static_cast<size_t>(width) * height);
@@ -229,21 +230,21 @@ void GpuCompare(GpuCheck &c, const native::Frame &f, const native::Video &video,
     }
     if (c.present) {
         c.frames++;
-        if (!presented(c.pixels) || c.pixels != m_nativePicture) {
+        if (!presented(c.pixels) || c.pixels != cpu) {
             c.different++;
             std::vector<uint32_t> again;
-            const bool sameAgain = presented(again) && again == m_nativePicture;
-            fprintf(stderr, "native GPU pixels (presented), frame %llu: shown again: %s\n", static_cast<unsigned long long>(frame),
+            const bool sameAgain = presented(again) && again == cpu;
+            fprintf(stderr, "native GPU pixels%s (presented), frame %llu: shown again: %s\n", whose, static_cast<unsigned long long>(frame),
                     sameAgain ? "the same as the CPU's" : "different");
             if (c.reports) {
                 c.reports--;
-                size_t at = 0, n = std::min(c.pixels.size(), m_nativePicture.size());
-                while (at < n && c.pixels[at] == m_nativePicture[at]) {
+                size_t at = 0, n = std::min(c.pixels.size(), cpu.size());
+                while (at < n && c.pixels[at] == cpu[at]) {
                     at++;
                 }
-                fprintf(stderr, "native GPU pixels (presented), frame %llu: %zu / %zu pixels, the first to differ no. %zu (%d,%d): %06X (CPU) / %06X (GPU)\n",
-                        static_cast<unsigned long long>(frame), m_nativePicture.size(), c.pixels.size(), at, width ? static_cast<int>(at % width) : 0,
-                        width ? static_cast<int>(at / width) : 0, at < n ? m_nativePicture[at] : 0, at < n ? c.pixels[at] : 0);
+                fprintf(stderr, "native GPU pixels%s (presented), frame %llu: %zu / %zu pixels, the first to differ no. %zu (%d,%d): %06X (CPU) / %06X (GPU)\n",
+                        whose, static_cast<unsigned long long>(frame), cpu.size(), c.pixels.size(), at, width ? static_cast<int>(at % width) : 0,
+                        width ? static_cast<int>(at / width) : 0, at < n ? cpu[at] : 0, at < n ? c.pixels[at] : 0);
             }
         }
         return;
@@ -717,6 +718,7 @@ void Machine::RunStageQuiet(int frames) {
         }
         const bool plain = machine::g_flashPlain;
         Activate(*m_stage);
+        m_stage->nativeWanted = false; // (unseen: its interface made again from its memories when next wanted)
         m_stage->RunFrame();
         Activate(board);
         machine::g_flashPlain = plain;
@@ -764,6 +766,9 @@ void Machine::StepStage() {
         }
         const bool plain = machine::g_flashPlain;
         Activate(*m_stage);
+        // (its interface taken when this board's is: its stage game's hand-offs run dry on it, video_games.cpp, so it
+        // stays in step for a GPU to draw its layers; machine.h, NativeInSync)
+        m_stage->nativeWanted = board.nativeWanted;
         m_stage->RunFrame();
         Activate(board);
         machine::g_flashPlain = plain;

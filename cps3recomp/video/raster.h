@@ -61,9 +61,9 @@ struct Frame {
 };
 // Which of a frame's objects are drawn (none: all): a rule on each object, with its context. For a frame made of two
 // producers' layers (a guest stage's under the game's: docs/NATIVE.md), each producer's part.
-using Keep = bool (*)(const void *context, const Object &o);
+using KeepObject = bool (*)(const void *context, const Object &o);
 // (widescreen: `margin` columns more on each side, the world `shift` further left, as Renderer's)
-void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift, Frame &f, Keep keep = nullptr, const void *keepContext = nullptr);
+void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift, Frame &f, KeepObject keep = nullptr, const void *keepContext = nullptr);
 
 // The picture (0x00BBGGRR) from the interface: the draw list, the textures and palette, the tilemaps and line scroll
 // tables in sprite RAM (the game's own memory, 512 KB big-endian) and the text layer's map and characters (SS RAM, the
@@ -74,8 +74,8 @@ public:
     // Widescreen (as Renderer's): columns added on each side, the tilemaps drawn on into them, the objects and the text
     // layer moved over; and the world (objects, tilemaps) drawn `shift` columns further left than centred
     int margin = 0, shift = 0;
-    // The objects drawn (Keep), and whether the text layer is
-    Keep keep = nullptr;
+    // The objects drawn (KeepObject), and whether the text layer is
+    KeepObject keep = nullptr;
     const void *keepContext = nullptr;
     bool text = true;
     // Drawn over the picture already in `pixels` (when it is of this frame's size), as Renderer's overlay: where this
