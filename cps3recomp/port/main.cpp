@@ -891,7 +891,33 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels) c
     }
 }
 
+bool Port::ShownPlain() const {
+    // (each of what Shown adds, in its order: keep the two together)
+    for (const HudLine &line : Hud()) {
+        if (!line.text.empty()) {
+            return false;
+        }
+    }
+    if (!Boxes().empty()) {
+        return false;
+    }
+    const bool hurried = hurry && !paused && !MultiGame().empty();
+    if (paused || hurried || (!menu.FullSpeed() && speedTicks > 0)) {
+        return false;
+    }
+    if (waitingHost || tick < hostNoteUntil || net || *zoom.Label() || shotTicks > 0) {
+        return false;
+    }
+    SDL_FRect view;
+    return !zoom.View(ShownWidth(), Video::kHeight, view);
+}
+
 bool Port::Windowed(std::vector<uint32_t> &pixels, Zoomed &zoomed) {
+    WindowedStep();
+    return WindowedPicture(pixels, zoomed);
+}
+
+void Port::WindowedStep() {
     const int across = ShownWidth();
     zoom.Follow(across, Video::kHeight);
     const Menu::Rate rate = menu.GameRate();
@@ -904,6 +930,10 @@ bool Port::Windowed(std::vector<uint32_t> &pixels, Zoomed &zoomed) {
     if (shotTicks > 0) {
         shotTicks--;
     }
+}
+
+bool Port::WindowedPicture(std::vector<uint32_t> &pixels, Zoomed &zoomed) {
+    const int across = ShownWidth();
     zoomed.keep.clear();
     if (!zoom.View(across, Video::kHeight, zoomed.view)) {
         Shown(pixels);
@@ -1140,11 +1170,15 @@ void Port::RollbackFrame(const uint16_t *real) {
 // the readout) of the last is the one shown; then the machine and the game's sources are put back as they were
 // after the frame, and its sound is the frame's own. So the game goes on exactly as without it, and the picture
 // shows what a press does a frame or two sooner. Not done for a frame a spare machine ran in (runtime/spare.h).
+bool Port::RunsAhead() const {
+    // (nor while stopped, stepped a frame at a time or slowed: there the frame shown is the frame)
+    return FeatureValue("run_ahead") > 0 && !FastForward() && !hurry && !paused && menu.FullSpeed() &&
+           !(TheGame().noRunAhead && TheGame().noRunAhead());
+}
+
 void Port::RunAhead() {
     const int ahead = FeatureValue("run_ahead");
-    // (nor while stopped, stepped a frame at a time or slowed: there the frame shown is the frame)
-    if (ahead <= 0 || FastForward() || hurry || paused || !menu.FullSpeed() ||
-        (TheGame().noRunAhead && TheGame().noRunAhead())) {
+    if (!RunsAhead()) {
         return;
     }
     static std::vector<uint8_t> kept;
@@ -1153,6 +1187,7 @@ void Port::RunAhead() {
     uint16_t held[Machine::kMaxPlayers];
     memcpy(held, machine->players, sizeof(held));
     SetRunningAhead(true);
+    machine->gpuPicture = false; // (the last frame's picture is the one shown, after the machine is put back: the CPU's)
     for (int n = 0; n < ahead; n++) {
         memcpy(machine->players, held, sizeof(held));
         if (TheGame().beforeFrame) {
@@ -1554,6 +1589,8 @@ void Port::RunFrame() {
         menu.Close();
     }
     memcpy(machine->players, pad, sizeof(pad));
+    // (Machine::gpuPicture; run ahead, the frame shown is run-ahead's last, the CPU's)
+    machine->gpuPicture = gpuPresent && nativeShowable && !menu.IsOpen() && (net || !RunsAhead());
     RapidFire();
     if (coinFrames > 0) {
         coinFrames--;
@@ -2052,6 +2089,8 @@ int main(int argc, char **argv) {
         return 2;
     }
     std::string error;
+    // (the native video interface kept where the window's picture may be drawn from it by the GPU: Presenter::ShowNative)
+    cps3recomp::native::Keep(!p.opt.headless && p.opt.renderer != "sdl" && !getenv("CPS3RECOMP_NO_NATIVE_PRESENT"));
     if (!p.Init(error)) {
         SayFailed(p.opt, argc == 1 ? error + "\n\nStart the game with its launcher (" GAME_ID "-launcher), which passes it your ROM set." : error);
         return 1;

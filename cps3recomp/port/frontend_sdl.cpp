@@ -748,6 +748,7 @@ int RunWindowed(Port &port) {
         }
         followShader();
         presenter.SetVsync(FeatureOn("display_vsync")); // (the Display page's VSync, as changed in the menu)
+        port.gpuPresent = presenter.CanShowNative(); // (the frames made for the GPU from here: Machine::gpuPicture)
         if (port.quit) {
             break;
         }
@@ -846,10 +847,18 @@ int RunWindowed(Port &port) {
             }
         }
 
-        // (zoomed: the part of the picture the camera looks at, the readout's panels as they are)
-        Zoomed zoomed;
-        const bool isZoomed = port.Windowed(shown, zoomed);
-        presenter.Show(shown.data(), port.ShownWidth(), Video::kHeight, where, isZoomed ? &zoomed : nullptr);
+        // The frame drawn by the GPU from the native video interface (Presenter::ShowNative), where the machine made it
+        // for the GPU and nothing is put over it; else the CPU's picture as Shown makes it (zoomed: the part of the
+        // picture the camera looks at, the readout's panels as they are). Either way one command buffer, submitted here
+        port.WindowedStep();
+        const native::Frame *gpuFrame = port.machine->GpuFrame();
+        port.nativeShowable = port.ShownPlain();
+        if (!(gpuFrame && port.nativeShowable &&
+              presenter.ShowNative(*gpuFrame, port.machine->board.native, port.machine->board.SsRam(), where))) {
+            Zoomed zoomed;
+            const bool isZoomed = port.WindowedPicture(shown, zoomed);
+            presenter.Show(shown.data(), port.ShownWidth(), Video::kHeight, where, isZoomed ? &zoomed : nullptr);
+        }
 
         if (!port.opt.unthrottled && !FastForward()) {
             nextFrame += static_cast<uint64_t>(kFrameNs);

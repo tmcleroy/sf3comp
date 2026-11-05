@@ -191,6 +191,17 @@ struct Port {
     Zoom zoom;
     // The picture for the window, a step of the zoom on: as Shown, or zoomed (true), as `zoomed` says (present.h)
     bool Windowed(std::vector<uint32_t> &pixels, Zoomed &zoomed);
+    // ... in two: the zoom's step and the readout's counts on (once a shown frame), then the picture made
+    void WindowedStep();
+    bool WindowedPicture(std::vector<uint32_t> &pixels, Zoomed &zoomed);
+    // Whether Shown would add nothing to the machine's picture and the window would show it unzoomed: no readout, no
+    // line at the bottom, nothing online. Then the GPU may draw the picture from the native interface
+    // (Presenter::ShowNative) in place of the CPU's
+    bool ShownPlain() const;
+    // Set by the frontend: the picture goes to the window through SDL's GPU API with the native video's renderer
+    // (Presenter::CanShowNative); and whether the last shown frame could have been drawn by it (ShownPlain): each frame
+    // is then made for the GPU (Machine::gpuPicture) unless the menu is open
+    bool gpuPresent = false, nativeShowable = true;
     // How many pixels a line of it has (the machine's picture: wider when the game's sources ask)
     int ShownWidth() const {
         return machine->PictureWidth();
@@ -267,6 +278,7 @@ struct Port {
     std::string rejoin;
     uint64_t againAt = 0; // (joining: the tick to try again at)
     void RunAhead();
+    bool RunsAhead() const; // (whether RunAhead runs frames ahead now)
     void Finish();
     uint32_t StateHash() const;
     bool SaveState(const std::string &path, std::string &error);
