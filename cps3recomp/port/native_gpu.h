@@ -22,6 +22,8 @@ namespace port {
 
 class NativeGpu {
 public:
+    // The picture's texture (Picture): the frame's in its top left, Width() x Height()
+    static constexpr int kPictureWidth = 1024, kPictureHeight = 256;
     ~NativeGpu();
     // On a device of the caller's (the presenter's, or one of its own for the check); false with the reason
     bool Open(SDL_GPUDevice *device, std::string &error);
@@ -57,7 +59,8 @@ private:
     SDL_GPUTexture *m_colours = nullptr, *m_picture = nullptr;
     uint32_t m_tilesCapacity = 0, m_rowTilesCapacity = 0, m_uploadCapacity = 0;
     std::array<uint64_t, 128> m_pagesSent{}; // (the textures' pages as last sent: their versions)
-    bool m_texturesSent = false;
+    bool m_texturesSent = false; // (and the palette: false, all of both sent with the next frame)
+    uint64_t m_paletteSent = 0;
     int m_width = 0, m_height = 0;
     std::vector<uint32_t> m_rowStartsData, m_rowTilesData, m_rgb;
     bool Grow(SDL_GPUBuffer *&buffer, uint32_t &capacity, uint32_t bytes);

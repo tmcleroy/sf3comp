@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace port {
@@ -149,7 +151,9 @@ bool Presenter::MakePipeline(SDL_GPUTextureFormat target, std::string &error) {
     sampler.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
     sampler.address_mode_u = sampler.address_mode_v = sampler.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
     m_sampler = SDL_CreateGPUSampler(m_device, &sampler);
-    if (!m_pipeline || !m_overlayPipeline || !m_sampler) {
+    sampler.min_filter = sampler.mag_filter = SDL_GPU_FILTER_NEAREST;
+    m_nearest = SDL_CreateGPUSampler(m_device, &sampler);
+    if (!m_pipeline || !m_overlayPipeline || !m_sampler || !m_nearest) {
         error = SDL_GetError();
         return false;
     }
@@ -176,6 +180,11 @@ bool Presenter::OpenGpu(SDL_Window *window, std::string &error) {
     if (!MakePipeline(target, error)) {
         Close();
         return false;
+    }
+    // (the native video's renderer beside it: without it, every picture goes through Show)
+    std::string nativeError;
+    if (m_wantNative && !getenv("CPS3RECOMP_NO_NATIVE_PRESENT") && !m_native.Open(m_device, nativeError)) {
+        fprintf(stderr, "native video on the GPU: %s; the picture is drawn on the CPU\n", nativeError.c_str());
     }
     return true;
 }
@@ -237,7 +246,20 @@ bool Presenter::Open(SDL_Window *window, bool gpu, std::string &error) {
 
 void Presenter::Close() {
     m_shading.reset();
+    m_native.Close();
     if (m_device) {
+        if (m_shownFence) {
+            SDL_ReleaseGPUFence(m_device, m_shownFence);
+        }
+        if (m_offscreen) {
+            SDL_ReleaseGPUTexture(m_device, m_offscreen);
+        }
+        if (m_offscreenRead) {
+            SDL_ReleaseGPUTransferBuffer(m_device, m_offscreenRead);
+        }
+        if (m_nearest) {
+            SDL_ReleaseGPUSampler(m_device, m_nearest);
+        }
         if (m_transfer) {
             SDL_ReleaseGPUTransferBuffer(m_device, m_transfer);
         }
@@ -270,7 +292,11 @@ void Presenter::Close() {
     m_overlayTransfer = nullptr;
     m_overlayTextureWidth = m_overlayTextureHeight = 0;
     m_overlayChanged = !m_overlay.empty(); // (sent again to whatever draws next)
-    m_sampler = nullptr;
+    m_sampler = m_nearest = nullptr;
+    m_shownFence = nullptr;
+    m_offscreen = nullptr;
+    m_offscreenRead = nullptr;
+    m_offscreenWidth = m_offscreenHeight = 0;
     m_picture = nullptr;
     m_transfer = nullptr;
     for (SDL_Texture *texture : {m_texture, m_enlarged, m_overlayRendered}) {
@@ -412,7 +438,7 @@ bool Presenter::UploadOverlay(SDL_GPUCommandBuffer *commands) {
 }
 
 void Presenter::Draw(SDL_GPUCommandBuffer *commands, SDL_GPUTexture *target, const SDL_FRect &where, const Zoomed *zoomed, Uint32 targetWidth,
-                     Uint32 targetHeight) {
+                     Uint32 targetHeight, SDL_GPUTexture *picture, float textureWidth, float textureHeight, float width, float height) {
     const bool overlay = UploadOverlay(commands);
     SDL_GPUColorTargetInfo colour = {};
     colour.texture = target;
@@ -423,20 +449,20 @@ void Presenter::Draw(SDL_GPUCommandBuffer *commands, SDL_GPUTexture *target, con
     SDL_BindGPUGraphicsPipeline(pass, m_pipeline);
     const SDL_GPUViewport viewport = {where.x, where.y, where.w, where.h, 0, 1};
     SDL_SetGPUViewport(pass, &viewport);
-    const SDL_GPUTextureSamplerBinding binding = {m_picture, m_sampler};
+    const SDL_GPUTextureSamplerBinding binding = {picture, m_useNearest ? m_nearest : m_sampler};
     SDL_BindGPUFragmentSamplers(pass, 0, &binding, 1);
-    // (zoomed, the texture is two pictures, one above the other: present.h, Zoomed)
-    const float width = static_cast<float>(m_width), height = static_cast<float>(zoomed ? m_height / 2 : m_height);
-    const float tall = static_cast<float>(m_height);
+    // (zoomed, the texture is two pictures, one above the other: present.h, Zoomed. The picture is the texture's top
+    // left `width` x `height`, or twice as tall zoomed; the rest of the texture is not shown)
+    const float tall = zoomed ? 2 * height : height;
     // The part `view` of the texture (its pixels) over the whole of `where`, drawn only inside `clip` (the window's pixels)
     auto part = [&](const SDL_FRect &view, const SDL_Rect &clip) {
         SDL_SetGPUScissor(pass, &clip);
         // (blended all over: as if each of the picture's pixels took one of the screen's, which the shader blends
         // from edge to edge)
         const bool smooth = m_scaling == Scaling::Smooth;
-        const Sizes sizes = {{width, tall},
+        const Sizes sizes = {{textureWidth, textureHeight},
                              {smooth ? 1.0f : std::floor(where.w / view.w + 0.999f), smooth ? 1.0f : std::floor(where.h / view.h + 0.999f)},
-                             {view.x / width, view.y / tall, view.w / width, view.h / tall},
+                             {view.x / textureWidth, view.y / textureHeight, view.w / textureWidth, view.h / textureHeight},
                              {width, view.y >= height ? tall : height}, {0, 0}};
         SDL_PushGPUFragmentUniformData(commands, 0, &sizes, sizeof(sizes));
         SDL_DrawGPUPrimitives(pass, 3, 1, 0, 0);
@@ -489,15 +515,12 @@ void Presenter::Show(const uint32_t *pixels, int width, int height, const SDL_FR
         }
         SDL_GPUTexture *screen = nullptr;
         Uint32 screenWidth = 0, screenHeight = 0;
-        // (without vsync, not the call that waits for a free picture of the window's: a frame that cannot be shown
-        // is left out; with it, the wait is the screen's refresh, and every frame is shown)
-        if ((m_vsync ? SDL_WaitAndAcquireGPUSwapchainTexture(commands, m_window, &screen, &screenWidth, &screenHeight)
-                     : SDL_AcquireGPUSwapchainTexture(commands, m_window, &screen, &screenWidth, &screenHeight)) &&
-            screen &&
-            Upload(commands, pixels, width, zoomed ? 2 * height : height)) {
-            Draw(commands, screen, where, zoomed, screenWidth, screenHeight);
+        const int tall = zoomed ? 2 * height : height;
+        if (Screen(commands, screen, screenWidth, screenHeight) && Upload(commands, pixels, width, tall)) {
+            Draw(commands, screen, where, zoomed, screenWidth, screenHeight, m_picture, static_cast<float>(width), static_cast<float>(tall),
+                 static_cast<float>(width), static_cast<float>(height));
         }
-        SDL_SubmitGPUCommandBuffer(commands);
+        Submit(commands);
         return;
     }
     // (zoomed, the texture is two pictures, one above the other: present.h, Zoomed)
@@ -595,10 +618,146 @@ void Presenter::Show(const uint32_t *pixels, int width, int height, const SDL_FR
     SDL_RenderPresent(m_renderer);
 }
 
+bool Presenter::Screen(SDL_GPUCommandBuffer *commands, SDL_GPUTexture *&screen, Uint32 &width, Uint32 &height) {
+    if (!m_window) {
+        screen = m_offscreen;
+        width = static_cast<Uint32>(m_offscreenWidth);
+        height = static_cast<Uint32>(m_offscreenHeight);
+        return screen != nullptr;
+    }
+    // (without vsync, not the call that waits for a free picture of the window's: a frame that cannot be shown
+    // is left out; with it, the wait is the screen's refresh, and every frame is shown)
+    return (m_vsync ? SDL_WaitAndAcquireGPUSwapchainTexture(commands, m_window, &screen, &width, &height)
+                    : SDL_AcquireGPUSwapchainTexture(commands, m_window, &screen, &width, &height)) &&
+           screen;
+}
+
+void Presenter::Submit(SDL_GPUCommandBuffer *commands) {
+    if (m_window) {
+        SDL_SubmitGPUCommandBuffer(commands);
+        return;
+    }
+    // (offscreen: fenced, for WaitShown)
+    if (m_shownFence) {
+        SDL_ReleaseGPUFence(m_device, m_shownFence);
+    }
+    m_shownFence = SDL_SubmitGPUCommandBufferAndAcquireFence(commands);
+}
+
+bool Presenter::ShowNative(const cps3recomp::native::Frame &frame, const cps3recomp::native::Video &video, const uint8_t *ssRam,
+                           const SDL_FRect &where) {
+    if (!CanShowNative()) {
+        return false;
+    }
+    SDL_GPUCommandBuffer *commands = SDL_AcquireGPUCommandBuffer(m_device);
+    if (!commands) {
+        return true; // (as Show: the frame left out)
+    }
+    SDL_GPUTexture *screen = nullptr;
+    Uint32 screenWidth = 0, screenHeight = 0;
+    if (Screen(commands, screen, screenWidth, screenHeight)) {
+        // The picture drawn (the uploads and the two compute passes), then fitted to the window by the render pass that
+        // samples it, all in the one command buffer Show would use, submitted where Show submits: nothing waits on the
+        // CPU, and the GPU orders the render pass after the passes that write what it samples (checked with the
+        // picture read back: CPS3RECOMP_NATIVE_GPU_PRESENT, docs/NATIVE.md)
+        commands = m_native.Draw(commands, frame, video, ssRam);
+        Draw(commands, screen, where, nullptr, screenWidth, screenHeight, m_native.Picture(), static_cast<float>(NativeGpu::kPictureWidth),
+             static_cast<float>(NativeGpu::kPictureHeight), static_cast<float>(m_native.Width()), static_cast<float>(m_native.Height()));
+    }
+    Submit(commands);
+    return true;
+}
+
+bool Presenter::OpenOffscreen(int width, int height, bool nearest, std::string &error) {
+    m_window = nullptr;
+    if (!OpenGpu(nullptr, error)) {
+        return false;
+    }
+    SDL_GPUTextureCreateInfo texture = {};
+    texture.type = SDL_GPU_TEXTURETYPE_2D;
+    texture.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+    texture.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    texture.width = static_cast<Uint32>(width);
+    texture.height = static_cast<Uint32>(height);
+    texture.layer_count_or_depth = 1;
+    texture.num_levels = 1;
+    m_offscreen = SDL_CreateGPUTexture(m_device, &texture);
+    if (!m_offscreen) {
+        error = SDL_GetError();
+        Close();
+        return false;
+    }
+    m_offscreenWidth = width;
+    m_offscreenHeight = height;
+    m_useNearest = nearest;
+    return true;
+}
+
+double Presenter::WaitShown() {
+    if (!m_shownFence) {
+        return 0;
+    }
+    const Uint64 from = SDL_GetTicksNS();
+    SDL_WaitForGPUFences(m_device, true, &m_shownFence, 1);
+    const Uint64 to = SDL_GetTicksNS();
+    SDL_ReleaseGPUFence(m_device, m_shownFence);
+    m_shownFence = nullptr;
+    return static_cast<double>(to - from) / 1e9;
+}
+
+bool Presenter::ReadOffscreen(std::vector<uint32_t> &pixels) {
+    if (!m_offscreen) {
+        return false;
+    }
+    WaitShown();
+    const Uint32 bytes = static_cast<Uint32>(m_offscreenWidth * m_offscreenHeight * 4);
+    if (!m_offscreenRead) {
+        SDL_GPUTransferBufferCreateInfo info = {};
+        info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD;
+        info.size = bytes;
+        m_offscreenRead = SDL_CreateGPUTransferBuffer(m_device, &info);
+    }
+    SDL_GPUCommandBuffer *commands = m_offscreenRead ? SDL_AcquireGPUCommandBuffer(m_device) : nullptr;
+    bool ok = commands != nullptr;
+    if (ok) {
+        SDL_GPUCopyPass *copy = SDL_BeginGPUCopyPass(commands);
+        SDL_GPUTextureRegion region = {};
+        region.texture = m_offscreen;
+        region.w = static_cast<Uint32>(m_offscreenWidth);
+        region.h = static_cast<Uint32>(m_offscreenHeight);
+        region.d = 1;
+        SDL_GPUTextureTransferInfo to = {};
+        to.transfer_buffer = m_offscreenRead;
+        to.pixels_per_row = static_cast<Uint32>(m_offscreenWidth);
+        to.rows_per_layer = static_cast<Uint32>(m_offscreenHeight);
+        SDL_DownloadFromGPUTexture(copy, &region, &to);
+        SDL_EndGPUCopyPass(copy);
+        SDL_GPUFence *fence = SDL_SubmitGPUCommandBufferAndAcquireFence(commands);
+        ok = fence && SDL_WaitForGPUFences(m_device, true, &fence, 1);
+        if (fence) {
+            SDL_ReleaseGPUFence(m_device, fence);
+        }
+    }
+    if (ok) {
+        const uint8_t *from = static_cast<const uint8_t *>(SDL_MapGPUTransferBuffer(m_device, m_offscreenRead, false));
+        ok = from != nullptr;
+        if (ok) {
+            pixels.resize(static_cast<size_t>(m_offscreenWidth) * m_offscreenHeight);
+            memcpy(pixels.data(), from, bytes);
+            SDL_UnmapGPUTransferBuffer(m_device, m_offscreenRead);
+            for (uint32_t &p : pixels) {
+                p &= 0x00FFFFFF; // (the alpha: 0 on the CPU's)
+            }
+        }
+    }
+    return ok;
+}
+
 bool Presenter::Render(const uint32_t *pixels, int width, int height, int outWidth, int outHeight, const SDL_FRect &where,
                        Scaling scaling, std::vector<uint32_t> &out, std::string &error, const Zoomed *zoomed) {
     Presenter p;
     p.m_scaling = scaling;
+    p.m_wantNative = false; // (a picture given: no native renderer wanted)
     if (!p.OpenGpu(nullptr, error)) {
         return false;
     }
@@ -619,7 +778,8 @@ bool Presenter::Render(const uint32_t *pixels, int width, int height, int outWid
     SDL_GPUCommandBuffer *commands = SDL_AcquireGPUCommandBuffer(device);
     bool ok = target && download && commands && p.Upload(commands, pixels, width, zoomed ? 2 * height : height);
     if (ok) {
-        p.Draw(commands, target, where, zoomed, static_cast<Uint32>(outWidth), static_cast<Uint32>(outHeight));
+        p.Draw(commands, target, where, zoomed, static_cast<Uint32>(outWidth), static_cast<Uint32>(outHeight), p.m_picture, static_cast<float>(width),
+               static_cast<float>(zoomed ? 2 * height : height), static_cast<float>(width), static_cast<float>(height));
         SDL_GPUCopyPass *copy = SDL_BeginGPUCopyPass(commands);
         SDL_GPUTextureRegion region = {};
         region.texture = target;

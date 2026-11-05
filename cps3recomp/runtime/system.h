@@ -65,17 +65,35 @@ public:
     // be wrong, as the first after a machine is swapped for another)
     bool holdPicture = false;
 
+    // The picture (drawn on the CPU when first asked for, if the frame was made for the GPU: gpuPicture). Asked for to
+    // change it (the game's sources drawing on it), the GPU's is then not what is shown: GpuFrame is none
     const uint32_t *Picture() const {
+        MakePicture();
         return m_picture.data();
     }
     uint32_t *Picture() {
+        MakePicture();
+        m_gpuReady = false;
         return m_picture.data();
+    }
+    // Set before each frame by the port, when the picture is to be drawn by the GPU from the native interface if it can
+    // be (port/present.h, ShowNative): a frame drawn the plain way, with the interface in step with the board
+    // (machine::Machine::NativeInSync), is then made ready for the GPU (native::BuildFrame) instead of drawn on the CPU,
+    // which draws it only if asked for it (Picture). The picture is the same either way (checknative.sh)
+    bool gpuPicture = false;
+    // The last frame made ready for the GPU (none: it was drawn on the CPU, or its picture changed since)
+    const native::Frame *GpuFrame() const {
+        return m_gpuReady ? &m_gpuFrame : nullptr;
     }
     int PictureWidth() const {
         return m_width;
     }
     // Widescreen: columns the picture gets on each side (0: the board's)
     void SetWideMargin(int margin) {
+        if (margin != m_renderer.margin) {
+            MakePicture(); // (the frame's picture as it was made)
+            m_gpuReady = false;
+        }
         m_renderer.margin = margin;
     }
     // For a wide picture played as on the board (the game's camera unchanged): how far the world is drawn from centred,
@@ -177,6 +195,12 @@ private:
     native::Rasteriser m_nativeRaster;
     std::vector<uint32_t> m_nativePicture;
     void NativePixels();
+    // (the frame made ready for the GPU, gpuPicture: its picture not yet drawn on the CPU)
+    native::Frame m_gpuFrame;
+    bool m_gpuReady = false;
+    mutable bool m_pictureOwed = false;
+    void MakePicture() const;
+    void BenchFrame();
     Pcm m_pcm;
     std::vector<uint32_t> m_picture;
     std::unique_ptr<RomSet> m_stageSet;

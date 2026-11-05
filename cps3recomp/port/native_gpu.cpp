@@ -157,12 +157,17 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
     const uint32_t rowTileBytes = static_cast<uint32_t>(m_rowTilesData.size() * 4);
     Grow(m_tiles, m_tilesCapacity, tileBytes);
     Grow(m_rowTiles, m_rowTilesCapacity, rowTileBytes);
-    // The palette's colours as drawn (the video DAC's low three bits of each component grounded)
-    m_rgb.resize(cps3recomp::native::Palette::kColours);
-    const uint16_t *colours = v.palette.Colours();
-    for (uint32_t i = 0; i < cps3recomp::native::Palette::kColours; i++) {
-        const uint16_t c = colours[i];
-        m_rgb[i] = (static_cast<uint32_t>(c & 0x1F) << 3) | (static_cast<uint32_t>((c >> 5) & 0x1F) << 11) | (static_cast<uint32_t>((c >> 10) & 0x1F) << 19);
+    // The palette's colours as drawn (the video DAC's low three bits of each component grounded): sent when they may have
+    // changed (Palette::Version)
+    const bool colours = !m_texturesSent || v.palette.Version() != m_paletteSent;
+    if (colours) {
+        m_paletteSent = v.palette.Version();
+        m_rgb.resize(cps3recomp::native::Palette::kColours);
+        const uint16_t *from = v.palette.Colours();
+        for (uint32_t i = 0; i < cps3recomp::native::Palette::kColours; i++) {
+            const uint16_t c = from[i];
+            m_rgb[i] = (static_cast<uint32_t>(c & 0x1F) << 3) | (static_cast<uint32_t>((c >> 5) & 0x1F) << 11) | (static_cast<uint32_t>((c >> 10) & 0x1F) << 19);
+        }
     }
     // The textures' pages changed since last sent
     std::vector<int> pages;
@@ -197,7 +202,7 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
     const int32_t resolveParams[8] = {f.width, f.height, static_cast<int32_t>(fx), static_cast<int32_t>(fy), f.margin, f.textScrollY,
                                       static_cast<int32_t>(f.textPalette), 0};
     // One upload of everything
-    const uint32_t total = 16 + 32 + tileBytes + (kBufferHeight + 1) * 4 + rowTileBytes + static_cast<uint32_t>(pages.size()) * kPage + kPaletteSize + kTextSize;
+    const uint32_t total = 16 + 32 + tileBytes + (kBufferHeight + 1) * 4 + rowTileBytes + static_cast<uint32_t>(pages.size()) * kPage + (colours ? kPaletteSize : 0) + kTextSize;
     if (!m_upload || m_uploadCapacity < total) {
         if (m_upload) {
             SDL_ReleaseGPUTransferBuffer(m_device, m_upload);
@@ -235,7 +240,9 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
     for (const int page : pages) {
         put(m_textures, v.textures.Pixels() + static_cast<size_t>(page) * kPage, kPage, static_cast<uint32_t>(page) * kPage);
     }
-    put(m_palette, m_rgb.data(), kPaletteSize);
+    if (colours) {
+        put(m_palette, m_rgb.data(), kPaletteSize);
+    }
     put(m_text, ss, kTextSize);
     SDL_UnmapGPUTransferBuffer(m_device, m_upload);
     SDL_GPUCopyPass *copy = SDL_BeginGPUCopyPass(cmd);

@@ -6,6 +6,7 @@
 // OpenGL, when one is chosen (shading.h).
 #pragma once
 
+#include "native_gpu.h"
 #include "shading.h"
 
 #include <SDL3/SDL.h>
@@ -78,6 +79,14 @@ public:
     // rectangle `where` of the window, the rest black (zoomed: part of it larger, as `zoomed` says). Shaded, through
     // the preset unless `shade` is false (the menu, drawn larger than the game's picture: only fitted to `where`)
     void Show(const uint32_t *pixels, int width, int height, const SDL_FRect &where, const Zoomed *zoomed = nullptr, bool shade = true);
+    // The native video's frame (video/raster.h, made ready by Machine: GpuFrame) drawn by the GPU (native_gpu.h) and
+    // shown as Show shows a picture, in one command buffer: the compute passes that draw the picture, then the render
+    // pass that fits it to the window, submitted where Show submits, with no wait on the CPU. False (nothing done) where
+    // it cannot be: not through SDL's GPU API, or shaded, or the GPU's renderer could not be made; Show then
+    bool ShowNative(const cps3recomp::native::Frame &frame, const cps3recomp::native::Video &video, const uint8_t *ssRam, const SDL_FRect &where);
+    bool CanShowNative() const {
+        return m_device && !m_shading && m_native.IsOpen();
+    }
     // Vsync (the Display page's VSync, issue #185): each picture shown when the screen next refreshes, so never
     // torn, and none left out for want of a free one of the window's. Off unless set (frames are paced by the port,
     // and shown as soon as made). The same after the presenter is opened again.
@@ -98,13 +107,34 @@ public:
     // as Show would draw it, and read back. False (with the reason) where there is no GPU device.
     static bool Render(const uint32_t *pixels, int width, int height, int outWidth, int outHeight, const SDL_FRect &where,
                        Scaling scaling, std::vector<uint32_t> &out, std::string &error, const Zoomed *zoomed = nullptr);
+    // For the checks and the bench: no window, the pictures drawn into a texture `width` x `height` of the presenter's
+    // own (Show and ShowNative as for a window); `nearest`: sampled at the nearest pixel (at 1:1, each pixel as it is).
+    // Each picture's command buffer is submitted with a fence: WaitShown waits for it (and says how long that took)
+    bool OpenOffscreen(int width, int height, bool nearest, std::string &error);
+    double WaitShown();
+    // ... and what the last was read back (0x00BBGGRR), in a command buffer of its own after WaitShown
+    bool ReadOffscreen(std::vector<uint32_t> &pixels);
 
 private:
     bool OpenGpu(SDL_Window *window, std::string &error);
     bool MakePipeline(SDL_GPUTextureFormat target, std::string &error);
     bool Upload(SDL_GPUCommandBuffer *commands, const uint32_t *pixels, int width, int height);
+    // `picture` (`textureWidth` x `textureHeight`), its top left `width` x `height` the picture (zoomed: two of them,
+    // one above the other) into `target`
     void Draw(SDL_GPUCommandBuffer *commands, SDL_GPUTexture *target, const SDL_FRect &where, const Zoomed *zoomed, Uint32 targetWidth,
-              Uint32 targetHeight);
+              Uint32 targetHeight, SDL_GPUTexture *picture, float textureWidth, float textureHeight, float width, float height);
+    // The window's texture to draw into for this command buffer (or the offscreen one); false: none this time
+    bool Screen(SDL_GPUCommandBuffer *commands, SDL_GPUTexture *&screen, Uint32 &width, Uint32 &height);
+    void Submit(SDL_GPUCommandBuffer *commands);
+    // The native video's renderer, on this device
+    NativeGpu m_native;
+    // (offscreen: OpenOffscreen)
+    SDL_GPUTexture *m_offscreen = nullptr;
+    SDL_GPUTransferBuffer *m_offscreenRead = nullptr;
+    int m_offscreenWidth = 0, m_offscreenHeight = 0;
+    SDL_GPUFence *m_shownFence = nullptr;
+    SDL_GPUSampler *m_nearest = nullptr;
+    bool m_useNearest = false, m_wantNative = true;
 
     SDL_Window *m_window = nullptr;
     Scaling m_scaling = Scaling::Sharp;

@@ -12,6 +12,8 @@
 #include <cstring>
 #include <string>
 #include "native_gpu.h"
+#include "present.h"
+#include <chrono>
 #include "png_write.h"
 #include <cstdlib>
 
@@ -36,7 +38,7 @@ Machine::Machine(const RomSet &rom)
     : board(rom)
     , m_pcm(board) {
     g_board = &board;
-    board.nativeCheck = native::On(); // (the game's board: its rewrites hand the native interface what they draw)
+    board.nativeCheck = native::Checking(); // (the game's board, in the checks: its rewrites hand the native interface what they draw)
     eeprom.words = board.eeprom.data();
     m_picture.assign(static_cast<size_t>(Video::kWidth) * Video::kHeight, 0);
 }
@@ -71,6 +73,12 @@ namespace {
     struct GpuCheck {
         SDL_GPUDevice *device = nullptr;
         port::NativeGpu gpu;
+        // (CPS3RECOMP_NATIVE_GPU_PRESENT=1: the frame as the window's presenter shows it, Presenter::ShowNative: the
+        // compute passes and the render pass that samples the picture in one command buffer, here into a texture of the
+        // presenter's own at 1:1 with the nearest pixel sampled; read back after its fence, in a command buffer of its own)
+        port::Presenter presenter;
+        bool present = false;
+        std::vector<uint32_t> target;
         bool tried = false;
         uint64_t frames = 0, different = 0;
         unsigned reports = 6;
@@ -81,7 +89,8 @@ namespace {
                         static_cast<unsigned long long>(different), device ? "" : " (no GPU device)");
             }
             gpu.Close();
-            if (device) {
+            presenter.Close();
+            if (device && !present) { // (the presenter's own goes with it)
                 SDL_DestroyGPUDevice(device);
             }
         }
@@ -121,13 +130,56 @@ void Machine::NativePixels() {
             SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "offscreen");
             SDL_InitSubSystem(SDL_INIT_VIDEO);
         }
-        c.device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL, false, nullptr);
         std::string error;
-        if (!c.device || !c.gpu.Open(c.device, error)) {
-            fprintf(stderr, "native GPU check: %s\n", c.device ? error.c_str() : SDL_GetError());
+        c.present = getenv("CPS3RECOMP_NATIVE_GPU_PRESENT") != nullptr;
+        if (c.present) {
+            if (c.presenter.OpenOffscreen(port::NativeGpu::kPictureWidth, port::NativeGpu::kPictureHeight, true, error) &&
+                c.presenter.CanShowNative()) {
+                c.device = c.presenter.Device();
+            } else {
+                fprintf(stderr, "native GPU check (presented): %s\n", error.c_str());
+            }
+        } else {
+            c.device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL, false, nullptr);
+            if (!c.device || !c.gpu.Open(c.device, error)) {
+                fprintf(stderr, "native GPU check: %s\n", c.device ? error.c_str() : SDL_GetError());
+            }
         }
     }
-    if (!c.gpu.IsOpen()) {
+    // (presented: as the window would, its picture's part read back)
+    auto presented = [&](std::vector<uint32_t> &out) {
+        const SDL_FRect where = {0, 0, static_cast<float>(width), static_cast<float>(height)};
+        if (!c.presenter.ShowNative(m_nativeRaster.LastFrame(), board.native, board.SsRam(), where) || !c.presenter.ReadOffscreen(c.target)) {
+            return false;
+        }
+        out.resize(static_cast<size_t>(width) * height);
+        for (int y = 0; y < height; y++) {
+            std::copy_n(&c.target[static_cast<size_t>(y) * port::NativeGpu::kPictureWidth], width, &out[static_cast<size_t>(y) * width]);
+        }
+        return true;
+    };
+    if (c.present ? !c.presenter.CanShowNative() : !c.gpu.IsOpen()) {
+        return;
+    }
+    if (c.present) {
+        c.frames++;
+        if (!presented(c.pixels) || c.pixels != m_nativePicture) {
+            c.different++;
+            std::vector<uint32_t> again;
+            const bool sameAgain = presented(again) && again == m_nativePicture;
+            fprintf(stderr, "native GPU pixels (presented), frame %llu: shown again: %s\n", static_cast<unsigned long long>(frame),
+                    sameAgain ? "the same as the CPU's" : "different");
+            if (c.reports) {
+                c.reports--;
+                size_t at = 0, n = std::min(c.pixels.size(), m_nativePicture.size());
+                while (at < n && c.pixels[at] == m_nativePicture[at]) {
+                    at++;
+                }
+                fprintf(stderr, "native GPU pixels (presented), frame %llu: %zu / %zu pixels, the first to differ no. %zu (%d,%d): %06X (CPU) / %06X (GPU)\n",
+                        static_cast<unsigned long long>(frame), m_nativePicture.size(), c.pixels.size(), at, width ? static_cast<int>(at % width) : 0,
+                        width ? static_cast<int>(at / width) : 0, at < n ? m_nativePicture[at] : 0, at < n ? c.pixels[at] : 0);
+            }
+        }
         return;
     }
     c.frames++;
@@ -154,7 +206,120 @@ void Machine::NativePixels() {
     }
 }
 
+// The bench (CPS3RECOMP_NATIVE_BENCH=WIDTHxHEIGHT, with the native interface kept, CPS3RECOMP_NATIVE=1, and no check):
+// every frame drawn the plain way is shown both ways by a presenter of its own into a texture of that size, as the window
+// would (FitPicture, the Display page's scaling): the CPU's picture (renderer.cpp, then Show: its upload and the render
+// pass) and the GPU's (BuildFrame, then ShowNative: the uploads, the compute passes and the render pass). The CPU's time
+// for each, and how long each command buffer then took to finish on the GPU (from its submit to its fence: the GPU's
+// time, with the wait's own), are reported at the end. The two take turns as to which goes first.
+namespace {
+    struct Bench {
+        port::Presenter presenter;
+        bool tried = false, open = false;
+        int width = 0, height = 0;
+        uint64_t frames = 0;
+        double draw = 0, show = 0, showGpu = 0, build = 0, showNative = 0, nativeGpu = 0;
+        std::vector<double> drawEach, nativeEach, showGpuEach, nativeGpuEach;
+        ~Bench() {
+            if (!frames) {
+                return;
+            }
+            const auto ms = [&](double t) { return 1000 * t / static_cast<double>(frames); };
+            const auto p99 = [](std::vector<double> v) {
+                std::sort(v.begin(), v.end());
+                return v.empty() ? 0.0 : 1000 * v[std::min(v.size() - 1, v.size() * 99 / 100)];
+            };
+            fprintf(stderr,
+                    "cps3recomp: native bench (%dx%d), %llu frames, ms a frame (mean; 99th percentile):\n"
+                    "  CPU path: renderer.cpp %.3f + Show %.3f = %.3f (%.3f); GPU after submit %.3f (%.3f)\n"
+                    "  GPU path: BuildFrame %.3f + ShowNative %.3f = %.3f (%.3f); GPU after submit %.3f (%.3f)\n",
+                    width, height, static_cast<unsigned long long>(frames), ms(draw), ms(show), ms(draw + show), p99(drawEach), ms(showGpu),
+                    p99(showGpuEach), ms(build), ms(showNative), ms(build + showNative), p99(nativeEach), ms(nativeGpu), p99(nativeGpuEach));
+        }
+    } g_bench;
+    double Seconds(std::chrono::steady_clock::time_point since) {
+        return std::chrono::duration<double>(std::chrono::steady_clock::now() - since).count();
+    }
+} // namespace
+
+void Machine::BenchFrame() {
+    Bench &b = g_bench;
+    if (!b.tried) {
+        b.tried = true;
+        const char *size = getenv("CPS3RECOMP_NATIVE_BENCH");
+        if (sscanf(size, "%dx%d", &b.width, &b.height) != 2 || b.width <= 0 || b.height <= 0) {
+            b.width = 1920;
+            b.height = 1080;
+        }
+        if (!SDL_WasInit(SDL_INIT_VIDEO)) {
+            SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "offscreen");
+            SDL_InitSubSystem(SDL_INIT_VIDEO);
+        }
+        std::string error;
+        b.open = b.presenter.OpenOffscreen(b.width, b.height, false, error) && b.presenter.CanShowNative();
+        if (!b.open) {
+            fprintf(stderr, "native bench: %s\n", error.c_str());
+        }
+    }
+    if (!b.open || !board.NativeInSync()) {
+        return;
+    }
+    using Clock = std::chrono::steady_clock;
+    const SDL_FRect where = port::FitPicture(b.width, b.height, m_width, m_height, port::Shape::Arcade, port::Scaling::Sharp);
+    auto cpu = [&] {
+        Clock::time_point at = Clock::now();
+        m_renderer.Draw(board, m_picture, m_width, m_height);
+        const double draw = Seconds(at);
+        at = Clock::now();
+        b.presenter.Show(m_picture.data(), m_width, m_height, where);
+        const double show = Seconds(at);
+        const double gpu = b.presenter.WaitShown();
+        b.draw += draw;
+        b.show += show;
+        b.drawEach.push_back(draw + show);
+        b.showGpu += gpu;
+        b.showGpuEach.push_back(gpu);
+    };
+    auto gpu = [&] {
+        Clock::time_point at = Clock::now();
+        native::BuildFrame(board.native, board.SpriteRamBytes(), m_renderer.margin, m_renderer.shift, m_gpuFrame);
+        const double build = Seconds(at);
+        at = Clock::now();
+        b.presenter.ShowNative(m_gpuFrame, board.native, board.SsRam(), where);
+        const double show = Seconds(at);
+        const double wait = b.presenter.WaitShown();
+        b.build += build;
+        b.showNative += show;
+        b.nativeEach.push_back(build + show);
+        b.nativeGpu += wait;
+        b.nativeGpuEach.push_back(wait);
+    };
+    if (b.frames++ % 2) {
+        cpu();
+        gpu();
+    } else {
+        gpu();
+        cpu();
+    }
+}
+
+void Machine::MakePicture() const {
+    if (!m_pictureOwed) {
+        return;
+    }
+    m_pictureOwed = false;
+    // (as the frame's plain picture is drawn: the renderer's settings are still the frame's)
+    Machine &self = const_cast<Machine &>(*this);
+    self.m_renderer.Draw(board, self.m_picture, self.m_width, self.m_height);
+}
+
 void Machine::RunFrame() {
+    // (a frame not drawn keeps the last picture: the one owed, if it was made for the GPU)
+    if (m_pictureOwed && (!this->drawing || holdPicture)) {
+        MakePicture();
+    }
+    m_pictureOwed = false; // (a frame drawn draws all of the picture, whichever way)
+    m_gpuReady = false;
     // (the bus's timing: the arcade_timing feature, or CPS3RECOMP_BUS_TIMING=1 for the timing harness)
     static const bool forced = getenv("CPS3RECOMP_BUS_TIMING") != nullptr;
     board.Cpu().m_busTiming = forced || FeatureOn("arcade_timing");
@@ -183,6 +348,8 @@ void Machine::RunFrame() {
     inputs |= testSwitch ? 0x20000u : 0;
     board.inputs = ~inputs;
     board.extra = ~extra;
+    static const bool benching = getenv("CPS3RECOMP_NATIVE_BENCH") != nullptr; // (Machine::BenchFrame)
+    board.nativeWanted = gpuPicture || benching;
     board.RunFrame();
     m_pcm.EndFrame(&audio);
     const bool drawing = this->drawing && !holdPicture;
@@ -327,10 +494,21 @@ void Machine::RunFrame() {
             m_renderer.text = text;
         }
         m_renderer.drawGroup = nullptr;
+    } else if (drawing && gpuPicture && !board.nativeCheck && board.NativeInSync() && m_renderer.text && !m_renderer.backdrop) {
+        // (for the GPU: the frame made ready, the picture drawn on the CPU only if asked for)
+        native::BuildFrame(board.native, board.SpriteRamBytes(), m_renderer.margin, m_renderer.shift, m_gpuFrame);
+        m_width = m_gpuFrame.width;
+        m_height = m_gpuFrame.height;
+        m_pictureOwed = true;
+        m_gpuReady = true;
     } else if (drawing) {
         m_renderer.Draw(board, m_picture, m_width, m_height);
         if (board.nativeCheck) {
             NativePixels();
+        }
+        static const bool bench = getenv("CPS3RECOMP_NATIVE_BENCH") != nullptr;
+        if (bench && !board.nativeCheck) {
+            BenchFrame();
         }
     }
     // (debugging aid, CPS3RECOMP_SPRITES=FRAME: the object list as drawn at that frame)
@@ -561,6 +739,10 @@ void Machine::StepStage() {
 }
 
 void Machine::Serialize(Archive &ar) {
+    if (!ar.Saving()) {
+        MakePicture(); // (the picture stays the one shown until a frame is drawn: of what was there)
+        m_gpuReady = false;
+    }
     ar.Mark(0x43505333);
     board.Serialize(ar);
     m_pcm.Serialize(ar);
