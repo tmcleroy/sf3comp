@@ -145,7 +145,7 @@ text layer's registers, the status word and the two interrupts (as a timer).
 | Textures | 0x06138168 (characters: the list's writes and its transfers handed over), 0x06136782 (video_textures.cpp); the store's loader (native.cpp, CharacterDma's rules) | done | (a) all the same: all 8 MB of character RAM against the store every frame |
 | Object lists' heads | 0x06136F90 (video_lists.cpp), 0x061367EE hooked (it waits on the DMA it starts) | done | (a) all the same: at every object DMA, the heads it takes against those handed over |
 | Objects | native::FlattenObjects: the heads, the registers and sprite RAM's object words flattened (SpriteDma's rules, in the interface's terms) | done | (a) all the same: the board's flattened list against the native objects, at every object DMA |
-| Native rasteriser | the toolkit (video/raster.cpp): the draw list of quads and layer lines, text, resolve, zoom | done for the plain picture; widescreen's margin and shift, the features' object choices and a second producer to come | (b) all the same: pixels against renderer.cpp, every frame |
+| Native rasteriser | the toolkit (video/raster.cpp): the draw list of quads and layer lines, text, resolve, zoom | done for the plain picture and widescreen; the features' object choices and a second producer to come | (b) all the same: pixels against renderer.cpp, every frame |
 | SDL_GPU renderer | the toolkit: instanced quads, layer lines, palette textures, resolve | large | (b) on a capture against the rasteriser |
 | DMA timer | the toolkit: status bits and level 10 without the chips | small | gates: state hashes the same with and without the chip functions |
 | Sound events | 0x0613A408's writes (0x0613BBA8-0x0613BC9A, the key-on sites), 0x061393F8, 0x0613A384 | medium | (c): samples against pcm.cpp |
@@ -153,6 +153,6 @@ text layer's registers, the status word and the two interrupts (as a timer).
 | Board model out of the default build | machine.cpp's chip functions behind `--board` | small, last | every gate |
 
 Order: (done: the palette, the frame registers, the textures, the lists' heads, the objects: the whole frame's
-interface exists, level (a); the rasteriser, level (b), for the plain picture) the rasteriser's widescreen and the
+interface exists, level (a); the rasteriser, level (b), for the plain picture and widescreen) the rasteriser's
 features' object choices next, then the GPU
 renderer; sound events beside them (independent); guest stages once 3rd Strike's frame is native.

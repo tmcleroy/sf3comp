@@ -124,7 +124,7 @@ session (12000 frames each): the palette (src/video_palette.cpp), the frame regi
 textures (the character DMA's lists and transfers, src/video_palette.cpp and video_textures.cpp, made by the native
 loader), the object lists' heads (src/video_lists.cpp) and the objects made from them (native::FlattenObjects). Next:
 the rasteriser's pixel check (b) passes for the plain picture (video/raster.cpp: draw list of quads and tilemap lines,
-the same pixels as renderer.cpp's every frame); next its widescreen and the features' object choices, then SDL_GPU. Wanted features this makes possible, both asked for by the user: GPU rendering (SDL_GPU drawing
+the same pixels as renderer.cpp's every frame, widescreen too); next the features' object choices, then SDL_GPU. Wanted features this makes possible, both asked for by the user: GPU rendering (SDL_GPU drawing
 the interface's objects and layers, not a software renderer's picture handed over), and the guest stages drawn as
 layers through the same interface (DEFINITIVE.md item 10). The readable work below stops at the move code and boxes that are done; the rest waits.
 
