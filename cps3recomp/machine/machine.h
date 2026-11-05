@@ -236,6 +236,13 @@ public:
     bool NativeInSync() const {
         return m_nativeInSync;
     }
+    // Whether this frame the board's video memories are made from the native interface instead of by its video model
+    // (the default build: the interface holds the frame and takes what is handed over): the object DMA's list from the
+    // interface's objects, the palette DMA's colours from its palette, the character DMA's bytes from its textures (at
+    // the frame's end: TakeFromNative), the same bytes as the model's (checknative.sh), so the save state is the same.
+    // The model itself runs with --board, in the checks, for frames the interface does not hold (after a state put back,
+    // run-ahead's, the boot ROM's), and with CPS3RECOMP_BOARD_MODEL=1
+    bool NativeMakes() const;
     // The interface made to hold this frame for its picture if it does not (the frames the game's code hands nothing
     // over, the boot ROM's: made again from the board's memories, SyncNative); false when it cannot be (not kept, or in
     // the checks, where it is compared and never made again)
@@ -333,6 +340,13 @@ private:
     uint8 m_nativeHanded = 0; // (this frame: 1 the lists' heads, 2 the registers)
     bool m_nativeInSync = false, m_nativeStampsKnown = false;
     uint64 m_nativeSyncedAt = ~0ull; // (the frame NativeForPicture made it again for)
+    // (NativeMakes: what this frame's DMAs owe the board's memories, taken from the interface at the frame's end)
+    std::vector<std::pair<uint32, uint32>> m_coloursOwed; // (destination, colours)
+    bool m_charsOwed = false;
+    std::array<uint64, kCharPages> m_pagesTaken{}; // (the interface's textures' pages' versions last taken)
+    uint64 m_sixTaken = 0, m_eightTaken = 0;       // (its compressed transfers' counts last taken)
+    void ObjectsFromNative();
+    void TakeFromNative();
     std::array<uint64, 128> m_nativeStamps{}; // (character RAM's pages' stamps when the textures last held the same)
     void NativeFrameEnd();
     void SyncNative();

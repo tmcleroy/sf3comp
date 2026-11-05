@@ -169,6 +169,17 @@ public:
     void SetTable(uint32_t table) {
         m_table = table;
     }
+    uint32_t Table() const {
+        return m_table;
+    }
+    // What the compressed transfers leave of their runs, as the board's character DMA keeps it (its save state holds
+    // it): the last plain byte of the last 6-bit transfer, the last two bytes of the last 8-bit one; and how many of each
+    // there have been (the board takes these from here when the interface makes its character RAM)
+    struct Runs {
+        uint64_t six = 0, eight = 0;
+        uint8_t lastNormal = 0;
+        uint16_t lastb = 0, lastb2 = 0;
+    } runs;
     void Serialize(Archive &ar);
 
 private:

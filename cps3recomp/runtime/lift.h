@@ -105,8 +105,9 @@ struct Lift {
     // A rewrite that hands the native interface what it draws: run dry where it does not run (above)
     bool handsOver = false;
     // The boards it is attached to: the game's (the first), and (kStageBoards) the second boards a game's sources run
-    // beside it (runtime/system.h's stage boards), where it is attached only while the native interface is kept, only
-    // if its code is there (its hash, when the board starts), and only run dry (a rewrite) or as it is (a hook): what
+    // beside it (runtime/system.h's stage boards), where it is attached (kept or not, so the stage game runs the same
+    // either way) only if its code is there (its hash, when the board starts), and only run dry (a rewrite) or as it is
+    // (a hook), the dry runs only while the interface takes what is handed over: what
     // the stage game draws handed to that board's own interface, nothing of that game changed but its calls to it
     // (called through the dispatcher, as any lift's)
     uint8_t boards = kFirstBoard;

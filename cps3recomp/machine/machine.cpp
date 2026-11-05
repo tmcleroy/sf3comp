@@ -99,6 +99,9 @@ void Machine::Reset() {
     m_now = m_frameStart = m_spillover = 0;
     m_frame = 0;
     m_nativeSyncedAt = ~0ull;
+    m_nativeInSync = false; // (the board started again: its interface made again before it is used, NativeMakes off until then)
+    m_coloursOwed.clear();
+    m_charsOwed = false;
     m_cpu.Reset(true);
     UpdateInterrupts();
 }
@@ -229,6 +232,7 @@ void Machine::RunFrame() {
         NativeCompare();
     }
     if (native::On()) {
+        TakeFromNative();
         NativeFrameEnd();
     }
     if (g_traceDma) {
@@ -559,12 +563,18 @@ void Machine::WritePpu(uint32 offset, uint32 v, uint32 mask) {
                 if (compare) {
                     NativeCompareLists();
                 }
-                SpriteDma();
-                if (compare) {
-                    NativeCompareObjects();
-                } else if (NativeTaking() && !nativeCheck) {
-                    // (the frame's objects made from what was handed over, as the check makes them)
+                if (NativeMakes()) {
+                    // (the frame's objects made from what was handed over, and the board's list from them)
                     native::FlattenObjects(native.lists, native.registers, m_spriteRam.data(), native.objects);
+                    ObjectsFromNative();
+                } else {
+                    SpriteDma();
+                    if (compare) {
+                        NativeCompareObjects();
+                    } else if (NativeTaking() && !nativeCheck) {
+                        // (the frame's objects made from what was handed over, as the check makes them)
+                        native::FlattenObjects(native.lists, native.registers, m_spriteRam.data(), native.objects);
+                    }
                 }
                 m_dmaStatus |= 1;
                 m_spriteDmaDoneAt = Now() + 100; // (4 microseconds)
@@ -590,7 +600,15 @@ void Machine::WritePpu(uint32 offset, uint32 v, uint32 mask) {
                 fprintf(stderr, "  character DMA list %06X at PC %08X PR %08X (frame %llu, cycle %llu, status %X)\n", m_charDmaSource | (m_charDmaOther & 0x003F0000u),
                         m_cpu.PC, m_cpu.PR, static_cast<unsigned long long>(m_frame), static_cast<unsigned long long>(Now() - m_frameStart), m_dmaStatus);
             }
-            CharacterDma(m_charDmaSource | (m_charDmaOther & 0x003F0000u));
+            if (NativeMakes()) {
+                // (its bytes the interface's, taken at the frame's end: TakeFromNative; its time as the model's)
+                m_charsOwed = true;
+                m_dmaStatus |= 2;
+                m_dmaDoneAt = Now() + 2500;
+                m_cpu.RequestYield();
+            } else {
+                CharacterDma(m_charDmaSource | (m_charDmaOther & 0x003F0000u));
+            }
         }
     } else if (word == 0xA0) {
         Combine(m_palDmaSource, v, mask);
@@ -604,7 +622,16 @@ void Machine::WritePpu(uint32 offset, uint32 v, uint32 mask) {
             m_palDmaLength = v >> 16;
         }
         if ((mask & 0xFF) && (v & 2)) {
-            PaletteDma(v);
+            if (NativeMakes()) {
+                // (its colours the interface's, taken at the frame's end: TakeFromNative; its time as the model's)
+                g_palDmas++;
+                m_coloursOwed.push_back({m_palDmaDest, m_palDmaLength | ((v & 1) << 16)});
+                m_dmaStatus |= 4;
+                m_dmaDoneAt = Now() + 2500;
+                m_cpu.RequestYield();
+            } else {
+                PaletteDma(v);
+            }
         }
     }
 }
@@ -985,6 +1012,88 @@ void Machine::SyncNative() {
         native::Object &o = native.objects[i];
         std::copy_n(&m_spriteList[static_cast<size_t>(i) * 4], 4, o.words);
         o.group = m_spriteGroup[i];
+    }
+}
+
+// (CPS3RECOMP_STATS=1: how many video DMAs were made by the board's model and how many taken from the interface)
+namespace {
+    struct MadeTotals {
+        uint64 model = 0, native = 0;
+        ~MadeTotals() {
+            if (getenv("CPS3RECOMP_STATS") && (model || native)) {
+                fprintf(stderr, "cps3recomp: video DMAs: %llu taken from the native interface, %llu made by the board's model\n",
+                        static_cast<unsigned long long>(native), static_cast<unsigned long long>(model));
+            }
+        }
+    } g_madeTotals;
+} // namespace
+
+bool Machine::NativeMakes() const {
+    static const bool model = getenv("CPS3RECOMP_BOARD_MODEL") != nullptr;
+    const bool makes = m_nativeInSync && NativeTaking() && !nativeCheck && !SyncChecked() && !model;
+    (makes ? g_madeTotals.native : g_madeTotals.model)++;
+    return makes;
+}
+
+// The object DMA's list as SpriteDma writes it (the objects, then the end and three empty words; the rest as it was),
+// from the interface's objects (the same: native::FlattenObjects is SpriteDma's rules)
+void Machine::ObjectsFromNative() {
+    g_spriteDmas++;
+    static constexpr uint32 kWords = 0x2000 / 4, kStop = 0x80000000u;
+    uint32 out = 0;
+    m_spriteCount = 0;
+    for (const native::Object &o : native.objects) {
+        if (out >= kWords - 4) {
+            break;
+        }
+        std::copy_n(o.words, 4, &m_spriteList[out]);
+        m_spriteGroup[out / 4] = o.group;
+        out += 4;
+        m_spriteCount++;
+    }
+    m_spriteList[out] = kStop;
+    for (uint32 k = 1; k < 4 && out + k < kWords; k++) {
+        m_spriteList[out + k] = 0;
+    }
+}
+
+// What this frame's palette and character DMAs owe the board's memories (NativeMakes), from the interface: the colours
+// of each palette DMA's range, the character RAM pages the interface's textures changed since they were last taken (each
+// page as the interface has it: the same bytes, the board's CPU writes to it handed over too), the compressed transfers'
+// table and what their runs left
+void Machine::TakeFromNative() {
+    const uint16 *colours = native.palette.Colours();
+    for (const auto &[dest, length] : m_coloursOwed) {
+        for (uint32 i = 0; i < length; i++) {
+            const uint32 index = ((dest + i) ^ 1) & 0x1FFFF;
+            SetColour(index, colours[index], 0);
+        }
+    }
+    m_coloursOwed.clear();
+    if (!m_charsOwed) {
+        // (the runs left by transfers the board's model made too, or none: only those of a frame it does not are taken)
+        m_sixTaken = native.textures.runs.six;
+        m_eightTaken = native.textures.runs.eight;
+    } else {
+        m_charsOwed = false;
+        const native::Textures &t = native.textures;
+        for (int page = 0; page < kCharPages; page++) {
+            if (t.PageVersion(page) != m_pagesTaken[page]) {
+                m_pagesTaken[page] = t.PageVersion(page);
+                std::copy_n(t.Pixels() + static_cast<size_t>(page) * 0x10000, 0x10000, m_charRam.begin() + static_cast<size_t>(page) * 0x10000);
+                TouchChar(static_cast<uint32>(page) << 16);
+            }
+        }
+        m_tableAddress = t.Table();
+        if (t.runs.six != m_sixTaken) {
+            m_sixTaken = t.runs.six;
+            m_lastNormalByte = t.runs.lastNormal;
+        }
+        if (t.runs.eight != m_eightTaken) {
+            m_eightTaken = t.runs.eight;
+            m_lastb = t.runs.lastb;
+            m_lastb2 = t.runs.lastb2;
+        }
     }
 }
 

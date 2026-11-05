@@ -189,6 +189,8 @@ void Textures::Load(const uint32_t *list, size_t longs, const uint8_t *g, size_t
                     break;
                 }
             }
+            runs.six++;
+            runs.lastNormal = lastNormal;
             break;
         }
         case 3: {
@@ -211,6 +213,9 @@ void Textures::Load(const uint32_t *list, size_t longs, const uint8_t *g, size_t
                     done = to - start >= length;
                 }
             }
+            runs.eight++;
+            runs.lastb = lastb;
+            runs.lastb2 = lastb2;
             break;
         }
         case 0:
