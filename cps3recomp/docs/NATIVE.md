@@ -107,6 +107,24 @@ presenter does not count. So the structs are what a GPU consumes:
 The CPU keeps a rasteriser of the same structs (`native::Rasterise`, the reference for the GPU and the one the checks
 use: level (b) compares it with renderer.cpp, pixel for pixel; a GPU capture can be compared with it the same way).
 
+**As built (2026-11-04)**: rather than instanced quads (a blend object ORs bits into what is under it, which a
+fixed-function blend of integer colour numbers cannot do), the GPU draws with two compute passes (port/native_gpu.cpp,
+port/shaders/native_*.comp): the frame's quads and tilemap lines are first made into tiles on the CPU (video/raster.cpp
+BuildFrame: each a clipped 16x16 tile with its 16.16 steps, the work items both rasterisers take), binned by buffer row;
+pass 1 gives each pixel of the colour-number buffer the tiles over its row in the board's order (later over earlier,
+blends ORed), pass 2 resolves through the palette with the zoom and puts the text layer over it. The textures go up by
+64 KB page, only those changed (Textures::PageVersion). The same integer steps as the CPU's, so the pixels are the same:
+checknative.sh reads the GPU's picture back every frame (a device of its own, no window) and compares.
+
+A hazard found doing it: with the compute passes and the copy pass that reads the picture back in one command buffer,
+Metal's copy now and then read the picture before the compute pass had finished writing it (about one frame in 9000;
+in one frame in two when the uploads went in a command buffer of their own). The frame then read back as the one
+before. Submitting the drawing and waiting for it before the read-back cured it (0 different in 15 runs of 3000 frames
+under load; CPS3RECOMP_NATIVE_GPU_ONE_BUFFER=1 puts it back for looking into it). The presenter, sampling the picture in
+a render pass after the compute passes, must be given the same ordering when the GPU path becomes the default
+(SDL_GPU's own synchronisation between a compute pass's storage writes and a later pass's reads is not to be relied on
+here).
+
 ### Guest stages through the same interface (the user's requirement)
 
 The definitive version's stages run New Generation or 2nd Impact on a second board beside 3rd Strike today, and the

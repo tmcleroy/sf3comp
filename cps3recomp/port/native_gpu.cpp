@@ -129,7 +129,7 @@ bool NativeGpu::Grow(SDL_GPUBuffer *&buffer, uint32_t &capacity, uint32_t bytes)
     return buffer != nullptr;
 }
 
-void NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recomp::native::Frame &f, const cps3recomp::native::Video &v, const uint8_t *ss) {
+SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recomp::native::Frame &f, const cps3recomp::native::Video &v, const uint8_t *ss) {
     using cps3recomp::native::Tile;
     m_width = f.width;
     m_height = f.height;
@@ -210,7 +210,9 @@ void NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recomp::native::Frame 
     }
     uint8_t *map = static_cast<uint8_t *>(SDL_MapGPUTransferBuffer(m_device, m_upload, true));
     if (!map) {
-        return;
+        fprintf(stderr, "native GPU: the upload (%u bytes) cannot be mapped: %s\n", total, SDL_GetError());
+        m_texturesSent = false; // (nothing went: all of it again next time)
+        return cmd;
     }
     struct Copy {
         SDL_GPUBuffer *buffer;
@@ -243,6 +245,15 @@ void NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recomp::native::Frame 
         SDL_UploadToGPUBuffer(copy, &from, &to, false);
     }
     SDL_EndGPUCopyPass(copy);
+    // (debugging aid, CPS3RECOMP_NATIVE_GPU_SPLIT=1: the uploads submitted and waited for before the passes that read them)
+    static const bool split = getenv("CPS3RECOMP_NATIVE_GPU_SPLIT") != nullptr;
+    if (split) {
+        if (SDL_GPUFence *fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd)) {
+            SDL_WaitForGPUFences(m_device, true, &fence, 1);
+            SDL_ReleaseGPUFence(m_device, fence);
+        }
+        cmd = SDL_AcquireGPUCommandBuffer(m_device);
+    }
 
     // The buffer of colour numbers
     {
@@ -267,6 +278,7 @@ void NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recomp::native::Frame 
         SDL_DispatchGPUCompute(pass, static_cast<Uint32>((f.width + 7) / 8), static_cast<Uint32>((f.height + 7) / 8), 1);
         SDL_EndGPUComputePass(pass);
     }
+    return cmd;
 }
 
 bool NativeGpu::DrawAndRead(const cps3recomp::native::Frame &f, const cps3recomp::native::Video &v, const uint8_t *ss, std::vector<uint32_t> &pixels) {
@@ -274,7 +286,23 @@ bool NativeGpu::DrawAndRead(const cps3recomp::native::Frame &f, const cps3recomp
     if (!cmd) {
         return false;
     }
-    Draw(cmd, f, v, ss);
+    cmd = Draw(cmd, f, v, ss);
+    // (the drawing finished before the picture is read back: in one command buffer, the copy pass's read of the picture
+    // was seen to overtake the compute pass's writes to it now and then, on Metal; the frame then read back as the one
+    // before)
+    static const bool together = getenv("CPS3RECOMP_NATIVE_GPU_ONE_BUFFER") != nullptr; // (debugging aid: as it was)
+    if (!together) {
+        SDL_GPUFence *drawn = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+        if (!drawn) {
+            return false;
+        }
+        SDL_WaitForGPUFences(m_device, true, &drawn, 1);
+        SDL_ReleaseGPUFence(m_device, drawn);
+        cmd = SDL_AcquireGPUCommandBuffer(m_device);
+        if (!cmd) {
+            return false;
+        }
+    }
     const uint32_t bytes = static_cast<uint32_t>(m_width * m_height * 4);
     if (!m_download) {
         SDL_GPUTransferBufferCreateInfo info = {};

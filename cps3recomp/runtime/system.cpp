@@ -133,6 +133,14 @@ void Machine::NativePixels() {
     c.frames++;
     if (!c.gpu.DrawAndRead(m_nativeRaster.LastFrame(), board.native, board.SsRam(), c.pixels) || c.pixels != m_nativePicture) {
         c.different++;
+        // (for looking into it: the same frame drawn again by the GPU at once, as it was, and with every texture page sent
+        // again; whether each comes out as the CPU's)
+        std::vector<uint32_t> again;
+        const bool sameAgain = c.gpu.DrawAndRead(m_nativeRaster.LastFrame(), board.native, board.SsRam(), again) && again == m_nativePicture;
+        c.gpu.ResendTextures();
+        const bool sameResent = c.gpu.DrawAndRead(m_nativeRaster.LastFrame(), board.native, board.SsRam(), again) && again == m_nativePicture;
+        fprintf(stderr, "native GPU pixels, frame %llu: drawn again: %s; with the textures sent again: %s\n", static_cast<unsigned long long>(frame),
+                sameAgain ? "the same as the CPU's" : "different", sameResent ? "the same as the CPU's" : "different");
         if (c.reports) {
             c.reports--;
             size_t at = 0, n = std::min(c.pixels.size(), m_nativePicture.size());

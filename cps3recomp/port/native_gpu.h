@@ -29,8 +29,9 @@ public:
     bool IsOpen() const {
         return m_tiles != nullptr;
     }
-    // The frame drawn (its picture in Picture(), `width` x `height` of it): the commands go in `cmd`
-    void Draw(SDL_GPUCommandBuffer *cmd, const cps3recomp::native::Frame &frame, const cps3recomp::native::Video &video, const uint8_t *ssRam);
+    // The frame drawn (its picture in Picture(), `width` x `height` of it): the commands go in `cmd` (or in the one
+    // returned, which the caller submits)
+    SDL_GPUCommandBuffer *Draw(SDL_GPUCommandBuffer *cmd, const cps3recomp::native::Frame &frame, const cps3recomp::native::Video &video, const uint8_t *ssRam);
     SDL_GPUTexture *Picture() const {
         return m_picture;
     }
@@ -42,6 +43,10 @@ public:
     }
     // (the check) the frame drawn and read back, 0x00BBGGRR as the CPU's; false if the GPU failed
     bool DrawAndRead(const cps3recomp::native::Frame &frame, const cps3recomp::native::Video &video, const uint8_t *ssRam, std::vector<uint32_t> &pixels);
+    // Every texture page sent again with the next frame
+    void ResendTextures() {
+        m_texturesSent = false;
+    }
 
 private:
     SDL_GPUDevice *m_device = nullptr;
