@@ -243,7 +243,7 @@ bool Port::Init(std::string &error) {
         return false;
     }
     machine = std::make_unique<Machine>(roms);
-    machine->boardPicture = opt.boardPicture;
+    machine->boardPicture = opt.board;
     SetRam(machine->ram());
     SetRomPath(opt.romPath);
     SetMachine(machine.get());
@@ -274,7 +274,7 @@ bool Port::Init(std::string &error) {
         cps3recomp::Attach(machine->board, recomp);
     }
     // (the native mixer is fed by the game's sound driver's rewrites and hooks: with none of them, the board's)
-    machine->SetBoardSound(opt.boardSound || opt.cpu == "interp" || getenv("CPS3RECOMP_NO_LIFTS") != nullptr);
+    machine->SetBoardSound(opt.board || opt.cpu == "interp" || getenv("CPS3RECOMP_NO_LIFTS") != nullptr);
     if (!opt.moviePlay.empty() && !playMovie.Load(opt.moviePlay)) {
         error = "cannot read the movie " + opt.moviePlay;
         return false;
@@ -1656,7 +1656,7 @@ void Port::RunFrame() {
         menu.Close();
     }
     memcpy(machine->players, pad, sizeof(pad));
-    machine->gpuPicture = gpuPresent && !menu.IsOpen() && !opt.boardPicture; // (Machine::gpuPicture; --board: the board model's picture)
+    machine->gpuPicture = gpuPresent && !menu.IsOpen() && !opt.board; // (Machine::gpuPicture; --board: the board model's picture)
     RapidFire();
     if (coinFrames > 0) {
         coinFrames--;
@@ -1815,8 +1815,6 @@ void Usage() {
             "  --eeprom FILE          where the board's settings memory is kept\n"
             "  --cpu MODE             native (translated code), blocks (the interpreter run the same way),\n"
             "                         interp (the interpreter, an instruction at a time), check\n"
-            "  --board                the board model's sound (pcm.cpp, from the chip's registers) in place of\n"
-            "                         the native mixer's (from the voices the game's sound driver hands over)\n"
             "  --sound SIDE           driver (the sound program as ordinary code), z80 (the program itself),\n"
             "                         check (both, every write to the chip compared)\n"
             "  --sound-test SEED[:N]  every N frames (30) a command to the sound side: each song in turn, placed\n"
@@ -1833,7 +1831,9 @@ void Usage() {
             "  --hash-no-sound        ... and without the sound side, as online play's (to compare a match's --record)\n"
             "  --hash-game            ... without the Z80 and its own memory (to compare --sound driver and z80)\n"
 "  --renderer sdl|gpu     how the picture gets to the window: SDL's GPU API unless said (or not there)\n"
-"  --board                the picture drawn by the board model's renderer, not from the native video interface\n"
+"  --board                the whole board model: the picture drawn by its renderer, not from the native video\n"
+"                         interface, and the sound mixed from the chip's registers (pcm.cpp), not by the native\n"
+"                         mixer from the voices the game's sound driver hands over\n"
             "  --present-test F.png   (headless) the run's last picture drawn by the GPU path, no window, as the\n"
             "                         Display page has it (896x672 at 4:3)\n"
             "  --present-size WxH     ... in a window this big\n"
@@ -1925,8 +1925,6 @@ bool ParseArgs(int argc, char **argv, port::Options &o) {
             o.mute = true;
         } else if (a == "--unthrottled") {
             o.unthrottled = true;
-        } else if (a == "--board") {
-            o.boardSound = true;
         } else if (a == "--headless") {
             o.headless = true;
         } else if (a == "--frames") {
@@ -1954,7 +1952,7 @@ bool ParseArgs(int argc, char **argv, port::Options &o) {
         } else if (a == "--renderer") {
             o.renderer = next();
         } else if (a == "--board") {
-            o.boardPicture = true;
+            o.board = true;
         } else if (a == "--present-test") {
             o.presentTest = next();
         } else if (a == "--present-size") {
@@ -2168,7 +2166,7 @@ int main(int argc, char **argv) {
     // (its watchdog, WindowServer starved of the GPU) because headless and offscreen runs submitted their frames with
     // nothing waiting on them, up to 33 command buffers deep. Offscreen each frame is now waited for as it is submitted
     // (one on the GPU), a window's bounded by its swapchain (Presenter::Submit))
-    cps3recomp::native::Keep(!p.opt.boardPicture);
+    cps3recomp::native::Keep(!p.opt.board);
     if (!p.Init(error)) {
         SayFailed(p.opt, argc == 1 ? error + "\n\nStart the game with its launcher (" GAME_ID "-launcher), which passes it your ROM set." : error);
         return 1;

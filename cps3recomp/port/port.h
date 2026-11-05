@@ -70,13 +70,13 @@ struct Options {
     bool autoPlay = false;
     bool headless = false, mute = false, unthrottled = false, fullscreen = false, stats = false;
     bool hashPicture = false; // --hash-log hashes the picture only
-    bool boardSound = false;  // --board: the board model's sound (pcm.cpp) heard in place of the native mixer
     bool hashNoPicture = false; // --hash-no-picture: the state hash without the picture
     bool hashNoSound = false;   // --hash-no-sound: ... without the sound side (as online play's)
     bool hashGame = false;     // --hash-game: the state hash without the Z80 and its own memory (to compare --sound driver and z80)
     int cpuSpeed = 1;         // --cpu-speed
     std::string renderer;     // --renderer sdl|gpu (gpu unless said)
-    bool boardPicture = false; // --board: the picture drawn by the board model's renderer (renderer.cpp), not the native interface
+    bool board = false; // --board: the whole board model: the picture by its renderer (renderer.cpp), not from the native
+                        // interface, and the sound by its mixer (pcm.cpp), not the native mixer
     std::string shader;       // --shader FILE.slangp: that shader preset, whatever the Display page's Shader says (shading.h)
     std::string presentTest;  // --present-test FILE.png: the last picture drawn by the GPU path with no window
     int presentWidth = 0, presentHeight = 0; // --present-size WxH: the window it is drawn in
