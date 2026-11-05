@@ -223,6 +223,8 @@ private:
     bool ShownNative();
     void DrawLayers(bool native, Renderer &r, const machine::Machine &m, std::vector<uint32_t> &pixels, int &width, int &height);
     int Compose(bool native, std::vector<uint32_t> &pixels, int &width, int &height);
+    bool SingleFrameWithStage() const;
+    void DrawWithStage(std::vector<uint32_t> &pixels, int &width, int &height);
     void DrawStageOnly(bool native, std::vector<uint32_t> &pixels);
     // (the pixel check: the native picture composed again against the board's, CPS3RECOMP_NATIVE_CHECK)
     std::vector<uint32_t> m_nativePicture;
@@ -235,6 +237,12 @@ private:
     std::array<uint64_t, native::Textures::kPages> m_gpuPages{};
     uint64_t m_gpuColours = 0;
     void KeepGpuFrame();
+    // (a frame with the stage board's stage: its interface as it was at this frame's end, for the GPU and an owed picture)
+    native::Video m_gpuGuestVideo;
+    std::array<uint64_t, native::Textures::kPages> m_gpuGuestPages{};
+    uint64_t m_gpuGuestColours = 0;
+    const void *m_gpuGuest = nullptr;
+    void KeepGpuGuest();
     mutable bool m_pictureOwed = false;
     void MakePicture() const;
     void BenchFrame();

@@ -3,7 +3,8 @@
 //
 // The native video drawn by the GPU (docs/NATIVE.md): SDL_GPU's compute, from the interface's frame (video/raster.h:
 // its tiles in the board's order, the palette, the textures, the text layer's memory), into a texture the presenter
-// shows. Two passes: the buffer of colour numbers (each pixel from the tiles over its row), then the picture (through
+// shows. A frame with a guest producer's layers under the game's (a stage from another game: Frame::guest) is drawn as
+// one frame, the guest's palette and textures beside the game's. Two passes: the buffer of colour numbers (each pixel from the tiles over its row), then the picture (through
 // the palette, the whole picture's zoom, the text layer over it). The same integer steps as the CPU's rasteriser, so the
 // two make the same pixels; the pixel check (CPS3RECOMP_NATIVE_GPU=1 with CPS3RECOMP_NATIVE_CHECK=1) reads the GPU's
 // back and compares them.
@@ -86,11 +87,16 @@ private:
     SDL_GPUTransferBuffer *m_upload = nullptr, *m_download = nullptr;
     SDL_GPUTexture *m_colours = nullptr, *m_picture = nullptr;
     uint32_t m_tilesCapacity = 0, m_rowTilesCapacity = 0, m_uploadCapacity = 0;
-    std::array<uint64_t, 128> m_pagesSent{}; // (the textures' pages as last sent: their versions)
+    std::array<uint64_t, 256> m_pagesSent{}; // (the textures' pages as last sent: their versions; a guest's from 128)
     bool m_texturesSent = false; // (and the palette: false, all of both sent with the next frame)
     uint64_t m_paletteSent = 0;
+    // (a guest producer's, Frame::guest: whose its pages are, and its colours as last sent, and the game's colours the
+    // blends' scales were made from)
+    const cps3recomp::native::Video *m_guestSent = nullptr;
+    uint64_t m_guestPaletteSent = 0, m_scalesFrom = 0;
     int m_width = 0, m_height = 0;
-    std::vector<uint32_t> m_rowStartsData, m_rowTilesData, m_rgb;
+    std::vector<uint32_t> m_rowStartsData, m_rowTilesData, m_rgb, m_guestRgb;
+    uint32_t m_scales[16][3] = {};
     bool Grow(SDL_GPUBuffer *&buffer, uint32_t &capacity, uint32_t bytes);
 };
 

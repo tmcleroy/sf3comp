@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
+#include <tuple>
 
 namespace cps3recomp::native {
 
@@ -194,6 +196,9 @@ void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift,
     f.bufferWidth = std::min(std::max(f.width, clip.right + 1), kBufferRight + 1);
     f.bufferHeight = std::min(std::max(f.height, clip.bottom + 1), kBufferBottom + 1);
     f.tiles.clear();
+    f.guest = false;
+    f.guestVideo = nullptr;
+    f.guestBufferWidth = f.guestBufferHeight = 0;
     if (keep) {
         static thread_local std::vector<Object> kept;
         kept.clear();
@@ -286,24 +291,57 @@ uint32_t Rasteriser::Blended(const uint16_t *colours, uint32_t bank, uint32_t pi
     return out;
 }
 
-void Rasteriser::Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *ss, std::vector<uint32_t> &pixels, int &width, int &height) {
-    m_blendKnown = {};
-    BuildFrame(v, spriteRam, margin, shift, m_frame, keep, keepContext, shiftY);
-    const Frame &f = m_frame;
-    const Screen &screen = f.screen;
-    width = f.width;
-    height = f.height;
-    const bool over = overlay && pixels.size() == static_cast<size_t>(width) * height;
-    if (!over) {
-        pixels.assign(static_cast<size_t>(width) * height, 0);
+bool AddGuest(const Video &guest, const uint8_t *guestSpriteRam, Frame &f, KeepObject keep, const void *keepContext) {
+    static thread_local Frame g;
+    BuildFrame(guest, guestSpriteRam, f.margin, 0, g, keep, keepContext);
+    if (g.width != f.width || g.height != f.height) {
+        return false;
     }
-    // (the buffer: only its rows this frame uses cleared, all of them the first time)
-    if (m_buffer.size() != static_cast<size_t>(kBufferWidth) * kBufferHeight) {
-        m_buffer.assign(static_cast<size_t>(kBufferWidth) * kBufferHeight, 0);
-    } else {
-        std::fill_n(m_buffer.begin(), static_cast<size_t>(std::min(f.bufferHeight + 1, kBufferHeight)) * kBufferWidth, 0u);
+    for (Tile t : g.tiles) {
+        t.producer = 1;
+        f.tiles.push_back(t);
     }
-    const uint8_t *textures = v.textures.Pixels();
+    f.guest = true;
+    f.guestScreen = g.screen;
+    f.guestBufferWidth = g.bufferWidth;
+    f.guestBufferHeight = g.bufferHeight;
+    f.guestVideo = &guest;
+    return true;
+}
+
+void BlendScales(const uint16_t *colours, uint32_t scales[16][3]) {
+    for (uint32_t bank = 0; bank < 16; bank++) {
+        uint64_t base[3] = {}, made[3] = {};
+        for (uint32_t i = 1; i < 0x2000; i++) {
+            const uint32_t a = Rgb(colours[i]), b = Rgb(colours[(bank << 13) | i]);
+            if (a == 0) {
+                continue;
+            }
+            for (int c = 0; c < 3; c++) {
+                base[c] += (a >> (8 * c)) & 0xFF;
+                made[c] += (b >> (8 * c)) & 0xFF;
+            }
+        }
+        for (int c = 0; c < 3; c++) {
+            scales[bank][c] = base[c] ? std::min<uint32_t>(static_cast<uint32_t>(made[c] * 256 / base[c]), 512) : 256;
+        }
+    }
+}
+
+// The frame's tiles into the buffers of colour numbers (the game's, and a guest's), in the board's order
+void Rasteriser::Rasterise(const Frame &f, const uint8_t *ownTextures, const uint8_t *guestTextures) {
+    // (the buffers: only their rows this frame uses cleared, all of them the first time)
+    for (auto [buffer, rows, wanted] : {std::tuple<std::vector<uint32_t> *, int, bool>{&m_buffer, f.bufferHeight, true},
+                                        {&m_guestBuffer, f.guestBufferHeight, f.guest}}) {
+        if (!wanted) {
+            continue;
+        }
+        if (buffer->size() != static_cast<size_t>(kBufferWidth) * kBufferHeight) {
+            buffer->assign(static_cast<size_t>(kBufferWidth) * kBufferHeight, 0);
+        } else {
+            std::fill_n(buffer->begin(), static_cast<size_t>(std::min(rows + 1, kBufferHeight)) * kBufferWidth, 0u);
+        }
+    }
     { // (CPS3RECOMP_NATIVE_TILE_STATS=1: the most tile rows a frame has, which the GPU's first pass loops over per pixel)
         static const bool stats = getenv("CPS3RECOMP_NATIVE_TILE_STATS") != nullptr;
         static uint64_t most = 0;
@@ -319,13 +357,15 @@ void Rasteriser::Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *s
         }
     }
     for (const Tile &t : f.tiles) {
+        const uint8_t *textures = t.producer ? guestTextures : ownTextures;
+        uint32_t *buffer = (t.producer ? m_guestBuffer : m_buffer).data();
         int yIndex = t.yIndex;
         // (each row's texels: stepped by dx, or (a tile drawn at its size, as every tilemap's is) one by one)
         const bool unscaled = t.dx == 0x10000 || t.dx == -0x10000;
         const int step = t.dx < 0 ? -1 : 1;
         for (int y = t.sy; y < t.ey; y++, yIndex += t.dy) {
             const uint8_t *row = textures + t.source + (yIndex >> 16) * 16;
-            uint32_t *dest = &m_buffer[static_cast<size_t>(y) * kBufferWidth];
+            uint32_t *dest = &buffer[static_cast<size_t>(y) * kBufferWidth];
             const uint32_t base = static_cast<uint32_t>(t.base);
             if (unscaled) {
                 const uint8_t *texel = row + (t.xBase >> 16);
@@ -380,9 +420,26 @@ void Rasteriser::Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *s
             }
         }
     }
+}
 
-    // The buffer to the screen through the palette, zoomed if the picture is
-    const uint16_t *colours = v.palette.Colours();
+// The buffers to the screen through the palettes, each zoomed as its picture is: a guest's first (its own colours), then
+// the game's over it (over: as over another picture already in `pixels`)
+void Rasteriser::Resolve(const Frame &f, const uint16_t *colours, std::vector<uint32_t> &pixels, int width, int height, bool over) {
+    const Screen &screen = f.screen;
+    if (f.guest) {
+        const uint16_t *guestColours = f.guestVideo->palette.Colours();
+        const uint32_t gx = (f.guestScreen.zoomX << 16) / 0x40, gy = (f.guestScreen.zoomY << 16) / 0x40;
+        uint32_t sy = 0;
+        for (int row = 0; row < height; row++, sy += gy) {
+            const uint32_t *source = &m_guestBuffer[static_cast<size_t>(std::min<uint32_t>(sy >> 16, kBufferHeight - 1)) * kBufferWidth];
+            uint32_t *dest = &pixels[static_cast<size_t>(row) * width];
+            uint32_t sx = 0;
+            for (int col = 0; col < width; col++, sx += gx) {
+                dest[col] = Rgb(guestColours[source[std::min<uint32_t>(sx >> 16, kBufferWidth - 1)] & 0x1FFFF]);
+            }
+        }
+        over = true;
+    }
     const uint32_t fx = (screen.zoomX << 16) / 0x40, fy = (screen.zoomY << 16) / 0x40;
     uint32_t sy = 0;
     for (int row = 0; row < height; row++, sy += fy) {
@@ -404,11 +461,10 @@ void Rasteriser::Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *s
             }
         }
     }
+}
 
-    // The text layer: 64 x 32 characters of 8x8, 4 bits a pixel, over everything
-    if (!text) {
-        return;
-    }
+// The text layer: 64 x 32 characters of 8x8, 4 bits a pixel, over everything
+void Rasteriser::Text(const Frame &f, const uint16_t *colours, const uint8_t *ss, std::vector<uint32_t> &pixels, int width, int height) {
     const int scrollY = f.textScrollY;
     const uint32_t paletteBase = f.textPalette;
     for (int line = 0; line < height; line++) {
@@ -424,7 +480,7 @@ void Rasteriser::Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *s
             const uint8_t *chr = ss + 0x4000 + tile * 32 + (flipY ? 7 - sub : sub) * 4;
             const uint32_t base = (colour * 16) & 0x1FFFF;
             for (int copy = 0; copy < 2; copy++) {
-                const int sx = copy * 512 + x * 8 - rowScroll + margin;
+                const int sx = copy * 512 + x * 8 - rowScroll + f.margin;
                 for (int px = 0; px < 8; px++) {
                     const int dx = sx + px;
                     if (dx < 0 || dx >= width) {
@@ -438,6 +494,46 @@ void Rasteriser::Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *s
                 }
             }
         }
+    }
+}
+
+void Rasteriser::DrawFrame(const Frame &f, const Video &v, const uint8_t *ss, std::vector<uint32_t> &pixels, int &width, int &height) {
+    m_blendKnown = {};
+    width = f.width;
+    height = f.height;
+    const bool over = !f.guest && overlay && pixels.size() == static_cast<size_t>(width) * height;
+    if (!over) {
+        pixels.assign(static_cast<size_t>(width) * height, 0);
+    }
+    Rasterise(f, v.textures.Pixels(), f.guest ? f.guestVideo->textures.Pixels() : nullptr);
+    Resolve(f, v.palette.Colours(), pixels, width, height, over);
+    if (text) {
+        Text(f, v.palette.Colours(), ss, pixels, width, height);
+    }
+}
+
+void Rasteriser::Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *ss, std::vector<uint32_t> &pixels, int &width, int &height) {
+    DrawWithGuest(nullptr, nullptr, nullptr, nullptr, v, spriteRam, ss, pixels, width, height);
+}
+
+void Rasteriser::DrawWithGuest(const Video *guest, const uint8_t *guestSpriteRam, KeepObject guestKeep, const void *guestContext, const Video &v,
+                               const uint8_t *spriteRam, const uint8_t *ss, std::vector<uint32_t> &pixels, int &width, int &height) {
+    m_blendKnown = {};
+    BuildFrame(v, spriteRam, margin, shift, m_frame, keep, keepContext, shiftY);
+    if (guest) {
+        AddGuest(*guest, guestSpriteRam, m_frame, guestKeep, guestContext);
+    }
+    const Frame &f = m_frame;
+    width = f.width;
+    height = f.height;
+    const bool over = !f.guest && overlay && pixels.size() == static_cast<size_t>(width) * height;
+    if (!over) {
+        pixels.assign(static_cast<size_t>(width) * height, 0);
+    }
+    Rasterise(f, v.textures.Pixels(), f.guest ? guest->textures.Pixels() : nullptr);
+    Resolve(f, v.palette.Colours(), pixels, width, height, over);
+    if (text) {
+        Text(f, v.palette.Colours(), ss, pixels, width, height);
     }
 }
 

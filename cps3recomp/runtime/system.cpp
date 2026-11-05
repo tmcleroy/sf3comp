@@ -118,7 +118,7 @@ namespace {
             }
             device = nullptr;
         }
-    } g_gpuCheck{"native GPU pixels"}, g_stageGpuCheck{"native GPU pixels of a stage board"};
+    } g_gpuCheck{"native GPU pixels"}, g_stageGpuCheck{"native GPU pixels with a stage"};
     void GpuCompare(GpuCheck &c, const native::Frame &f, const native::Video &video, const uint8_t *ss, const std::vector<uint32_t> &cpu, int width,
                     uint64_t frame, const char *whose);
 } // namespace
@@ -204,6 +204,33 @@ void Machine::DrawLayers(bool native, Renderer &r, const machine::Machine &m, st
     n.Draw(m.native, m.SpriteRamBytes(), m.SsRam(), pixels, width, height);
 }
 
+// Whether a frame with the stage board's stage is drawn as one frame of the two producers (DrawWithStage): the plain
+// composition, the stage under this board's layers (not a second stage sliding or fading in, nor the stage darkened or
+// alone: those are the modes' own stages', drawn as two pictures)
+bool Machine::SingleFrameWithStage() const {
+    return m_stage && nativeStageObject && nativeOwnStageObject && !(m_stage2 && (stageBlend > 0 || stageSlide > 0)) && stageDarken <= 0 && !onlyStage &&
+           (!composeNow || composeNow());
+}
+
+// The stage board's stage layers (its objects nativeStageObject says are its stage, with its own palette and textures)
+// and this board's layers but its own stage (nativeOwnStageObject) made into one frame and drawn by one rasteriser
+// (native::Rasteriser::DrawWithGuest): the picture the two board models compose (checknative.sh, "native pixels with a
+// stage")
+void Machine::DrawWithStage(std::vector<uint32_t> &pixels, int &width, int &height) {
+    native::Rasteriser &n = m_shownRaster;
+    n.margin = m_renderer.margin;
+    n.shift = m_renderer.shift;
+    n.shiftY = 0;
+    n.text = m_renderer.text;
+    n.overlay = false;
+    n.backdrop = m_renderer.backdrop;
+    n.keepContext = this;
+    n.keep = [](const void *self, const native::Object &o, uint32_t) { return !static_cast<const Machine *>(self)->nativeOwnStageObject(o); };
+    n.DrawWithGuest(&m_stage->native, m_stage->SpriteRamBytes(),
+                    [](const void *self, const native::Object &o, uint32_t) { return static_cast<const Machine *>(self)->nativeStageObject(o); }, this,
+                    board.native, board.SpriteRamBytes(), board.SsRam(), pixels, width, height);
+}
+
 // The pixel check (docs/NATIVE.md, level b), every frame drawn in the checks: the frame's picture composed again from
 // the native interfaces (Compose, as the board's was: the plain way, a stage board's stage under this board's layers,
 // every other way the game's sources choose) against the board's. Frames drawn the plain way counted as "native pixels",
@@ -239,22 +266,9 @@ void Machine::ComparePixels(int kind) {
         GpuCompare(g_gpuCheck, m_shownRaster.LastFrame(), board.native, board.SsRam(), m_nativePicture, width, frame, "");
         return;
     }
-    if (kind == 2 && nativeStageObject && nativeOwnStageObject) {
-        static const std::vector<uint8_t> noText(0x10000, 0);
-        native::Rasteriser part;
-        std::vector<uint32_t> alone;
-        int w = 0, h = 0;
-        part.margin = m_renderer.margin;
-        part.text = false;
-        part.keepContext = this;
-        part.keep = [](const void *self, const native::Object &o, uint32_t) { return static_cast<const Machine *>(self)->nativeStageObject(o); };
-        part.Draw(m_stage->native, m_stage->SpriteRamBytes(), m_stage->SsRam(), alone, w, h);
-        GpuCompare(g_stageGpuCheck, part.LastFrame(), m_stage->native, noText.data(), alone, w, frame, " of a stage board");
-        part.shift = m_renderer.shift;
-        part.text = m_renderer.text;
-        part.keep = [](const void *self, const native::Object &o, uint32_t) { return !static_cast<const Machine *>(self)->nativeOwnStageObject(o); };
-        part.Draw(board.native, board.SpriteRamBytes(), board.SsRam(), alone, w, h);
-        GpuCompare(g_gpuCheck, part.LastFrame(), board.native, part.text ? board.SsRam() : noText.data(), alone, w, frame, "");
+    if (kind == 2 && m_shownRaster.LastFrame().guest) {
+        // (the one frame of the two producers, DrawWithStage, as the CPU drew it just now)
+        GpuCompare(g_stageGpuCheck, m_shownRaster.LastFrame(), board.native, board.SsRam(), m_nativePicture, width, frame, " with a stage");
     }
 }
 
@@ -479,13 +493,41 @@ void Machine::KeepGpuFrame() {
     m_gpuText.assign(board.SsRam(), board.SsRam() + 0x8000);
 }
 
+void Machine::KeepGpuGuest() {
+    const native::Video &v = m_stage->native;
+    for (int page = 0; page < native::Textures::kPages; page++) {
+        const uint64_t version = v.textures.PageVersion(page);
+        if (m_gpuGuest != m_stage.get() || version != m_gpuGuestPages[static_cast<size_t>(page)]) {
+            m_gpuGuestVideo.textures.PutPage(page, v.textures.Pixels() + static_cast<size_t>(page) * 0x10000);
+            m_gpuGuestPages[static_cast<size_t>(page)] = version;
+        }
+    }
+    if (m_gpuGuest != m_stage.get() || v.palette.Version() != m_gpuGuestColours) {
+        m_gpuGuestVideo.palette.SetAll(v.palette.Colours());
+        m_gpuGuestColours = v.palette.Version();
+    }
+    m_gpuGuestVideo.registers = v.registers;
+    m_gpuGuestVideo.objects = v.objects;
+    m_gpuGuest = m_stage.get();
+}
+
 void Machine::MakePicture() const {
     if (!m_pictureOwed) {
         return;
     }
     m_pictureOwed = false;
-    // (as the frame's plain picture is drawn: the renderer's settings are still the frame's)
     Machine &self = const_cast<Machine &>(*this);
+    if (m_gpuFrame.guest) {
+        // (a frame with the stage board's stage: drawn from the frame made for the GPU, and what it was made from as it
+        // was then, the two producers' colours and textures and this board's text layer)
+        native::Rasteriser &n = self.m_shownRaster;
+        n.text = true; // (a frame made for the GPU has its text layer and no backdrop)
+        n.overlay = false;
+        n.backdrop = 0;
+        n.DrawFrame(m_gpuFrame, m_gpuVideo, m_gpuText.data(), self.m_picture, self.m_width, self.m_height);
+        return;
+    }
+    // (as the frame's plain picture is drawn: the renderer's settings are still the frame's)
     self.DrawLayers(native::On() && board.NativeInSync(), self.m_renderer, board, self.m_picture, self.m_width, self.m_height);
 }
 
@@ -529,6 +571,11 @@ int Machine::Compose(bool native, std::vector<uint32_t> &pixels, int &width, int
             m_renderer.drawGroup = nullptr;
         }
     } else if (m_stage && stageObject && ownStageObject && (!composeNow || composeNow())) {
+        if (native && SingleFrameWithStage()) {
+            // (one frame of the two producers: the stage board's stage layers under this board's, one rasteriser)
+            DrawWithStage(pixels, width, height);
+            return 2;
+        }
         m_stageRenderer.margin = m_renderer.margin;
         m_stageRenderer.text = false;
         m_stageRenderer.drawGroupContext = this;
@@ -706,12 +753,23 @@ void Machine::RunFrame() {
     m_renderer.text = !hidePanel;
     m_renderer.backdrop = backdrop;
     m_renderer.shift = worldShiftNow && m_renderer.margin ? std::clamp(worldShiftNow(), -m_renderer.margin, m_renderer.margin) : 0;
-    const bool plainFrame = !(dropRaise >= 0 && ownStageObject && dropOld.size() == static_cast<size_t>(PictureWidth()) * Video::kHeight) &&
-                            !(m_stage && stageObject && ownStageObject && (!composeNow || composeNow())) && !(onlyStage && ownStageObject) &&
-                            !(ownStageObject && getenv("CPS3RECOMP_OWN_ONLY")) && !hideObject;
-    if (drawing && plainFrame && gpuPicture && !board.nativeCheck && board.NativeInSync() && m_renderer.text && !m_renderer.backdrop) {
+    const bool dropping = dropRaise >= 0 && ownStageObject && dropOld.size() == static_cast<size_t>(PictureWidth()) * Video::kHeight;
+    const bool stageComposed = m_stage && stageObject && ownStageObject && (!composeNow || composeNow());
+    const bool plainFrame = !dropping && !stageComposed && !(onlyStage && ownStageObject) && !(ownStageObject && getenv("CPS3RECOMP_OWN_ONLY")) && !hideObject;
+    // (a frame of the stage board's stage under this board's layers: one frame of the two producers, the GPU's too)
+    const bool stageFrame = !dropping && stageComposed && SingleFrameWithStage();
+    if (drawing && (plainFrame || stageFrame) && gpuPicture && !board.nativeCheck && board.NativeInSync() && (!stageFrame || m_stage->NativeForPicture()) &&
+        m_renderer.text && !m_renderer.backdrop) {
         // (for the GPU: the frame made ready, the picture drawn on the CPU only if asked for)
-        native::BuildFrame(board.native, board.SpriteRamBytes(), m_renderer.margin, m_renderer.shift, m_gpuFrame);
+        if (stageFrame) {
+            KeepGpuGuest();
+            native::BuildFrame(board.native, board.SpriteRamBytes(), m_renderer.margin, m_renderer.shift, m_gpuFrame,
+                               [](const void *self, const native::Object &o, uint32_t) { return !static_cast<const Machine *>(self)->nativeOwnStageObject(o); }, this);
+            native::AddGuest(m_gpuGuestVideo, m_stage->SpriteRamBytes(), m_gpuFrame,
+                             [](const void *self, const native::Object &o, uint32_t) { return static_cast<const Machine *>(self)->nativeStageObject(o); }, this);
+        } else {
+            native::BuildFrame(board.native, board.SpriteRamBytes(), m_renderer.margin, m_renderer.shift, m_gpuFrame);
+        }
         KeepGpuFrame();
         m_width = m_gpuFrame.width;
         m_height = m_gpuFrame.height;

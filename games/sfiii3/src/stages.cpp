@@ -23,6 +23,64 @@
 namespace cps3recomp {
 
 namespace {
+    // A stage game's stage from its own stage code alone (DEFINITIVE.md, "The stage alone"): its board started once and
+    // kept where its game task runs the game's modes each frame (`modes`: the routines called there, by the task's
+    // first step, the title's and attract mode's and the game's), which are replaced: no mode, no character select, no
+    // fighters and no match ever run. The first time the board gets there (its start-up done: about 400 of its frames)
+    // it is kept, and every stage starts from there. Once, the stage is built (its number put where the stage's choice
+    // puts it and the match's set-up's clearing done, `beforeBuild`, then the routines `build`); then each frame its
+    // stage routines (`frame`, each with its r4: the stage's frame, then the effects' queues and lists, where the
+    // stage's people and things are) run, and the game task goes on as it does after the modes (the objects' lists
+    // flipped, its wait for the frame). The board's vertical blank hands the frame over (the video hand-offs,
+    // video_games.cpp, to the stage board's own interface) and runs its sound driver, as the game's own does; its DMA
+    // interrupt chains the textures and colours the stage asked for. The stage's music is asked for by the game's own
+    // routine for it (`music`: the stage's tune by its number), once the stage's frame runs (its head's step, `stepAt`,
+    // at `frameStep`). Nothing called may wait for anything (Guest::Call: no time passes for the rest of the board).
+    struct Call {
+        uint32_t at;
+        int32_t r4 = -1; // (-1: r4 left as it is)
+    };
+    struct Routine {
+        uint32_t at, size; // (the bytes hashed)
+        uint64_t hash;
+    };
+    struct StageAlone {
+        Routine modes[2]; // (the game task's modes by its first step: the title and attract mode's, and the game's)
+        void (*beforeBuild)(Guest &g, int stage);
+        std::vector<Call> build, frame;
+        uint32_t music;
+        uint32_t stepAt; // byte: the stage's head's step (bg_routine): from `frameStep` on, its frame
+        uint8_t frameStep;
+    };
+    // New Generation's (found from 3rd Strike's, whose routines its are: the game task 0x0602B3F4, its modes by its first
+    // step 0x02012BEC from a table, 0x0602B454 the title's and attract mode's, 0x0602B9BE the game's; the match's set-up
+    // 0x0602BFC0 and frame 0x0602C04E, of which these are the stage's parts). Built: the effects' lists emptied
+    // (0x0609104C), the stage's state cleared (four words and a byte as the match's set-up clears them, then 0x0607C054,
+    // 0x06079CB8) and its first step (0x06079FF0: the stage's frame, by its head's step: 0 its set-up, the layers, the
+    // textures and colours asked for; then its frame). Each frame: the stage's frame (0x06079FF0), the effects' two
+    // queues (0x0608EF88) and seven lists (0x06090F34: the stage's people and things are effects). Not called: the
+    // match's screen set-up (0x0602A69E), which waits for the DMAs to end (the board starts with none). The stage's
+    // tune: 0x0602940C (by its head's stage number, from a table).
+    const StageAlone kNewGenerationAlone = {
+        {{0x0602B454, 0x40, 0x82E35830E6258E42ull}, {0x0602B9BE, 0x40, 0x45AC4B2E469B5E9Aull}},
+        [](Guest &g, int stage) {
+            // (the stage's number and its part, at its head's +4 and +5, as the stage's choice puts them, and the
+            // game's stage byte)
+            g.Write8(0x0201BE14, static_cast<uint8_t>(stage));
+            g.Write8(0x0201BE15, 0);
+            g.Write8(0x02012CA3, static_cast<uint8_t>(stage));
+            for (uint32_t at = 0x0200D17C; at < 0x0200D184; at += 2) {
+                g.Write16(at, 0);
+            }
+            g.Write8(0x0200EACC, 1);
+        },
+        {{0x0609104C}, {0x0607C054}, {0x06079CB8}, {0x06079FF0}},
+        {{0x06079FF0}, {0x0608EF88, 0}, {0x0608EF88, 1}, {0x06090F34, 0}, {0x06090F34, 1}, {0x06090F34, 2}, {0x06090F34, 3},
+         {0x06090F34, 4}, {0x06090F34, 5}, {0x06090F34, 6}},
+        0x0602940C,
+        0x0201BE10, 1, // (its stage's step: 0 its set-up, then its frame; 3rd Strike's sets up over three)
+    };
+
     // Where a stage game keeps what is held (found in RAM traces: DEFINITIVE.md)
     struct StageGame {
         const char *set;
@@ -34,6 +92,7 @@ namespace {
         uint32_t players[2]; // the players' records (the place across the stage at +0x64, up at +0x68, as in 3rd Strike)
         int32_t upSpeed;     // how far its camera goes up for a line of its higher fighter's height past 88 (16.16)
         int cameraLayer;     // which of its stage's seven layers is the camera's (the stage's head 0x54 before the first)
+        const StageAlone *alone = nullptr; // (its stage from its stage code alone: none, a match played behind it)
     };
     // (its fighters' layer: the camera's middle across at +0x20 of it, as in 3rd Strike; its place up at +0x1C shown and
     // +0x24, its top at +0x6E: stage_camera.cpp)
@@ -42,7 +101,7 @@ namespace {
     constexpr uint32_t kMovedUp = 0x14; // (of the stage's head, 0x54 before its layers: how far up the camera's layer is from its start)
     const StageGame kNewGeneration = {"sfiiin", {0x0201BF0C, 0x0201BF14, 0x0201BF24}, {0x0201BEFE, 0x0201BF80}, 0x0201BF58, 0x0201BF5C, 680, 320,
                                       {0x0200EB33, 0x0201DB15}, {0x0200D22B, 0x0200D22D, 0x0201DAF1, 0x0200D603, 0x0200D605, 0x0201DB09},
-                                      0x02012CA3, {0x0200D18C, 0x0200D564}, 0x1C000, 1};
+                                      0x02012CA3, {0x0200D18C, 0x0200D564}, 0x1C000, 1, &kNewGenerationAlone};
     const StageGame kSecondImpact = {"sfiii2n", {0x0202225C, 0x02022264, 0x02022274}, {0x0202224E, 0x020222D0}, 0x020222A8, 0x020222AC, 0, 0,
                                      {0x02010167, 0x02023EF5}, {0x0200E5A3, 0x0200E5A5, 0x0200E9AF, 0x0200E9B1, 0, 0}, 0x020142E7,
                                      {0x0200E504, 0x0200E910}, 0x1C000, 1};
@@ -105,7 +164,11 @@ namespace {
         uint32_t inFight = 0; // its frames in its fight (its round's banners over by kBannersFor)
         int offset = 0;      // its camera's middle less its fighters' as its fight began (New Generation's rainy London
                              // stage places its fighters about 512 left of its camera; the others about 0)
+        bool built = false;      // (a stage alone, StageAlone: built on its board)
+        bool musicAsked = false; // (... its tune asked for)
     } g;
+    // (a stage alone: the board starting up, kept at its modes' routine the first time it is reached there)
+    bool g_booting = false, g_reached = false;
 
     // Stage boards kept as they were once in their fights (a stage reached once is there at once after), by game and
     // stage; the most recently used kept, up to 16
@@ -293,6 +356,13 @@ namespace {
         return false;
     }
 
+    // Whether a stage game's stage is made from its stage code alone (StageAlone; SFIII3_STAGE_MATCH=1: a match played
+    // behind it, as before, for comparing the two)
+    bool Alone(const StageGame &game) {
+        static const bool match = getenv("SFIII3_STAGE_MATCH") != nullptr;
+        return game.alone && !match;
+    }
+
     // Before each of the stage board's frames: on the way to its fight, coins, Start and a character; in it, no clock,
     // nobody hurt, no controls, and its camera where 3rd Strike's is (from one stage's ends to the other's)
     void BeforeStage(Machine &machine, machine::Machine &stage) {
@@ -302,7 +372,15 @@ namespace {
         const uint8_t clock = ram[game.clock[0] & 0x7FFFF];
         const bool fighting = clock > 0 && clock <= 99 && ram[game.life[0] & 0x7FFFF] > 0;
         g.frames++;
-        if (fighting && !g.fought && g.frames > 600) {
+        // (its stage alone: nothing played, no controls; its camera given once its stage's frame runs: AloneFrame)
+        const bool alone = Alone(game);
+        if (alone) {
+            stage.inputs = stage.extra = 0xFFFFFFFFu;
+            if (!g.fought) {
+                return;
+            }
+        }
+        if (fighting && !g.fought && g.frames > 600 && !alone) {
             g.fought = true;
             g.life = ram[game.life[0] & 0x7FFFF];
 
@@ -331,7 +409,9 @@ namespace {
         // (both its fighters a player's, not its computer's, so that with no controls they stand still: the record's byte 3,
         // as in 3rd Strike, 0 the computer; a computer opponent would fight on, supers and all, behind 3rd Strike's)
         for (const uint32_t at : game.players) {
-            ram[(at + 3) & 0x7FFFF] = 1;
+            if (!alone) {
+                ram[(at + 3) & 0x7FFFF] = 1;
+            }
         }
         if (!g.offsetKnown) {
             // (its fighters' places as its fight begins, once its game has put them: its own coordinates against its camera's)
@@ -367,6 +447,7 @@ namespace {
         static const bool layerLog = getenv("SFIII3_STAGE_LAYERS") != nullptr;
         if (layerLog && g.frames % 300 == 0) {
             const uint32_t head = game.camera[1] - 0x20 - 0x54 - static_cast<uint32_t>(game.cameraLayer) * 0x90;
+            fprintf(stderr, "stage head: number %d part %d routine %d\n", ram[(head + 4) & 0x7FFFF], ram[(head + 5) & 0x7FFFF], Word(ram, head + 0x4A));
             fprintf(stderr, "stage layers: frame %u, moved %d, up %d\n", g.frames, static_cast<int16_t>(Word(ram, head + 0x12)), static_cast<int16_t>(Word(ram, head + 0x14)));
             for (int n = 0; n < 7; n++) {
                 const uint32_t l = head + 0x54 + static_cast<uint32_t>(n) * 0x90;
@@ -388,12 +469,12 @@ namespace {
         }
         g.lastCamera = static_cast<int16_t>(Word(ram, game.camera[1]));
         for (const uint32_t at : game.clock) {
-            if (at) {
+            if (at && !alone) {
                 ram[at & 0x7FFFF] = 99; // (3rd Strike's two: the clock shown and the one whose end is the time over)
             }
         }
         for (const uint32_t at : game.life) {
-            if (at) {
+            if (at && !alone) {
                 ram[at & 0x7FFFF] = g.life;
             }
         }
@@ -567,6 +648,55 @@ namespace {
             }
         }
     }
+
+    // The stage game's modes' routine (StageAlone::modes) on the stage board, its stage made alone: in its place the
+    // stage's own routines (its build once, then its frame); while the board starts up, nothing (it is kept there, the
+    // first time it gets there). Then back to the game task, which goes on as after its modes
+    bool AloneFrame(Guest &guest) {
+        Machine *machine = TheMachine();
+
+        if (!machine || &guest.Board() != machine->StageBoard() || !g.loaded || !Alone(*kChoices[g.loaded].game)) {
+            return false; // (the game's own: a match played behind its stage)
+        }
+        const StageAlone &a = *kChoices[g.loaded].game->alone;
+        const int stage = StageNow();
+        if (g_booting || stage < 0) {
+            g_reached = g_booting;
+            guest.Return();
+            return true;
+        }
+        const auto run = [&](const std::vector<Call> &calls) {
+            for (const Call &c : calls) {
+                if (c.r4 >= 0) {
+                    guest.R(4) = static_cast<uint32_t>(c.r4);
+                }
+                guest.Call(c.at);
+            }
+        };
+        if (!g.built) {
+            g.built = true;
+            a.beforeBuild(guest, stage);
+            run(a.build);
+        } else {
+            run(a.frame);
+        }
+        static const bool debug = getenv("SFIII3_ALONE_DEBUG") != nullptr; // (debugging aid: the stage's step, every 60 frames)
+        if (debug && g.frames % 60 == 0) {
+            fprintf(stderr, "stage alone: frame %u, stage %d, its step %d, fought %d\n", g.frames, stage, guest.Read8(a.stepAt), g.fought);
+        }
+        // (its stage's frame running: its camera given from now on, its tune asked for)
+        if (!g.fought && guest.Read8(a.stepAt) >= a.frameStep) {
+            g.fought = true;
+            g.offsetKnown = true;
+            g.offset = 0;
+        }
+        if (g.fought && !g.musicAsked) {
+            g.musicAsked = true;
+            guest.Call(a.music);
+        }
+        guest.Return();
+        return true;
+    }
 } // namespace
 
 bool MusicVoice(int voice); // (music.cpp)
@@ -658,6 +788,35 @@ namespace {
     // The board started again on its way to a fight (g.loaded, g.stage say which): from its game's start-up passed
     // (Base), or from its reset
     void TripFromStart(Machine &machine) {
+        if (Alone(*kChoices[g.loaded].game)) {
+            // (its stage alone: its board as its start-up leaves it at its modes' routine, made once for its game and
+            // kept, its stage built there at its next frame)
+            const int loaded = g.loaded, stage = g.stage;
+            if (g_base.game != kChoices[g.loaded].game || g_base.data.empty()) {
+                machine.StageBoard()->Reset();
+                g = {};
+                g.loaded = loaded;
+                g_booting = true;
+                g_reached = false;
+                constexpr int kMostFrames = 3000; // (New Generation's start-up: about 400)
+                for (int n = 0; n < kMostFrames && !g_reached; n++) {
+                    machine.RunStageQuiet(1);
+                }
+                g_booting = false;
+                if (!g_reached) {
+                    fprintf(stderr, "stages: %s's board did not come to its modes' routine\n", kChoices[loaded].game->set);
+                }
+                g_base.game = kChoices[loaded].game;
+                g_base.state = g;
+                machine.KeepStage(g_base.data);
+            } else {
+                machine.RestoreStage(g_base.data);
+            }
+            g = {};
+            g.loaded = loaded;
+            g.stage = stage;
+            return;
+        }
         if (g_base.game && g_base.game == kChoices[g.loaded].game && !g_base.data.empty()) {
             const int loaded = g.loaded, stage = g.stage;
             machine.RestoreStage(g_base.data);
@@ -741,7 +900,7 @@ void StagesBeforeFrame(Machine &machine) {
         if (g_pre.on && next != g_pre.live.stage) {
             EndPreload(machine); // (the next fight's stage is another: that one wanted now)
         }
-        if (!g_pre.on && next == g.stage && FeatureOn("stages_preload") && (g.fought || g.stage < 0)) {
+        if (!g_pre.on && next == g.stage && FeatureOn("stages_preload") && (g.fought || g.stage < 0) && !Alone(*kChoices[choice].game)) {
             // (idle: another of this game's stages not kept yet taken to its fight meanwhile)
             for (int stage = 0; stage <= most; stage++) {
                 if (!IsKept(kChoices[choice].game, stage)) {
@@ -799,6 +958,9 @@ void StagesBeforeFrame(Machine &machine) {
     if (choice && !machine.StageBoard()) {
         g.loaded = 0; // (not there: as without it)
         SetFeatureValue("stages", 0);
+    } else if (choice && Alone(*kChoices[choice].game)) {
+        g.stage = kChoices[choice].stage == kOpponents ? -1 : g.stage;
+        TripFromStart(machine);
     }
 }
 
@@ -938,6 +1100,19 @@ void RegisterStages(Game &game) {
                              "one and kept, so that each opponent's is there at once. It takes the processor's time while no fight "
                              "is on (the stage game run fast), and about 150 MB of memory.",
                              kFeatureEnhanced});
+    // (the stage games whose stages are made alone: their modes' routine)
+    static std::vector<Lift> alone;
+    for (const StageGame *game : {&kNewGeneration, &kSecondImpact}) {
+        if (!game->alone) {
+            continue;
+        }
+        for (const Routine &modes : game->alone->modes) {
+            Lift l{"StageAlone", modes.at, modes.size, modes.hash, AloneFrame};
+            l.boards = Lift::kStageBoards;
+            alone.push_back(l);
+        }
+    }
+    RegisterLifts(alone.data(), alone.size());
     if (Machine *machine = TheMachine()) {
         machine->stageObject = StageObject;
         machine->ownStageObject = OwnStageObject;

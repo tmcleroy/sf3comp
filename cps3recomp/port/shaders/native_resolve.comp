@@ -5,16 +5,21 @@
 // The native video's second pass (port/native_gpu.cpp, video/raster.h): the picture, each pixel the buffer's colour
 // number at its place (with the whole picture's zoom) through the palette, then the text layer over it (64 x 32
 // characters of 8x8, 4 bits a pixel, from SS RAM, twice across 1024 columns, each row scrolled), as the CPU's
-// rasteriser has it. (SDL_GPU's compute layout: read-only buffers in set 0, read-write textures in set 1.)
+// rasteriser has it. With a guest producer's layers (a stage from another game: `guest`), the guest's colour number at
+// its place (its buffer from row 448, its own zoom) through its palette (the second 0x20000 colours) is what is under the
+// game's: where the game drew nothing the guest's shows, and a blend of the game's over nothing of its own scales the
+// guest's colour as that blend does the game's colours (the scales of the game's palette's 16 banks, after the two
+// palettes: raster.h, BlendScales). (SDL_GPU's compute layout: read-only buffers in set 0, read-write textures in set 1.)
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(std430, set = 0, binding = 0) readonly buffer Params {
     uint width, height, fx, fy;
     int margin, textScrollY;
-    uint textPalette, pad;
+    uint textPalette, guest;
+    uint guestFx, guestFy, pad0, pad1;
 } params;
 layout(std430, set = 0, binding = 1) readonly buffer Palette {
-    uint rgb[]; // 0x20000 colours, 0x00BBGGRR
+    uint rgb[]; // 0x20000 colours, 0x00BBGGRR; a guest's 0x20000 after them; then 48 blend scales
 };
 layout(std430, set = 0, binding = 2) readonly buffer Text {
     uint ss[]; // SS RAM's 32 KB, four bytes a word, the first in the low byte
@@ -33,7 +38,26 @@ void main() {
     }
     const uint sx = uint(p.x) * params.fx, sy = uint(p.y) * params.fy;
     const uint c = imageLoad(colours, ivec2(int(min(sx >> 16, 1023u)), int(min(sy >> 16, 447u)))).r;
-    uint colour = rgb[c & 0x1FFFFu];
+    uint colour;
+    if (params.guest != 0u) {
+        const uint gx = uint(p.x) * params.guestFx, gy = uint(p.y) * params.guestFy;
+        const uint g = imageLoad(colours, ivec2(int(min(gx >> 16, 1023u)), 448 + int(min(gy >> 16, 447u)))).r;
+        const uint under = rgb[0x20000u + (g & 0x1FFFFu)];
+        if ((c & 0x1FFFu) != 0u) {
+            colour = rgb[c & 0x1FFFFu];
+        } else if (c != 0u) {
+            const uint bank = (c >> 13) & 0xFu;
+            colour = 0u;
+            for (uint k = 0u; k < 3u; k++) {
+                const uint scale = rgb[0x40000u + bank * 3u + k];
+                colour |= min((((under >> (8u * k)) & 0xFFu) * scale) >> 8, 255u) << (8u * k);
+            }
+        } else {
+            colour = under;
+        }
+    } else {
+        colour = rgb[c & 0x1FFFFu];
+    }
 
     // The text layer: of the two copies, the characters under this pixel, in the order the CPU draws them (by column,
     // then copy)

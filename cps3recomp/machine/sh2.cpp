@@ -286,9 +286,37 @@ namespace {
         }
     } g_callGraph;
 } // namespace
+// Debugging aid, CPS3RECOMP_CALL_TRACE=FIRST-LAST:path (interpreted code only: CPS3RECOMP_NO_BLOCKS=1, or a stage
+// board's with CPS3RECOMP_NO_STAGE_BLOCKS=1): every call in order, on the frames FIRST-LAST of each board, as "board
+// frame site target r4 r5 r15"
+namespace {
+    struct CallTrace {
+        FILE *file = nullptr;
+        unsigned long long first = 0, last = 0;
+        CallTrace() {
+            if (const char *v = getenv("CPS3RECOMP_CALL_TRACE")) {
+                char path[1024] = {};
+                if (sscanf(v, "%llu-%llu:%1023s", &first, &last, path) == 3) {
+                    file = fopen(path, "w");
+                }
+            }
+        }
+        ~CallTrace() {
+            if (file) {
+                fclose(file);
+            }
+        }
+    } g_callTrace;
+} // namespace
 inline void SH2::NoteCall(uint32 site, uint32 target) {
     if (g_callGraph.path) [[unlikely]] {
         g_callGraph.counts[{(static_cast<uint64>(m_master) << 32) | site, target}]++;
+    }
+    if (g_callTrace.file) [[unlikely]] {
+        const unsigned long long frame = m_machine.Frame();
+        if (frame >= g_callTrace.first && frame <= g_callTrace.last) {
+            fprintf(g_callTrace.file, "%p %llu %08X %08X %08X %08X %08X\n", static_cast<void *>(&m_machine), frame, site, target, R[4], R[5], R[15]);
+        }
     }
 }
 

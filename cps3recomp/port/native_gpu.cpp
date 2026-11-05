@@ -48,6 +48,9 @@ namespace {
     constexpr int kBufferWidth = 1024, kBufferHeight = 448;
     constexpr uint32_t kTexturesSize = cps3recomp::native::Textures::kSize, kPage = 0x10000;
     constexpr uint32_t kPaletteSize = cps3recomp::native::Palette::kColours * 4, kTextSize = 0x8000;
+    // (the game's buffer's rows and a guest's; the palettes: the game's, a guest's, the blends' 48 scales)
+    constexpr int kRows = 2 * kBufferHeight;
+    constexpr uint32_t kPalettesSize = 2 * kPaletteSize + 64 * 4;
 
     SDL_GPUComputePipeline *MakePass(SDL_GPUDevice *device, const unsigned char *spirv, size_t spirvSize, const char *msl, uint32_t buffers,
                                      uint32_t textures) {
@@ -99,15 +102,16 @@ bool NativeGpu::Open(SDL_GPUDevice *device, std::string &error) {
     m_resolvePass = MakePass(device, k_native_resolve_comp_spirv, sizeof(k_native_resolve_comp_spirv), k_native_resolve_comp_msl, 3, 2);
     m_composePass = MakePass(device, k_native_compose_comp_spirv, sizeof(k_native_compose_comp_spirv), k_native_compose_comp_msl, 1, 3);
     m_composeParams = MakeBuffer(device, 32);
-    m_tilesParams = MakeBuffer(device, 16);
-    m_resolveParams = MakeBuffer(device, 32);
-    m_rowStarts = MakeBuffer(device, (kBufferHeight + 1) * 4);
-    m_textures = MakeBuffer(device, kTexturesSize);
-    m_palette = MakeBuffer(device, kPaletteSize);
+    m_tilesParams = MakeBuffer(device, 32);
+    m_resolveParams = MakeBuffer(device, 48);
+    m_rowStarts = MakeBuffer(device, (kRows + 1) * 4);
+    m_textures = MakeBuffer(device, 2 * kTexturesSize);
+    m_palette = MakeBuffer(device, kPalettesSize);
     m_text = MakeBuffer(device, kTextSize);
+    // (the game's buffer of colour numbers, and a guest's below it: Frame::guest)
     m_colours = MakeTexture(device, SDL_GPU_TEXTUREFORMAT_R32_UINT,
                             SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_SIMULTANEOUS_READ_WRITE, kBufferWidth,
-                            kBufferHeight);
+                            kRows);
     m_picture = MakeTexture(device, SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
                             SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE |
                                 SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_SIMULTANEOUS_READ_WRITE,
@@ -125,6 +129,7 @@ bool NativeGpu::Open(SDL_GPUDevice *device, std::string &error) {
         return false;
     }
     m_texturesSent = false;
+    m_guestSent = nullptr;
     m_overlayKnown = false;
     return true;
 }
@@ -181,23 +186,25 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
     using cps3recomp::native::Tile;
     m_width = f.width;
     m_height = f.height;
-    // The tiles by row: each row's tiles in the board's order
-    const uint32_t rows = static_cast<uint32_t>(f.bufferHeight);
-    m_rowStartsData.assign(kBufferHeight + 1, 0);
+    // The tiles by row: each row's tiles in the board's order (a guest's in the rows from kBufferHeight on: its buffer)
+    const cps3recomp::native::Video *guest = f.guest ? f.guestVideo : nullptr;
+    const uint32_t rows = guest ? static_cast<uint32_t>(kBufferHeight + f.guestBufferHeight) : static_cast<uint32_t>(f.bufferHeight);
+    const auto rowOf = [](const Tile &t, int y) { return t.producer ? kBufferHeight + y : y; };
+    m_rowStartsData.assign(kRows + 1, 0);
     for (const Tile &t : f.tiles) {
         for (int y = t.sy; y < t.ey && y < kBufferHeight; y++) {
-            m_rowStartsData[static_cast<size_t>(y) + 1]++;
+            m_rowStartsData[static_cast<size_t>(rowOf(t, y)) + 1]++;
         }
     }
-    for (int y = 0; y < kBufferHeight; y++) {
+    for (int y = 0; y < kRows; y++) {
         m_rowStartsData[static_cast<size_t>(y) + 1] += m_rowStartsData[static_cast<size_t>(y)];
     }
-    m_rowTilesData.assign(std::max<uint32_t>(m_rowStartsData[kBufferHeight], 1), 0);
+    m_rowTilesData.assign(std::max<uint32_t>(m_rowStartsData[kRows], 1), 0);
     {
         std::vector<uint32_t> at(m_rowStartsData.begin(), m_rowStartsData.end() - 1);
         for (uint32_t i = 0; i < f.tiles.size(); i++) {
             for (int y = f.tiles[i].sy; y < f.tiles[i].ey && y < kBufferHeight; y++) {
-                m_rowTilesData[at[static_cast<size_t>(y)]++] = i;
+                m_rowTilesData[at[static_cast<size_t>(rowOf(f.tiles[i], y))]++] = i;
             }
         }
     }
@@ -207,23 +214,50 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
     Grow(m_rowTiles, m_rowTilesCapacity, rowTileBytes);
     // The palette's colours as drawn (the video DAC's low three bits of each component grounded): sent when they may have
     // changed (Palette::Version)
+    const auto toRgb = [](const uint16_t *from, std::vector<uint32_t> &rgb) {
+        rgb.resize(cps3recomp::native::Palette::kColours);
+        for (uint32_t i = 0; i < cps3recomp::native::Palette::kColours; i++) {
+            const uint16_t c = from[i];
+            rgb[i] = (static_cast<uint32_t>(c & 0x1F) << 3) | (static_cast<uint32_t>((c >> 5) & 0x1F) << 11) | (static_cast<uint32_t>((c >> 10) & 0x1F) << 19);
+        }
+    };
     const bool colours = !m_texturesSent || v.palette.Version() != m_paletteSent;
     if (colours) {
         m_paletteSent = v.palette.Version();
-        m_rgb.resize(cps3recomp::native::Palette::kColours);
-        const uint16_t *from = v.palette.Colours();
-        for (uint32_t i = 0; i < cps3recomp::native::Palette::kColours; i++) {
-            const uint16_t c = from[i];
-            m_rgb[i] = (static_cast<uint32_t>(c & 0x1F) << 3) | (static_cast<uint32_t>((c >> 5) & 0x1F) << 11) | (static_cast<uint32_t>((c >> 10) & 0x1F) << 19);
+        toRgb(v.palette.Colours(), m_rgb);
+    }
+    // (a guest's: its colours, and the game's blends' scales, when either may have changed)
+    if (guest && m_guestSent != guest) {
+        m_guestSent = guest;
+        m_guestPaletteSent = 0;
+        for (int page = 0; page < cps3recomp::native::Textures::kPages; page++) {
+            m_pagesSent[static_cast<size_t>(cps3recomp::native::Textures::kPages + page)] = ~0ull;
         }
     }
+    const bool guestColours = guest && (!m_texturesSent || guest->palette.Version() != m_guestPaletteSent);
+    if (guestColours) {
+        m_guestPaletteSent = guest->palette.Version();
+        toRgb(guest->palette.Colours(), m_guestRgb);
+    }
+    const bool scales = guest && (!m_texturesSent || v.palette.Version() != m_scalesFrom);
+    if (scales) {
+        m_scalesFrom = v.palette.Version();
+        cps3recomp::native::BlendScales(v.palette.Colours(), m_scales);
+    }
     // The textures' pages changed since last sent
-    std::vector<int> pages;
+    std::vector<int> pages; // (a guest's from 128)
+    static const bool all = getenv("CPS3RECOMP_NATIVE_GPU_ALL_PAGES") != nullptr; // (debugging aid: every page sent every frame)
     for (int page = 0; page < cps3recomp::native::Textures::kPages; page++) {
-        static const bool all = getenv("CPS3RECOMP_NATIVE_GPU_ALL_PAGES") != nullptr; // (debugging aid: every page sent every frame)
         if (all || !m_texturesSent || v.textures.PageVersion(page) != m_pagesSent[static_cast<size_t>(page)]) {
             pages.push_back(page);
             m_pagesSent[static_cast<size_t>(page)] = v.textures.PageVersion(page);
+        }
+    }
+    for (int page = 0; guest && page < cps3recomp::native::Textures::kPages; page++) {
+        const size_t slot = static_cast<size_t>(cps3recomp::native::Textures::kPages + page);
+        if (all || !m_texturesSent || guest->textures.PageVersion(page) != m_pagesSent[slot]) {
+            pages.push_back(cps3recomp::native::Textures::kPages + page);
+            m_pagesSent[slot] = guest->textures.PageVersion(page);
         }
     }
     m_texturesSent = true;
@@ -235,6 +269,9 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
         frames++;
         std::vector<bool> sent(cps3recomp::native::Textures::kPages, false);
         for (const int page : pages) {
+            if (page >= cps3recomp::native::Textures::kPages) {
+                continue;
+            }
             sent[static_cast<size_t>(page)] = true;
             memcpy(shadow.data() + static_cast<size_t>(page) * kPage, v.textures.Pixels() + static_cast<size_t>(page) * kPage, kPage);
         }
@@ -245,10 +282,14 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
             }
         }
     }
-    const uint32_t tilesParams[4] = {static_cast<uint32_t>(f.bufferWidth), rows, static_cast<uint32_t>(f.tiles.size()), m_rowStartsData[kBufferHeight]};
+    // (a guest's buffer may be wider than the game's, with a zoom of its own)
+    const uint32_t columns = static_cast<uint32_t>(std::max(f.bufferWidth, guest ? f.guestBufferWidth : 0));
+    const uint32_t tilesParams[8] = {columns, static_cast<uint32_t>(f.bufferHeight), static_cast<uint32_t>(f.tiles.size()), m_rowStartsData[kRows],
+                                     guest ? static_cast<uint32_t>(f.guestBufferHeight) : 0u, 0, 0, 0};
     const uint32_t fx = (f.screen.zoomX << 16) / 0x40, fy = (f.screen.zoomY << 16) / 0x40;
-    const int32_t resolveParams[8] = {f.width, f.height, static_cast<int32_t>(fx), static_cast<int32_t>(fy), f.margin, f.textScrollY,
-                                      static_cast<int32_t>(f.textPalette), 0};
+    const uint32_t gfx = guest ? (f.guestScreen.zoomX << 16) / 0x40 : 0, gfy = guest ? (f.guestScreen.zoomY << 16) / 0x40 : 0;
+    const int32_t resolveParams[12] = {f.width, f.height, static_cast<int32_t>(fx), static_cast<int32_t>(fy), f.margin, f.textScrollY,
+                                       static_cast<int32_t>(f.textPalette), guest ? 1 : 0, static_cast<int32_t>(gfx), static_cast<int32_t>(gfy), 0, 0};
     // One upload of everything
     // (the overlay: sent when it changed)
     // (one column and one row past it are written too: NativeGpu::Overlay)
@@ -262,7 +303,8 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
     const int composedHeight = rawAbove ? 2 * shownHeight : shownHeight;
     const uint32_t composeParams[8] = {static_cast<uint32_t>(shownWidth), static_cast<uint32_t>(shownHeight), static_cast<uint32_t>(f.width),
                                        static_cast<uint32_t>(f.height), rawAbove ? 1u : 0u, over ? 1u : 0u, 0, 0};
-    const uint32_t total = 32 + overlayBytes + 16 + 32 + tileBytes + (kBufferHeight + 1) * 4 + rowTileBytes + static_cast<uint32_t>(pages.size()) * kPage + (colours ? kPaletteSize : 0) + kTextSize;
+    const uint32_t total = 32 + overlayBytes + 32 + 48 + tileBytes + (kRows + 1) * 4 + rowTileBytes + static_cast<uint32_t>(pages.size()) * kPage +
+                           (colours ? kPaletteSize : 0) + (guestColours ? kPaletteSize : 0) + (scales ? 48 * 4 : 0) + kTextSize;
     if (!m_upload || m_uploadCapacity < total) {
         if (m_upload) {
             SDL_ReleaseGPUTransferBuffer(m_device, m_upload);
@@ -298,18 +340,27 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
         m_overlaySent = overlay->version;
         m_overlayKnown = true;
     }
-    put(m_tilesParams, tilesParams, 16);
-    put(m_resolveParams, resolveParams, 32);
+    put(m_tilesParams, tilesParams, 32);
+    put(m_resolveParams, resolveParams, 48);
     if (!f.tiles.empty()) {
         put(m_tiles, f.tiles.data(), tileBytes);
     }
-    put(m_rowStarts, m_rowStartsData.data(), (kBufferHeight + 1) * 4);
+    put(m_rowStarts, m_rowStartsData.data(), (kRows + 1) * 4);
     put(m_rowTiles, m_rowTilesData.data(), rowTileBytes);
     for (const int page : pages) {
-        put(m_textures, v.textures.Pixels() + static_cast<size_t>(page) * kPage, kPage, static_cast<uint32_t>(page) * kPage);
+        const bool theGuests = page >= cps3recomp::native::Textures::kPages;
+        const uint8_t *from = (theGuests ? guest->textures : v.textures).Pixels() +
+                              static_cast<size_t>(page % cps3recomp::native::Textures::kPages) * kPage;
+        put(m_textures, from, kPage, static_cast<uint32_t>(page) * kPage);
     }
     if (colours) {
         put(m_palette, m_rgb.data(), kPaletteSize);
+    }
+    if (guestColours) {
+        put(m_palette, m_guestRgb.data(), kPaletteSize, kPaletteSize);
+    }
+    if (scales) {
+        put(m_palette, m_scales, 48 * 4, 2 * kPaletteSize);
     }
     put(m_text, ss, kTextSize);
     SDL_UnmapGPUTransferBuffer(m_device, m_upload);
@@ -354,7 +405,7 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
         SDL_BindGPUComputePipeline(pass, m_tilesPass);
         SDL_GPUBuffer *buffers[5] = {m_tilesParams, m_tiles, m_rowStarts, m_rowTiles, m_textures};
         SDL_BindGPUComputeStorageBuffers(pass, 0, buffers, 5);
-        SDL_DispatchGPUCompute(pass, static_cast<Uint32>((f.bufferWidth + 7) / 8), (rows + 7) / 8, 1);
+        SDL_DispatchGPUCompute(pass, (columns + 7) / 8, (rows + 7) / 8, 1);
         SDL_EndGPUComputePass(pass);
         if (Timing()) {
             cmd = TimePass(m_device, cmd, 1);

@@ -1340,11 +1340,23 @@ void AttachTables(Machine &m, const Options &options, const BlockTable *tables, 
 // (most of a sample of them, read where they would be), in the first board's mode; none: it stays with the
 // interpreter. The first board is the one being run again afterwards.
 bool AttachSecond(Machine &m) {
-    // (CPS3RECOMP_NO_STAGE_BLOCKS=1: it stays with the interpreter, to compare)
-    if (g_boards.empty() || g_boards.front().machine == &m || getenv("CPS3RECOMP_NO_STAGE_BLOCKS")) {
+    if (g_boards.empty() || g_boards.front().machine == &m) {
         return false;
     }
     Board &first = g_boards.front();
+    // (with no translated code of its own, or CPS3RECOMP_NO_STAGE_BLOCKS=1 to compare: the dispatcher with no tables,
+    // every block run by the interpreter, so that its lifts are still met: the stage games' hand-offs, a stage alone)
+    const auto interpreted = [&] {
+        Options options;
+        options.mode = first.rt->opt.mode;
+        AttachTables(m, options, nullptr, 0, false);
+        g_active->flashPlain = true;
+        LoadGlobals(g_boards.front());
+        return false;
+    };
+    if (getenv("CPS3RECOMP_NO_STAGE_BLOCKS")) {
+        return interpreted();
+    }
     const RegisteredSet *best = nullptr;
     size_t bestScore = 0;
     const uint8_t *program = m.ProgramBytes(), *bios = m.BiosBytes();
@@ -1374,7 +1386,7 @@ bool AttachSecond(Machine &m) {
         }
     }
     if (!best) {
-        return false;
+        return interpreted();
     }
     static RegisteredSet chosen;
     chosen = *best;
