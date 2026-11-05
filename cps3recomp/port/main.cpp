@@ -2249,7 +2249,7 @@ int main(int argc, char **argv) {
                 if (gpuFrame) {
                     const bool isZoomed = p.WindowedOverlay(twinOverlay, zoomed);
                     const port::NativeGpu::Overlay over = {twinOverlay.data(), p.ShownWidth(), Video::kHeight, isZoomed, p.frame};
-                    shown = twin.ShowNative(*gpuFrame, p.machine->GpuVideo(), p.machine->GpuText(), where, twinOverlay.empty() ? nullptr : &over,
+                    shown = twin.ShowNative(*gpuFrame, getenv("TWIN_BOARD") ? p.machine->board.native : p.machine->GpuVideo(), getenv("TWIN_BOARD") ? p.machine->board.SsRam() : p.machine->GpuText(), where, twinOverlay.empty() ? nullptr : &over,
                                             isZoomed ? &zoomed : nullptr);
                 }
                 twinNative += shown ? 1 : 0;
