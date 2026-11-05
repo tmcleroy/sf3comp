@@ -122,7 +122,10 @@ the checks: cps3recomp/docs/NATIVE.md; this game's routines, read-backs, timing 
 Done, level (a), all the same in checknative.sh over attract mode, a one-player game, a versus game and a training
 session (12000 frames each): the palette (src/video_palette.cpp), the frame registers (src/video_registers.cpp), the
 textures (the character DMA's lists and transfers, src/video_palette.cpp and video_textures.cpp, made by the native
-loader), the object lists' heads (src/video_lists.cpp) and the objects made from them (native::FlattenObjects). Next:
+loader), the object lists' heads (src/video_lists.cpp) and the objects made from them (native::FlattenObjects). With the
+arcade timing too (2026-11-05): the hand-off rewrites are run dry before the game's own code, charged nothing, and hand
+over the same (runtime/lift.h's DryRun, src/video_forms.cpp's native forms of what they call; NATIVE.md, "Arcade
+timing"): `CHECKNATIVE_ARCADE=1 checknative.sh` all the same, the state hashes the same with the dry runs and without. Next:
 the rasteriser's pixel check (b) passes for the plain picture (video/raster.cpp: draw list of quads and tilemap lines,
 the same pixels as renderer.cpp's every frame, widescreen too); next the features' object choices, then SDL_GPU. Wanted features this makes possible, both asked for by the user: GPU rendering (SDL_GPU drawing
 the interface's objects and layers, not a software renderer's picture handed over), and the guest stages drawn as

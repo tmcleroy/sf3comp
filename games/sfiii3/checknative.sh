@@ -72,7 +72,8 @@ for name in "${NAMES[@]}"; do
         echo "$name: arcade timing: ${line:-no dry runs}"
         grep "has no native form" "$OUT/$name.log" | head -3
         grep -q "has no native form" "$OUT/$name.log" && status=1
-        [ -z "$line" ] && [ -z "$CHECKNATIVE_NO_REWRITES" ] && status=1
+        # (the training session runs the rewrites from its start: no dry runs there)
+        [ -z "$line" ] && [ -z "$CHECKNATIVE_NO_REWRITES" ] && [ "$name" != training ] && status=1
     fi
     line=$(grep "cps3recomp: native palette:" "$OUT/$name.log")
     echo "$name: palette: ${line#cps3recomp: native palette: }"
