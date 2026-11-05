@@ -14,6 +14,7 @@
 #include "native_gpu.h"
 #include "present.h"
 #include <chrono>
+#include <ctime>
 #include "png_write.h"
 #include <cstdlib>
 
@@ -66,7 +67,7 @@ namespace {
                         static_cast<unsigned long long>(different));
             }
         }
-    } g_pixelTotals, g_stagePixelTotals{0, 0, 6, "native pixels with a stage"};
+    } g_pixelTotals, g_stagePixelTotals{0, 0, 6, "native pixels with a stage"}, g_otherPixelTotals{0, 0, 6, "native pixels drawn otherwise"};
 } // namespace
 
 // (and with CPS3RECOMP_NATIVE_GPU=1: the GPU's picture of the same frame, read back, against the CPU rasteriser's)
@@ -102,67 +103,97 @@ namespace {
                     uint64_t frame, const char *whose);
 } // namespace
 
-void Machine::NativePixels() {
-    int width = 0, height = 0;
-    m_nativeRaster.margin = m_renderer.margin;
-    m_nativeRaster.shift = m_renderer.shift;
-    m_nativeRaster.Draw(board.native, board.SpriteRamBytes(), board.SsRam(), m_nativePicture, width, height);
-    g_pixelTotals.frames++;
-    if (width != m_width || height != m_height || m_nativePicture.size() < static_cast<size_t>(width) * height ||
-        m_picture.size() < static_cast<size_t>(width) * height ||
-        !std::equal(m_nativePicture.begin(), m_nativePicture.begin() + static_cast<size_t>(width) * height, m_picture.begin())) {
-        g_pixelTotals.different++;
-        if (g_pixelTotals.reports) {
-            g_pixelTotals.reports--;
-            size_t at = 0, n = std::min(m_nativePicture.size(), m_picture.size());
-            while (at < n && m_nativePicture[at] == m_picture[at]) {
-                at++;
+// How the pictures shown were drawn: from the native interfaces, or by the board's renderer (with --board, in the checks,
+// and when an interface did not hold the frame). Said at the end with CPS3RECOMP_STATS=1.
+namespace {
+    // (CPS3RECOMP_PICTURE_TIMES=1: how long each way took to draw a picture, mean and 99th percentile)
+    struct ShownTotals {
+        uint64_t native = 0, board = 0;
+        std::vector<double> nativeTimes, boardTimes, abNative, abBoard;
+        ~ShownTotals() {
+            for (auto [name, times] : {std::pair<const char *, std::vector<double> *>{"native rasteriser", &abNative}, {"board's renderer", &abBoard}}) {
+                if (times->empty()) {
+                    continue;
+                }
+                double sum = 0;
+                for (double t : *times) {
+                    sum += t;
+                }
+                std::sort(times->begin(), times->end());
+                const double p99 = (*times)[std::min(times->size() - 1, times->size() * 99 / 100)];
+                fprintf(stderr, "cps3recomp: picture A/B, the %s: %zu frames, %.3f ms CPU a frame (mean), %.3f ms (99th percentile)\n", name,
+                        times->size(), 1000 * sum / static_cast<double>(times->size()), 1000 * p99);
             }
-            fprintf(stderr, "native pixels, frame %llu: %dx%d (board) / %dx%d (native), the first to differ at %d,%d: %06X / %06X\n",
-                    static_cast<unsigned long long>(frame), m_width, m_height, width, height, width ? static_cast<int>(at % width) : 0,
-                    width ? static_cast<int>(at / width) : 0, at < n ? m_picture[at] : 0, at < n ? m_nativePicture[at] : 0);
+            if (getenv("CPS3RECOMP_STATS") && (native || board)) {
+                fprintf(stderr, "cps3recomp: pictures shown: %llu from the native interface, %llu by the board's renderer\n",
+                        static_cast<unsigned long long>(native), static_cast<unsigned long long>(board));
+            }
+            for (auto [name, times] : {std::pair<const char *, std::vector<double> *>{"native rasteriser", &nativeTimes}, {"board's renderer", &boardTimes}}) {
+                if (times->empty()) {
+                    continue;
+                }
+                double sum = 0;
+                for (double t : *times) {
+                    sum += t;
+                }
+                std::sort(times->begin(), times->end());
+                const double p99 = (*times)[std::min(times->size() - 1, times->size() * 99 / 100)];
+                fprintf(stderr, "cps3recomp: picture drawn by the %s: %zu frames, %.3f ms a frame (mean), %.3f ms (99th percentile)\n", name,
+                        times->size(), 1000 * sum / static_cast<double>(times->size()), 1000 * p99);
+            }
         }
+    } g_shownTotals;
+} // namespace
+
+// Whether this frame's picture is drawn from the native interfaces: not with --board (boardPicture), not in the checks
+// (the board's picture is the one the native one is compared with), and only when this board's interface holds the
+// frame, and the stage boards' when they are drawn (machine.h, NativeInSync: made again from the board's memories after
+// a state put back, run-ahead's or rollback's frames, before a frame is drawn from it)
+bool Machine::ShownNative() const {
+    if (boardPicture || board.nativeCheck || !native::On() || !board.NativeInSync()) {
+        return false;
     }
-    GpuCompare(g_gpuCheck, m_nativeRaster.LastFrame(), board.native, board.SsRam(), m_nativePicture, width, frame, "");
+    if (m_stage && stageObject && (!composeNow || composeNow()) && !m_stage->NativeInSync()) {
+        return false;
+    }
+    return !(m_stage2 && (stageBlend > 0 || stageSlide > 0) && !m_stage2->NativeInSync());
 }
 
-// The pixel check with a stage board (docs/NATIVE.md, "Guest stages"): the picture made from the two producers' layers
-// the native interfaces have, as the board model's is composed (the stage path in RunFrame): the stage board's stage
-// layers (nativeStageObject), no text layer; this board's layers but its own stage's (nativeOwnStageObject) over them,
-// with its text layer; against the picture the two boards' models made. And the GPU's pictures of each producer's part
-// against the CPU's (each drawn alone: the GPU draws a frame of one producer; the stage board's with no text layer,
-// given an empty SS RAM, as the CPU draws it).
-void Machine::NativeStagePixels() {
-    int width = 0, height = 0;
-    native::Rasteriser &stage = m_nativeStageRaster;
-    stage.margin = m_renderer.margin;
-    stage.shift = 0;
-    stage.text = false;
-    stage.keepContext = this;
-    stage.keep = [](const void *self, const native::Object &o) { return static_cast<const Machine *>(self)->nativeStageObject(o); };
-    stage.Draw(m_stage->native, m_stage->SpriteRamBytes(), m_stage->SsRam(), m_nativePicture, width, height);
-    static const std::vector<uint8_t> noText(0x10000, 0);
-    GpuCompare(g_stageGpuCheck, stage.LastFrame(), m_stage->native, noText.data(), m_nativePicture, width, frame, " of a stage board");
-    native::Rasteriser &own = m_nativeRaster;
-    own.margin = m_renderer.margin;
-    own.shift = m_renderer.shift;
-    own.text = m_renderer.text;
-    own.keepContext = this;
-    own.keep = [](const void *self, const native::Object &o) { return !static_cast<const Machine *>(self)->nativeOwnStageObject(o); };
-    static const bool gpu = getenv("CPS3RECOMP_NATIVE_GPU") != nullptr;
-    if (gpu) {
-        // (this board's part alone, for the GPU's)
-        std::vector<uint32_t> alone;
-        int w = 0, h = 0;
-        own.Draw(board.native, board.SpriteRamBytes(), board.SsRam(), alone, w, h);
-        GpuCompare(g_gpuCheck, own.LastFrame(), board.native, own.text ? board.SsRam() : noText.data(), alone, w, frame, "");
+// One board's layers into `pixels` with the renderer's settings `r` (its margin, world shift, rows down, text layer,
+// overlay, backdrop and choice of objects): by `r`, from the board's chips, or (native) by the native rasteriser from
+// that board's native interface, the same pixels (checknative.sh)
+void Machine::DrawLayers(bool native, Renderer &r, const machine::Machine &m, std::vector<uint32_t> &pixels, int &width, int &height) {
+    if (!native) {
+        r.Draw(m, pixels, width, height);
+        return;
     }
-    own.overlay = true;
-    own.Draw(board.native, board.SpriteRamBytes(), board.SsRam(), m_nativePicture, width, height);
-    own.overlay = false;
-    own.keep = nullptr;
-    own.text = true;
-    PixelTotals &t = g_stagePixelTotals;
+    native::Rasteriser &n = m_shownRaster;
+    n.margin = r.margin;
+    n.shift = r.shift;
+    n.shiftY = r.shiftY;
+    n.text = r.text;
+    n.overlay = r.overlay;
+    n.backdrop = r.backdrop;
+    m_shownKeep = {r.drawGroup, r.drawGroupContext};
+    n.keep = r.drawGroup ? [](const void *context, const native::Object &o, uint32_t index) {
+        const ShownKeep &k = *static_cast<const ShownKeep *>(context);
+        return k.fn(k.context, o.group, index);
+    } : nullptr;
+    n.keepContext = &m_shownKeep;
+    n.Draw(m.native, m.SpriteRamBytes(), m.SsRam(), pixels, width, height);
+}
+
+// The pixel check (docs/NATIVE.md, level b), every frame drawn in the checks: the frame's picture composed again from
+// the native interfaces (Compose, as the board's was: the plain way, a stage board's stage under this board's layers,
+// every other way the game's sources choose) against the board's. Frames drawn the plain way counted as "native pixels",
+// those with a stage board's stage as "native pixels with a stage", the others as "native pixels drawn otherwise". And
+// with CPS3RECOMP_NATIVE_GPU=1 the GPU's picture of a frame of one producer against the CPU's (the plain frame; with a
+// stage board, each producer's part alone, the stage board's with no text layer, given an empty SS RAM as the CPU draws
+// it)
+void Machine::ComparePixels(int kind) {
+    int width = m_width, height = m_height;
+    Compose(true, m_nativePicture, width, height);
+    PixelTotals &t = kind == 1 ? g_pixelTotals : kind == 2 ? g_stagePixelTotals : g_otherPixelTotals;
     t.frames++;
     if (width != m_width || height != m_height || m_nativePicture.size() < static_cast<size_t>(width) * height ||
         m_picture.size() < static_cast<size_t>(width) * height ||
@@ -174,10 +205,35 @@ void Machine::NativeStagePixels() {
             while (at < n && m_nativePicture[at] == m_picture[at]) {
                 at++;
             }
-            fprintf(stderr, "native pixels with a stage, frame %llu: %dx%d (board) / %dx%d (native), the first to differ at %d,%d: %06X / %06X\n",
+            fprintf(stderr, "%s, frame %llu: %dx%d (board) / %dx%d (native), the first to differ at %d,%d: %06X / %06X\n", t.label,
                     static_cast<unsigned long long>(frame), m_width, m_height, width, height, width ? static_cast<int>(at % width) : 0,
                     width ? static_cast<int>(at / width) : 0, at < n ? m_picture[at] : 0, at < n ? m_nativePicture[at] : 0);
         }
+    }
+    static const bool gpu = getenv("CPS3RECOMP_NATIVE_GPU") != nullptr;
+    if (!gpu) {
+        return;
+    }
+    if (kind == 1) {
+        GpuCompare(g_gpuCheck, m_shownRaster.LastFrame(), board.native, board.SsRam(), m_nativePicture, width, frame, "");
+        return;
+    }
+    if (kind == 2 && nativeStageObject && nativeOwnStageObject) {
+        static const std::vector<uint8_t> noText(0x10000, 0);
+        native::Rasteriser part;
+        std::vector<uint32_t> alone;
+        int w = 0, h = 0;
+        part.margin = m_renderer.margin;
+        part.text = false;
+        part.keepContext = this;
+        part.keep = [](const void *self, const native::Object &o, uint32_t) { return static_cast<const Machine *>(self)->nativeStageObject(o); };
+        part.Draw(m_stage->native, m_stage->SpriteRamBytes(), m_stage->SsRam(), alone, w, h);
+        GpuCompare(g_stageGpuCheck, part.LastFrame(), m_stage->native, noText.data(), alone, w, frame, " of a stage board");
+        part.shift = m_renderer.shift;
+        part.text = m_renderer.text;
+        part.keep = [](const void *self, const native::Object &o, uint32_t) { return !static_cast<const Machine *>(self)->nativeOwnStageObject(o); };
+        part.Draw(board.native, board.SpriteRamBytes(), board.SsRam(), alone, w, h);
+        GpuCompare(g_gpuCheck, part.LastFrame(), board.native, part.text ? board.SsRam() : noText.data(), alone, w, frame, "");
     }
 }
 
@@ -378,7 +434,159 @@ void Machine::MakePicture() const {
     m_pictureOwed = false;
     // (as the frame's plain picture is drawn: the renderer's settings are still the frame's)
     Machine &self = const_cast<Machine &>(*this);
-    self.m_renderer.Draw(board, self.m_picture, self.m_width, self.m_height);
+    self.DrawLayers(native::On() && board.NativeInSync(), self.m_renderer, board, self.m_picture, self.m_width, self.m_height);
+}
+
+// The frame's picture into `pixels`, by the board's renderer or (native) the native rasteriser from the boards' native
+// interfaces, the same steps either way (the game's sources' choices: the ring out's way down, a stage board's stage
+// under this board's layers, the stage alone, objects hidden or put in front). 1: drawn the plain way; 2: a stage
+// board's stage with this board's layers over it; 3: another way
+int Machine::Compose(bool native, std::vector<uint32_t> &pixels, int &width, int &height) {
+    if (dropRaise >= 0 && ownStageObject && dropOld.size() == static_cast<size_t>(PictureWidth()) * Video::kHeight) {
+        // (the ring out's way down: the old stage's bottom rows at the top, this stage under them, the fighters over both)
+        std::vector<uint32_t> stage;
+        DrawStageOnly(native, stage);
+        const int raise = std::clamp(dropRaise, 0, height);
+        if (stage.size() == static_cast<size_t>(width) * height && dropOld.size() == stage.size()) {
+            pixels.resize(stage.size());
+            for (int y = 0; y < height; y++) {
+                const uint32_t *from = y < raise ? &dropOld[static_cast<size_t>(height - raise + y) * width] : &stage[static_cast<size_t>(y - raise) * width];
+                memcpy(&pixels[static_cast<size_t>(y) * width], from, static_cast<size_t>(width) * sizeof(uint32_t));
+            }
+            m_renderer.overlay = true;
+            m_renderer.shiftY = raise;
+            m_renderer.drawGroupContext = this;
+            m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
+                const Machine &me = *static_cast<Machine *>(self);
+                return !me.ownStageObject(me.board, object) && !(me.dropLifted && me.dropLifted(me.board, object));
+            };
+            DrawLayers(native, m_renderer, board, pixels, width, height);
+            if (dropLifted) {
+                const bool text = m_renderer.text;
+                m_renderer.text = false;
+                m_renderer.shiftY = raise - dropLift;
+                m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
+                    const Machine &me = *static_cast<Machine *>(self);
+                    return !me.ownStageObject(me.board, object) && me.dropLifted(me.board, object);
+                };
+                DrawLayers(native, m_renderer, board, pixels, width, height);
+                m_renderer.text = text;
+            }
+            m_renderer.overlay = false;
+            m_renderer.shiftY = 0;
+            m_renderer.drawGroup = nullptr;
+        }
+    } else if (m_stage && stageObject && ownStageObject && (!composeNow || composeNow())) {
+        m_stageRenderer.margin = m_renderer.margin;
+        m_stageRenderer.text = false;
+        m_stageRenderer.drawGroupContext = this;
+        m_stageRenderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
+            const Machine &me = *static_cast<Machine *>(self);
+            return me.stageObject(*me.m_stage, object);
+        };
+        DrawLayers(native, m_stageRenderer, *m_stage, pixels, width, height);
+        if (m_stage2 && stageBlend > 0) {
+            m_stage2Renderer.margin = m_renderer.margin;
+            m_stage2Renderer.text = false;
+            m_stage2Renderer.drawGroupContext = this;
+            m_stage2Renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
+                const Machine &me = *static_cast<Machine *>(self);
+                return me.stageObject(*me.m_stage2, object);
+            };
+            int w2 = 0, h2 = 0;
+            DrawLayers(native, m_stage2Renderer, *m_stage2, m_stage2Picture, w2, h2);
+            if (w2 == width && h2 == height && m_stage2Picture.size() == pixels.size()) {
+                const uint32_t put = static_cast<uint32_t>(std::clamp(stageBlend, 0, 256)), keep = 256 - put;
+                for (size_t i = 0; i < pixels.size(); i++) {
+                    const uint32_t a = pixels[i], b = m_stage2Picture[i];
+                    pixels[i] = ((((a & 0xFF00FF) * keep + (b & 0xFF00FF) * put) >> 8) & 0xFF00FF) |
+                                   ((((a & 0x00FF00) * keep + (b & 0x00FF00) * put) >> 8) & 0x00FF00);
+                }
+            }
+        } else if (m_stage2 && stageSlide > 0) {
+            // (the next stage coming in: the first's picture moved left, the second's left edge in the columns freed)
+            m_stage2Renderer.margin = m_renderer.margin;
+            m_stage2Renderer.text = false;
+            m_stage2Renderer.drawGroupContext = this;
+            m_stage2Renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
+                const Machine &me = *static_cast<Machine *>(self);
+                return me.stageObject(*me.m_stage2, object);
+            };
+            int w2 = 0, h2 = 0;
+            DrawLayers(native, m_stage2Renderer, *m_stage2, m_stage2Picture, w2, h2);
+            if (w2 == width && h2 == height) {
+                const int slide = std::min(stageSlide, width);
+                for (int y = 0; y < height; y++) {
+                    uint32_t *row = &pixels[static_cast<size_t>(y) * width];
+                    memmove(row, row + slide, static_cast<size_t>(width - slide) * sizeof(uint32_t));
+                    memcpy(row + width - slide, &m_stage2Picture[static_cast<size_t>(y) * width], static_cast<size_t>(slide) * sizeof(uint32_t));
+                }
+            }
+        }
+        if (stageDarken > 0) {
+            const uint32_t keep = static_cast<uint32_t>(256 - std::min(stageDarken, 256));
+            for (uint32_t &p : pixels) {
+                p = ((((p & 0xFF00FF) * keep) >> 8) & 0xFF00FF) | ((((p & 0x00FF00) * keep) >> 8) & 0x00FF00);
+            }
+        }
+        m_renderer.overlay = true;
+        m_renderer.drawGroupContext = this;
+        m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
+            const Machine &me = *static_cast<Machine *>(self);
+            return !me.ownStageObject(me.board, object);
+        };
+        if (!onlyStage) {
+            DrawLayers(native, m_renderer, board, pixels, width, height);
+        }
+        m_renderer.overlay = false;
+        m_renderer.drawGroup = nullptr;
+        // (the plain composition: no second stage, fade or stage alone)
+        return !onlyStage && stageDarken <= 0 && !(m_stage2 && (stageBlend > 0 || stageSlide > 0)) ? 2 : 3;
+    } else if (onlyStage && ownStageObject) {
+        m_renderer.drawGroupContext = this;
+        m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
+            const Machine &me = *static_cast<Machine *>(self);
+            return me.ownStageObject(me.board, object);
+        };
+        m_renderer.text = false;
+        DrawLayers(native, m_renderer, board, pixels, width, height);
+        m_renderer.text = !hidePanel;
+        m_renderer.drawGroup = nullptr;
+    } else if (ownStageObject && getenv("CPS3RECOMP_OWN_ONLY")) {
+        // (debugging aid: only what this board keeps over another's stage, on black)
+        m_renderer.drawGroupContext = this;
+        m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
+            const Machine &me = *static_cast<Machine *>(self);
+            return !me.ownStageObject(me.board, object);
+        };
+        DrawLayers(native, m_renderer, board, pixels, width, height);
+        m_renderer.drawGroup = nullptr;
+    } else if (hideObject) {
+        m_renderer.drawGroupContext = this;
+        m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
+            const Machine &me = *static_cast<Machine *>(self);
+            return !me.hideObject(me.board, object) && !(me.frontObject && me.frontObject(me.board, object));
+        };
+        DrawLayers(native, m_renderer, board, pixels, width, height);
+        if (frontObject) {
+            // (the second pass: the objects in front, over the rest)
+            const bool text = m_renderer.text;
+            m_renderer.text = false;
+            m_renderer.overlay = true;
+            m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
+                const Machine &me = *static_cast<Machine *>(self);
+                return !me.hideObject(me.board, object) && me.frontObject(me.board, object);
+            };
+            DrawLayers(native, m_renderer, board, pixels, width, height);
+            m_renderer.overlay = false;
+            m_renderer.text = text;
+        }
+        m_renderer.drawGroup = nullptr;
+    } else {
+        DrawLayers(native, m_renderer, board, pixels, width, height);
+        return 1;
+    }
+    return 3;
 }
 
 void Machine::RunFrame() {
@@ -417,157 +625,18 @@ void Machine::RunFrame() {
     board.inputs = ~inputs;
     board.extra = ~extra;
     static const bool benching = getenv("CPS3RECOMP_NATIVE_BENCH") != nullptr; // (Machine::BenchFrame)
-    board.nativeWanted = gpuPicture || benching;
+    // (taken for every frame whose picture may be drawn from it: the GPU's, or the CPU's from the native interface)
+    board.nativeWanted = gpuPicture || benching || (this->drawing && !holdPicture && !boardPicture && native::On());
     board.RunFrame();
     m_pcm.EndFrame(&audio);
     const bool drawing = this->drawing && !holdPicture;
     m_renderer.text = !hidePanel;
     m_renderer.backdrop = backdrop;
     m_renderer.shift = worldShiftNow && m_renderer.margin ? std::clamp(worldShiftNow(), -m_renderer.margin, m_renderer.margin) : 0;
-    if (drawing && dropRaise >= 0 && ownStageObject && dropOld.size() == static_cast<size_t>(PictureWidth()) * Video::kHeight) {
-        // (the ring out's way down: the old stage's bottom rows at the top, this stage under them, the fighters over both)
-        std::vector<uint32_t> stage;
-        DrawStageOnly(stage);
-        const int raise = std::clamp(dropRaise, 0, m_height);
-        if (stage.size() == static_cast<size_t>(m_width) * m_height && dropOld.size() == stage.size()) {
-            m_picture.resize(stage.size());
-            for (int y = 0; y < m_height; y++) {
-                const uint32_t *from = y < raise ? &dropOld[static_cast<size_t>(m_height - raise + y) * m_width] : &stage[static_cast<size_t>(y - raise) * m_width];
-                memcpy(&m_picture[static_cast<size_t>(y) * m_width], from, static_cast<size_t>(m_width) * sizeof(uint32_t));
-            }
-            m_renderer.overlay = true;
-            m_renderer.shiftY = raise;
-            m_renderer.drawGroupContext = this;
-            m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
-                const Machine &me = *static_cast<Machine *>(self);
-                return !me.ownStageObject(me.board, object) && !(me.dropLifted && me.dropLifted(me.board, object));
-            };
-            m_renderer.Draw(board, m_picture, m_width, m_height);
-            if (dropLifted) {
-                const bool text = m_renderer.text;
-                m_renderer.text = false;
-                m_renderer.shiftY = raise - dropLift;
-                m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
-                    const Machine &me = *static_cast<Machine *>(self);
-                    return !me.ownStageObject(me.board, object) && me.dropLifted(me.board, object);
-                };
-                m_renderer.Draw(board, m_picture, m_width, m_height);
-                m_renderer.text = text;
-            }
-            m_renderer.overlay = false;
-            m_renderer.shiftY = 0;
-            m_renderer.drawGroup = nullptr;
-        }
-    } else if (drawing && m_stage && stageObject && ownStageObject && (!composeNow || composeNow())) {
-        m_stageRenderer.margin = m_renderer.margin;
-        m_stageRenderer.text = false;
-        m_stageRenderer.drawGroupContext = this;
-        m_stageRenderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
-            const Machine &me = *static_cast<Machine *>(self);
-            return me.stageObject(*me.m_stage, object);
-        };
-        m_stageRenderer.Draw(*m_stage, m_picture, m_width, m_height);
-        if (m_stage2 && stageBlend > 0) {
-            m_stage2Renderer.margin = m_renderer.margin;
-            m_stage2Renderer.text = false;
-            m_stage2Renderer.drawGroupContext = this;
-            m_stage2Renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
-                const Machine &me = *static_cast<Machine *>(self);
-                return me.stageObject(*me.m_stage2, object);
-            };
-            int w2 = 0, h2 = 0;
-            m_stage2Renderer.Draw(*m_stage2, m_stage2Picture, w2, h2);
-            if (w2 == m_width && h2 == m_height && m_stage2Picture.size() == m_picture.size()) {
-                const uint32_t put = static_cast<uint32_t>(std::clamp(stageBlend, 0, 256)), keep = 256 - put;
-                for (size_t i = 0; i < m_picture.size(); i++) {
-                    const uint32_t a = m_picture[i], b = m_stage2Picture[i];
-                    m_picture[i] = ((((a & 0xFF00FF) * keep + (b & 0xFF00FF) * put) >> 8) & 0xFF00FF) |
-                                   ((((a & 0x00FF00) * keep + (b & 0x00FF00) * put) >> 8) & 0x00FF00);
-                }
-            }
-        } else if (m_stage2 && stageSlide > 0) {
-            // (the next stage coming in: the first's picture moved left, the second's left edge in the columns freed)
-            m_stage2Renderer.margin = m_renderer.margin;
-            m_stage2Renderer.text = false;
-            m_stage2Renderer.drawGroupContext = this;
-            m_stage2Renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
-                const Machine &me = *static_cast<Machine *>(self);
-                return me.stageObject(*me.m_stage2, object);
-            };
-            int w2 = 0, h2 = 0;
-            m_stage2Renderer.Draw(*m_stage2, m_stage2Picture, w2, h2);
-            if (w2 == m_width && h2 == m_height) {
-                const int slide = std::min(stageSlide, m_width);
-                for (int y = 0; y < m_height; y++) {
-                    uint32_t *row = &m_picture[static_cast<size_t>(y) * m_width];
-                    memmove(row, row + slide, static_cast<size_t>(m_width - slide) * sizeof(uint32_t));
-                    memcpy(row + m_width - slide, &m_stage2Picture[static_cast<size_t>(y) * m_width], static_cast<size_t>(slide) * sizeof(uint32_t));
-                }
-            }
-        }
-        if (stageDarken > 0) {
-            const uint32_t keep = static_cast<uint32_t>(256 - std::min(stageDarken, 256));
-            for (uint32_t &p : m_picture) {
-                p = ((((p & 0xFF00FF) * keep) >> 8) & 0xFF00FF) | ((((p & 0x00FF00) * keep) >> 8) & 0x00FF00);
-            }
-        }
-        m_renderer.overlay = true;
-        m_renderer.drawGroupContext = this;
-        m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
-            const Machine &me = *static_cast<Machine *>(self);
-            return !me.ownStageObject(me.board, object);
-        };
-        if (!onlyStage) {
-            m_renderer.Draw(board, m_picture, m_width, m_height);
-        }
-        m_renderer.overlay = false;
-        m_renderer.drawGroup = nullptr;
-        // (the pixel check of the two producers' layers: the plain composition only, no second stage, fade or stage alone)
-        const bool plain = !onlyStage && stageDarken <= 0 && !(m_stage2 && (stageBlend > 0 || stageSlide > 0));
-        if (board.nativeCheck && m_stage->nativeCheck && plain && nativeStageObject && nativeOwnStageObject) {
-            NativeStagePixels();
-        }
-    } else if (drawing && onlyStage && ownStageObject) {
-        m_renderer.drawGroupContext = this;
-        m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
-            const Machine &me = *static_cast<Machine *>(self);
-            return me.ownStageObject(me.board, object);
-        };
-        m_renderer.text = false;
-        m_renderer.Draw(board, m_picture, m_width, m_height);
-        m_renderer.text = !hidePanel;
-        m_renderer.drawGroup = nullptr;
-    } else if (drawing && ownStageObject && getenv("CPS3RECOMP_OWN_ONLY")) {
-        // (debugging aid: only what this board keeps over another's stage, on black)
-        m_renderer.drawGroupContext = this;
-        m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
-            const Machine &me = *static_cast<Machine *>(self);
-            return !me.ownStageObject(me.board, object);
-        };
-        m_renderer.Draw(board, m_picture, m_width, m_height);
-        m_renderer.drawGroup = nullptr;
-    } else if (drawing && hideObject) {
-        m_renderer.drawGroupContext = this;
-        m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
-            const Machine &me = *static_cast<Machine *>(self);
-            return !me.hideObject(me.board, object) && !(me.frontObject && me.frontObject(me.board, object));
-        };
-        m_renderer.Draw(board, m_picture, m_width, m_height);
-        if (frontObject) {
-            // (the second pass: the objects in front, over the rest)
-            const bool text = m_renderer.text;
-            m_renderer.text = false;
-            m_renderer.overlay = true;
-            m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
-                const Machine &me = *static_cast<Machine *>(self);
-                return !me.hideObject(me.board, object) && me.frontObject(me.board, object);
-            };
-            m_renderer.Draw(board, m_picture, m_width, m_height);
-            m_renderer.overlay = false;
-            m_renderer.text = text;
-        }
-        m_renderer.drawGroup = nullptr;
-    } else if (drawing && gpuPicture && !board.nativeCheck && board.NativeInSync() && m_renderer.text && !m_renderer.backdrop) {
+    const bool plainFrame = !(dropRaise >= 0 && ownStageObject && dropOld.size() == static_cast<size_t>(PictureWidth()) * Video::kHeight) &&
+                            !(m_stage && stageObject && ownStageObject && (!composeNow || composeNow())) && !(onlyStage && ownStageObject) &&
+                            !(ownStageObject && getenv("CPS3RECOMP_OWN_ONLY")) && !hideObject;
+    if (drawing && plainFrame && gpuPicture && !board.nativeCheck && board.NativeInSync() && m_renderer.text && !m_renderer.backdrop) {
         // (for the GPU: the frame made ready, the picture drawn on the CPU only if asked for)
         native::BuildFrame(board.native, board.SpriteRamBytes(), m_renderer.margin, m_renderer.shift, m_gpuFrame);
         m_width = m_gpuFrame.width;
@@ -575,13 +644,41 @@ void Machine::RunFrame() {
         m_pictureOwed = true;
         m_gpuReady = true;
     } else if (drawing) {
-        m_renderer.Draw(board, m_picture, m_width, m_height);
-        if (board.nativeCheck) {
-            NativePixels();
+        // The picture: from the native interfaces (the native rasteriser) when they hold the frame, else (and with
+        // --board, and in the checks, where the native one is compared with it) by the board's renderer
+        const bool native = ShownNative();
+        (native ? g_shownTotals.native : g_shownTotals.board)++;
+        static const bool timed = getenv("CPS3RECOMP_PICTURE_TIMES") != nullptr;
+        const auto at = timed ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+        const int kind = Compose(native, m_picture, m_width, m_height);
+        if (timed) {
+            (native ? g_shownTotals.nativeTimes : g_shownTotals.boardTimes).push_back(std::chrono::duration<double>(std::chrono::steady_clock::now() - at).count());
+        }
+        if (board.nativeCheck && kind) {
+            ComparePixels(kind);
         }
         static const bool bench = getenv("CPS3RECOMP_NATIVE_BENCH") != nullptr;
-        if (bench && !board.nativeCheck) {
+        if (bench && !board.nativeCheck && kind == 1) {
             BenchFrame();
+        }
+        // (CPS3RECOMP_PICTURE_AB=1: the frame drawn both ways again, the order alternating, each timed by the thread's
+        // own CPU time (the machine's other load left out), mean and 99th percentile at the end: renderer.cpp against the
+        // native rasteriser, the same picture)
+        static const bool ab = getenv("CPS3RECOMP_PICTURE_AB") != nullptr;
+        if (ab && native) {
+            static std::vector<uint32_t> scratch;
+            const auto cpu = [] {
+                timespec t;
+                clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t);
+                return static_cast<double>(t.tv_sec) + static_cast<double>(t.tv_nsec) * 1e-9;
+            };
+            for (int turn = 0; turn < 2; turn++) {
+                const bool which = (turn == 0) == (frame % 2 == 0);
+                int w = m_width, h = m_height;
+                const double at = cpu();
+                Compose(which, scratch, w, h);
+                (which ? g_shownTotals.abNative : g_shownTotals.abBoard).push_back(cpu() - at);
+            }
         }
     }
     // (debugging aid, CPS3RECOMP_SPRITES=FRAME: the object list as drawn at that frame)
@@ -628,6 +725,10 @@ void Machine::SetStageBoard(std::unique_ptr<RomSet> set) {
 }
 
 void Machine::DrawStageOnly(std::vector<uint32_t> &pixels) {
+    DrawStageOnly(ShownNative(), pixels);
+}
+
+void Machine::DrawStageOnly(bool native, std::vector<uint32_t> &pixels) {
     if (!ownStageObject) {
         pixels.clear();
         return;
@@ -642,7 +743,7 @@ void Machine::DrawStageOnly(std::vector<uint32_t> &pixels) {
         return me.ownStageObject(me.board, object);
     };
     int w = m_width, h = m_height;
-    r.Draw(board, pixels, w, h);
+    DrawLayers(native, r, board, pixels, w, h);
     r.drawGroup = nullptr;
     r.text = text;
 }

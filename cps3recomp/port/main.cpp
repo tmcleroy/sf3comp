@@ -242,6 +242,7 @@ bool Port::Init(std::string &error) {
         return false;
     }
     machine = std::make_unique<Machine>(roms);
+    machine->boardPicture = opt.boardPicture;
     SetRam(machine->ram());
     SetRomPath(opt.romPath);
     SetMachine(machine.get());
@@ -1590,7 +1591,9 @@ void Port::RunFrame() {
     }
     memcpy(machine->players, pad, sizeof(pad));
     // (Machine::gpuPicture; run ahead, the frame shown is run-ahead's last, the CPU's)
-    machine->gpuPicture = gpuPresent && nativeShowable && !menu.IsOpen() && (net || !RunsAhead());
+    // (only with CPS3RECOMP_NATIVE_PRESENT=1 for now: the GPU path wedged the Mac, main())
+    static const bool nativePresent = getenv("CPS3RECOMP_NATIVE_PRESENT") && strcmp(getenv("CPS3RECOMP_NATIVE_PRESENT"), "1") == 0;
+    machine->gpuPicture = nativePresent && !opt.headless && gpuPresent && nativeShowable && !menu.IsOpen() && (net || !RunsAhead());
     RapidFire();
     if (coinFrames > 0) {
         coinFrames--;
@@ -1765,6 +1768,7 @@ void Usage() {
             "  --hash-no-sound        ... and without the sound side, as online play's (to compare a match's --record)\n"
             "  --hash-game            ... without the Z80 and its own memory (to compare --sound driver and z80)\n"
 "  --renderer sdl|gpu     how the picture gets to the window: SDL's GPU API unless said (or not there)\n"
+"  --board                the picture drawn by the board model's renderer, not from the native video interface\n"
             "  --present-test F.png   (headless) the run's last picture drawn by the GPU path, no window, as the\n"
             "                         Display page has it (896x672 at 4:3)\n"
             "  --present-size WxH     ... in a window this big\n"
@@ -1882,6 +1886,8 @@ bool ParseArgs(int argc, char **argv, port::Options &o) {
             o.hashPicture = true;
         } else if (a == "--renderer") {
             o.renderer = next();
+        } else if (a == "--board") {
+            o.boardPicture = true;
         } else if (a == "--present-test") {
             o.presentTest = next();
         } else if (a == "--present-size") {
@@ -2089,11 +2095,11 @@ int main(int argc, char **argv) {
         return 2;
     }
     std::string error;
-    // (the native video interface kept where the window's picture may be drawn from it by the GPU: Presenter::ShowNative).
-    // Off unless CPS3RECOMP_NATIVE_PRESENT=1 for now: a frame of its compute passes wedged the Mac's GPU driver and,
-    // behind it, WindowServer, until the watchdog restarted the Mac (three times, 2026-11-05)
-    const char *nativePresent = getenv("CPS3RECOMP_NATIVE_PRESENT");
-    cps3recomp::native::Keep(!p.opt.headless && p.opt.renderer != "sdl" && nativePresent && strcmp(nativePresent, "1") == 0);
+    // (the native video interface kept: the picture is drawn from it by the native rasteriser on the CPU, unless --board.
+    // The window's GPU path (Presenter::ShowNative) is off unless CPS3RECOMP_NATIVE_PRESENT=1 for now: a frame of its
+    // compute passes wedged the Mac's GPU driver and, behind it, WindowServer, until the watchdog restarted the Mac
+    // (three times, 2026-11-05): Port::Step's gpuPicture)
+    cps3recomp::native::Keep(!p.opt.boardPicture);
     if (!p.Init(error)) {
         SayFailed(p.opt, argc == 1 ? error + "\n\nStart the game with its launcher (" GAME_ID "-launcher), which passes it your ROM set." : error);
         return 1;

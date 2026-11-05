@@ -75,6 +75,7 @@ struct Options {
     bool hashGame = false;     // --hash-game: the state hash without the Z80 and its own memory (to compare --sound driver and z80)
     int cpuSpeed = 1;         // --cpu-speed
     std::string renderer;     // --renderer sdl|gpu (gpu unless said)
+    bool boardPicture = false; // --board: the picture drawn by the board model's renderer (renderer.cpp), not the native interface
     std::string shader;       // --shader FILE.slangp: that shader preset, whatever the Display page's Shader says (shading.h)
     std::string presentTest;  // --present-test FILE.png: the last picture drawn by the GPU path with no window
     int presentWidth = 0, presentHeight = 0; // --present-size WxH: the window it is drawn in

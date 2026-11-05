@@ -1304,10 +1304,10 @@ void AttachTables(Machine &m, const Options &options, const BlockTable *tables, 
     if (const char *v = getenv("CPS3RECOMP_LIFT_CHECK")) {
         rt.liftCheckEvery = static_cast<unsigned>(std::max(1, atoi(v)));
     }
-    // (a second board: only the lifts for stage boards whose code it holds, and only while the native interface is kept:
-    // lift.h, Lift::boards)
+    // (a second board: only the lifts for stage boards whose code it holds, whether the native interface is kept or not,
+    // so that its game runs the same either way: lift.h, Lift::boards)
     rt.stageBoard = !first;
-    if ((first || native::On()) && !getenv("CPS3RECOMP_NO_LIFTS")) {
+    if (!getenv("CPS3RECOMP_NO_LIFTS")) {
         for (const Lift &lift : g_lifts) {
             uint32_t offset;
             if (!(lift.boards & (first ? Lift::kFirstBoard : Lift::kStageBoards))) {

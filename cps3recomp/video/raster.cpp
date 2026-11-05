@@ -181,7 +181,7 @@ static bool MakeTile(const Clip &clip, uint32_t code, uint32_t colour, int granu
     return true;
 }
 
-void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift, Frame &f, KeepObject keep, const void *keepContext) {
+void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift, Frame &f, KeepObject keep, const void *keepContext, int shiftY) {
     const FrameRegisters &r = v.registers;
     f.screen = ScreenOf(r);
     f.width = f.screen.width + 2 * margin;
@@ -196,8 +196,9 @@ void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift,
     if (keep) {
         static thread_local std::vector<Object> kept;
         kept.clear();
-        for (const Object &o : v.objects) {
-            if (keep(keepContext, o)) {
+        for (uint32_t i = 0; i < v.objects.size(); i++) {
+            const Object &o = v.objects[i];
+            if (keep(keepContext, o, i)) {
                 kept.push_back(o);
             }
         }
@@ -208,7 +209,7 @@ void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift,
     Tile t;
     for (const DrawItem &d : f.items) {
         if (d.kind == DrawItem::kQuad) {
-            if (MakeTile(clip, d.tile, d.colour, d.granularity64 ? 64 : 256, d.flipX, d.flipY, d.x + margin - shift, d.y, d.blend, d.scaleX, d.scaleY, t)) {
+            if (MakeTile(clip, d.tile, d.colour, d.granularity64 ? 64 : 256, d.flipX, d.flipY, d.x + margin - shift, d.y + shiftY, d.blend, d.scaleX, d.scaleY, t)) {
                 f.tiles.push_back(t);
             }
             continue;
@@ -286,7 +287,7 @@ uint32_t Rasteriser::Blended(const uint16_t *colours, uint32_t bank, uint32_t pi
 
 void Rasteriser::Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *ss, std::vector<uint32_t> &pixels, int &width, int &height) {
     m_blendKnown = {};
-    BuildFrame(v, spriteRam, margin, shift, m_frame, keep, keepContext);
+    BuildFrame(v, spriteRam, margin, shift, m_frame, keep, keepContext, shiftY);
     const Frame &f = m_frame;
     const Screen &screen = f.screen;
     width = f.width;
@@ -295,7 +296,12 @@ void Rasteriser::Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *s
     if (!over) {
         pixels.assign(static_cast<size_t>(width) * height, 0);
     }
-    m_buffer.assign(static_cast<size_t>(kBufferWidth) * kBufferHeight, 0);
+    // (the buffer: only its rows this frame uses cleared, all of them the first time)
+    if (m_buffer.size() != static_cast<size_t>(kBufferWidth) * kBufferHeight) {
+        m_buffer.assign(static_cast<size_t>(kBufferWidth) * kBufferHeight, 0);
+    } else {
+        std::fill_n(m_buffer.begin(), static_cast<size_t>(std::min(f.bufferHeight + 1, kBufferHeight)) * kBufferWidth, 0u);
+    }
     const uint8_t *textures = v.textures.Pixels();
     { // (CPS3RECOMP_NATIVE_TILE_STATS=1: the most tile rows a frame has, which the GPU's first pass loops over per pixel)
         static const bool stats = getenv("CPS3RECOMP_NATIVE_TILE_STATS") != nullptr;
@@ -313,22 +319,63 @@ void Rasteriser::Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *s
     }
     for (const Tile &t : f.tiles) {
         int yIndex = t.yIndex;
+        // (each row's texels: stepped by dx, or (a tile drawn at its size, as every tilemap's is) one by one)
+        const bool unscaled = t.dx == 0x10000 || t.dx == -0x10000;
+        const int step = t.dx < 0 ? -1 : 1;
         for (int y = t.sy; y < t.ey; y++, yIndex += t.dy) {
             const uint8_t *row = textures + t.source + (yIndex >> 16) * 16;
             uint32_t *dest = &m_buffer[static_cast<size_t>(y) * kBufferWidth];
+            const uint32_t base = static_cast<uint32_t>(t.base);
+            if (unscaled) {
+                const uint8_t *texel = row + (t.xBase >> 16);
+                switch (t.mode) {
+                case 0:
+                    for (int x = t.sx; x < t.ex; x++, texel += step) {
+                        if (const uint8_t c = *texel) {
+                            dest[x] = c | base;
+                        }
+                    }
+                    break;
+                case 1:
+                    for (int x = t.sx; x < t.ex; x++, texel += step) {
+                        if (const uint8_t c = *texel) {
+                            dest[x] |= static_cast<uint32_t>(c & 0xF) << 13;
+                        }
+                    }
+                    break;
+                default:
+                    for (int x = t.sx; x < t.ex; x++, texel += step) {
+                        if (const uint8_t c = *texel) {
+                            dest[x] |= (static_cast<uint32_t>(c & 1) << 15) | base;
+                        }
+                    }
+                    break;
+                }
+                continue;
+            }
             int xIndex = t.xBase;
-            for (int x = t.sx; x < t.ex; x++, xIndex += t.dx) {
-                const uint8_t c = row[xIndex >> 16];
-                if (!c) {
-                    continue;
+            switch (t.mode) {
+            case 0:
+                for (int x = t.sx; x < t.ex; x++, xIndex += t.dx) {
+                    if (const uint8_t c = row[xIndex >> 16]) {
+                        dest[x] = c | base;
+                    }
                 }
-                if (t.mode == 0) {
-                    dest[x] = c | static_cast<uint32_t>(t.base);
-                } else if (t.mode == 1) {
-                    dest[x] |= static_cast<uint32_t>(c & 0xF) << 13;
-                } else {
-                    dest[x] |= (static_cast<uint32_t>(c & 1) << 15) | static_cast<uint32_t>(t.base);
+                break;
+            case 1:
+                for (int x = t.sx; x < t.ex; x++, xIndex += t.dx) {
+                    if (const uint8_t c = row[xIndex >> 16]) {
+                        dest[x] |= static_cast<uint32_t>(c & 0xF) << 13;
+                    }
                 }
+                break;
+            default:
+                for (int x = t.sx; x < t.ex; x++, xIndex += t.dx) {
+                    if (const uint8_t c = row[xIndex >> 16]) {
+                        dest[x] |= (static_cast<uint32_t>(c & 1) << 15) | base;
+                    }
+                }
+                break;
             }
         }
     }
@@ -340,11 +387,17 @@ void Rasteriser::Draw(const Video &v, const uint8_t *spriteRam, const uint8_t *s
     for (int row = 0; row < height; row++, sy += fy) {
         const uint32_t *source = &m_buffer[static_cast<size_t>(std::min<uint32_t>(sy >> 16, kBufferHeight - 1)) * kBufferWidth];
         uint32_t *dest = &pixels[static_cast<size_t>(row) * width];
+        if (fx == 0x10000 && !over && !backdrop) {
+            for (int col = 0; col < width; col++) {
+                dest[col] = Rgb(colours[source[col] & 0x1FFFF]);
+            }
+            continue;
+        }
         uint32_t sx = 0;
         for (int col = 0; col < width; col++, sx += fx) {
             const uint32_t colour = source[std::min<uint32_t>(sx >> 16, kBufferWidth - 1)];
             if (!over || (colour & 0x1FFF)) {
-                dest[col] = Rgb(colours[colour & 0x1FFFF]);
+                dest[col] = colour == 0 && backdrop ? backdrop & 0xFFFFFF : Rgb(colours[colour & 0x1FFFF]);
             } else if (colour) {
                 dest[col] = Blended(colours, colour >> 13, dest[col]);
             }

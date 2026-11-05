@@ -61,9 +61,11 @@ struct Frame {
 };
 // Which of a frame's objects are drawn (none: all): a rule on each object, with its context. For a frame made of two
 // producers' layers (a guest stage's under the game's: docs/NATIVE.md), each producer's part.
-using KeepObject = bool (*)(const void *context, const Object &o);
+using KeepObject = bool (*)(const void *context, const Object &o, uint32_t index); // (index: its place in the frame's objects)
 // (widescreen: `margin` columns more on each side, the world `shift` further left, as Renderer's)
-void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift, Frame &f, KeepObject keep = nullptr, const void *keepContext = nullptr);
+// (`shiftY`: the objects drawn so many rows lower, as Renderer's)
+void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift, Frame &f, KeepObject keep = nullptr, const void *keepContext = nullptr,
+                int shiftY = 0);
 
 // The picture (0x00BBGGRR) from the interface: the draw list, the textures and palette, the tilemaps and line scroll
 // tables in sprite RAM (the game's own memory, 512 KB big-endian) and the text layer's map and characters (SS RAM, the
@@ -83,6 +85,10 @@ public:
     // as much darker or lighter as that blend makes this producer's colours (the palette's bank against its first, on
     // the whole). So a guest stage's picture with the game's layers over it, as the board model composes it.
     bool overlay = false;
+    // The objects drawn so many rows lower (the ring out's way down), and where nothing is drawn this colour (0x01BBGGRR:
+    // the top byte says it is set; 0: the board's), as Renderer's
+    int shiftY = 0;
+    uint32_t backdrop = 0;
     // The last frame drawn, made ready (for a GPU to draw the same)
     const Frame &LastFrame() const {
         return m_frame;

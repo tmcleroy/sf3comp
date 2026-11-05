@@ -64,6 +64,9 @@ public:
     // The last picture shown again in place of this frame's (set before each frame; for a frame whose picture would
     // be wrong, as the first after a machine is swapped for another)
     bool holdPicture = false;
+    // The picture drawn by the board model's renderer (renderer.cpp, the port's --board) instead of from the native
+    // video interface by the native rasteriser (the default: the same pixels, checknative.sh)
+    bool boardPicture = false;
 
     // The picture (drawn on the CPU when first asked for, if the frame was made for the GPU: gpuPicture). Asked for to
     // change it (the game's sources drawing on it), the GPU's is then not what is shown: GpuFrame is none
@@ -195,19 +198,25 @@ public:
 
 private:
     Renderer m_renderer;
-    // (the pixel check: the native interface's picture, CPS3RECOMP_NATIVE_CHECK)
-    native::Rasteriser m_nativeRaster;
+    // (the picture from the native interfaces: the native rasteriser, with the renderers' settings, DrawLayers)
+    native::Rasteriser m_shownRaster;
+    struct ShownKeep {
+        bool (*fn)(void *context, uint16_t group, uint32_t object) = nullptr;
+        void *context = nullptr;
+    } m_shownKeep;
+    bool ShownNative() const;
+    void DrawLayers(bool native, Renderer &r, const machine::Machine &m, std::vector<uint32_t> &pixels, int &width, int &height);
+    int Compose(bool native, std::vector<uint32_t> &pixels, int &width, int &height);
+    void DrawStageOnly(bool native, std::vector<uint32_t> &pixels);
+    // (the pixel check: the native picture composed again against the board's, CPS3RECOMP_NATIVE_CHECK)
     std::vector<uint32_t> m_nativePicture;
-    void NativePixels();
+    void ComparePixels(int kind);
     // (the frame made ready for the GPU, gpuPicture: its picture not yet drawn on the CPU)
     native::Frame m_gpuFrame;
     bool m_gpuReady = false;
     mutable bool m_pictureOwed = false;
     void MakePicture() const;
     void BenchFrame();
-    // (... and with a stage board: its layers under this board's)
-    native::Rasteriser m_nativeStageRaster;
-    void NativeStagePixels();
     Pcm m_pcm;
     std::vector<uint32_t> m_picture;
     std::unique_ptr<RomSet> m_stageSet;
