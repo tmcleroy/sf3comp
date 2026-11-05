@@ -12,6 +12,7 @@
 #include <SDL3/SDL.h>
 
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <string>
 #include <vector>
@@ -135,7 +136,11 @@ private:
     SDL_GPUTexture *m_offscreen = nullptr;
     SDL_GPUTransferBuffer *m_offscreenRead = nullptr;
     int m_offscreenWidth = 0, m_offscreenHeight = 0;
-    SDL_GPUFence *m_shownFence = nullptr;
+    // (the pictures submitted and not yet finished: Submit)
+    static constexpr size_t kInFlight = 2, kInFlightOffscreen = 1;
+    std::deque<SDL_GPUFence *> m_inFlight;
+    size_t m_mostInFlight = 0;
+    uint64_t m_submits = 0, m_waits = 0, m_waitedNs = 0;
     SDL_GPUSampler *m_nearest = nullptr;
     bool m_useNearest = false, m_wantNative = true;
 
