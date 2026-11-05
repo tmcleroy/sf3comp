@@ -19,7 +19,8 @@
 #   games/sfiii3/checksound.sh ROM [BUILD] [FRAMES]     (BUILD: build/sfiii3; FRAMES: 12000 a run)
 #
 # CHECKSOUND_NO_LIFTS=1: the runs with neither the rewrites nor the hooks (nothing handed over), to see that the check
-# finds that
+# finds that. CHECKSOUND_JOBS: how many runs at once (4: each takes about 1 GB, and more at once filled a 16 GB Mac's
+# memory until its watchdog restarted it)
 ROM=${1:?usage: checksound.sh ROM [BUILD] [FRAMES]}
 BUILD=${2:-build/sfiii3}
 FRAMES=${3:-12000}
@@ -27,19 +28,29 @@ OUT=$(mktemp -d)
 REWRITES="SoundSetUp,SoundStopAll,SoundChannel"
 NAMES=(attract cpu7 versus training)
 ARGS=("" "--auto 7:300:1" "--auto 31:300:2" "--keys 30:ctraining_start --auto 3:300:1")
+JOBS=${CHECKSOUND_JOBS:-4}
 status=0
-pids=()
-game() { # name arcade(0/1) args...: a run of the game, its log in OUT/name.log
+runs=()
+slot() { # (waits for a free slot: JOBS runs at once)
+    while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do
+        sleep 1
+    done
+}
+game() { # name arcade(0/1) args...: a run of the game, its log in OUT/name.log, its exit status in OUT/name.status
     local name=$1 arcade=$2
     shift 2
+    slot
+    # (the exit status kept in a file: macOS's bash 3.2 forgets a job that ended while `jobs` was asked, and then cannot
+    # `wait` for it)
     # shellcheck disable=SC2068
     (
         [ -n "$CHECKSOUND_NO_LIFTS" ] && export CPS3RECOMP_NO_LIFTS=1
         [ "$arcade" = 1 ] && export CPS3RECOMP_BUS_TIMING=1
-        exec nice -n 20 "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$FRAMES" --settings "$OUT/$name.ini" \
+        nice -n 20 "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$FRAMES" --settings "$OUT/$name.ini" \
             --eeprom "$OUT/$name.bin" $@ > /dev/null 2> "$OUT/$name.log"
+        echo $? > "$OUT/$name.status"
     ) &
-    pids+=($!)
+    runs+=("$name")
 }
 checked() { # name arcade args...
     local name=$1 arcade=$2
@@ -74,14 +85,17 @@ lifts() { # name args...
     local name=$1
     shift
     # shellcheck disable=SC2068
-    SFIII3_LIFTS_ONLY="$REWRITES" CPS3RECOMP_LIFT_CHECK=1 nice -n 20 "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$FRAMES" \
-        --settings "$OUT/$name.ini" --eeprom "$OUT/$name.bin" $@ > /dev/null 2> "$OUT/$name.log" &
-    pids+=($!)
+    SFIII3_LIFTS_ONLY="$REWRITES" CPS3RECOMP_LIFT_CHECK=1 game "$name" 0 $@
 }
 lifts lifts-attract
 lifts lifts-cpu7 --auto 7:300:1
-for pid in "${pids[@]}"; do
-    wait "$pid" || { echo "a run failed"; status=1; }
+wait
+for name in "${runs[@]}"; do
+    if [ "$(cat "$OUT/$name.status" 2>/dev/null)" != 0 ]; then
+        echo "$name: the run failed"
+        tail -3 "$OUT/$name.log"
+        status=1
+    fi
 done
 for name in "${NAMES[@]}"; do
     for run in "$name" "arcade-$name"; do
