@@ -130,7 +130,8 @@ a few lines of the old colours: not modelled, and not wanted).
 - 0x06139316, the driver's set-up (four callers: start-up, a new game): every voice's registers cleared, the chip's
   mode word (040E0210) and the other device (05000C02) set, the keys off: kVoice (cleared) for each voice and kKeys.
 - 0x0613A334, every channel stopped and the keys off (kKeys 0); 0x0613A272, the music let go on after a pause (the
-  kept keys keyed on again: kKeyOn; not reached by any check run yet, so not yet compared with the game's code).
+  kept keys keyed on again: kKeyOn): not reached by any check, and nothing in the program names it or its pause
+  (0x0613A21C: no pointer to either, no branch), so it is left unregistered, to the game's code.
 - The native mixer (native::Mixer) plays the events at their times with pcm.cpp's rules. Level (c), checksound.sh:
   the mixer's frame against pcm.cpp's, each side's samples voice by voice, and the voices' settings and the keys
   against the chip's registers, every frame of the four runs (all the same: see PROGRESS.md for the numbers). The
@@ -208,7 +209,7 @@ text layer's registers, the status word and the two interrupts (as a timer).
 | Native rasteriser | the toolkit (video/raster.cpp): the draw list of quads and layer lines, text, resolve, zoom | done for the plain picture and widescreen; the features' object choices and a second producer to come | (b) all the same: pixels against renderer.cpp, every frame |
 | SDL_GPU renderer | the toolkit (port/native_gpu.cpp): two compute passes from BuildFrame's tiles, the palette, the textures by page, the text layer; shown by the presenter (Presenter::ShowNative), the window's default picture (2026-11-05; off by default for a few hours that day while offscreen runs' unwaited frames starved the Mac's WindowServer, back on with each offscreen frame waited for: cps3recomp/docs/NATIVE.md); a third pass puts the HUD, status lines, online names, zoom and menu over it | done for the plain picture and what the port puts over it | (b) all the same: the GPU's picture as the presenter shows it (render pass, 1:1) against the rasteriser's, every frame; 15 runs of 3000 frames with 0 different |
 | DMA timer | the toolkit: status bits and level 10 without the chips | small | gates: state hashes the same with and without the chip functions |
-| Sound events | 0x0613B3CC (every voice write and key site of the driver's step), 0x06139316 (set-up), 0x0613A334 (all off), 0x0613A272 (resume) (sound_driver.cpp); the native mixer (sound/native_sound.cpp) | done | (c) all the same: samples against pcm.cpp, voice by voice, every frame (checksound.sh) |
+| Sound events | 0x0613B3CC (every voice write and key site of the driver's step), 0x06139316 (set-up), 0x0613A334 (all off) (sound_driver.cpp; 0x0613A272, resume, written but left unregistered: nothing reaches it); the native mixer (sound/native_sound.cpp) | done | (c) all the same: samples against pcm.cpp, voice by voice, every frame (checksound.sh) |
 | Guest stages | New Generation's and 2nd Impact's same hand-offs (the shared engine: the same rewrites on each game's places, src/video_games.cpp, run dry on the stage board) | done on the producer's side; the GPU's composition of the two to come | (a) per producer, all the same; (b) the composed picture, all the same (CPU), each producer's part (GPU) |
 | Board model out of the default build | the picture from the interface by the CPU's rasteriser (system.cpp: Compose, DrawLayers), the board's video memories from the interface (machine.cpp: NativeMakes, TakeFromNative); renderer.cpp and the DMAs' model behind `--board` and in the checks | done for the video (CPU) | every gate; default against `--board` the same (state hashes, saved states) |
 

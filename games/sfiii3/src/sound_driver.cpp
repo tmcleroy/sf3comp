@@ -17,7 +17,7 @@
 // side (0x0613B226, from the envelope's level, the channel's volume and the pan) and its pitch (0x0613B1D8, from the
 // note, the slide, the vibrato, the fine tune and the transpose) written to the voice. 0x06139316 sets the driver up
 // (and silences the chip), 0x0613A334 stops every channel, 0x0613A272 lets the music's go on after a pause
-// (0x0613A21C, which keeps the keys).
+// (0x0613A21C, which keeps the keys: neither is named anywhere in the program, so Resume is left unregistered).
 //
 // A channel's bytes, as far as these routines use them (offsets):
 //   8 its instrument (a pointer: +1 the pan, 0xFF the channel's own at 109; +2 the volume; +11 the release's rate)
@@ -561,7 +561,7 @@ namespace {
     }
 
     // 0613A272: after a pause of the music, its channels as the pause found them and their voices keyed on again
-    bool Resume(Guest &g) {
+    [[maybe_unused]] bool Resume(Guest &g) {
         const uint8_t flags = g.Read8(kDriverFlags);
         if ((flags & 2) && (flags & 4)) {
             for (uint32_t i = 0; i < 16; i++) {
@@ -579,7 +579,7 @@ namespace {
     const Lift kLifts[] = {
         {"SoundSetUp", 0x06139316, 0x22E, 0x90E9CE5D71582AD6ull, SetUp, true, 0x100FF},
         {"SoundStopAll", 0x0613A334, 0xD4, 0x5F8C7600B189AA26ull, StopAll, true, 0x100FF},
-        {"SoundResume", 0x0613A272, 0x86, 0xC2CCA2D3E2FE96B4ull, Resume, true, 0x100FF},
+        // {"SoundResume", 0x0613A272, 0x86, 0xC2CCA2D3E2FE96B4ull, Resume, true, 0x100FF}, (not reached by any check yet: left to the game\'s code; nothing in the program names it or its pause, 0x0613A21C)
         {"SoundChannel", 0x0613B3CC, 0x8E0, 0x7781CBAA0B34ED7Dull, StepChannel, true, 0x1007F},
     };
 } // namespace
