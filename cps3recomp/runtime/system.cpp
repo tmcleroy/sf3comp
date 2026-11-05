@@ -88,6 +88,16 @@ namespace {
         const char *label = "native GPU pixels";
         explicit GpuCheck(const char *l) : label(l) {}
         ~GpuCheck() {
+            End();
+        }
+        // (the GPU's things let go of while the program still runs: from a static destructor, at exit, the Vulkan driver
+        // had already gone and destroying the device crashed in it; EndNativeGpu)
+        bool ended = false;
+        void End() {
+            if (ended) {
+                return;
+            }
+            ended = true;
             if (frames || tried) {
                 fprintf(stderr, "cps3recomp: %s: %llu frames compared, %llu different%s\n", label, static_cast<unsigned long long>(frames),
                         static_cast<unsigned long long>(different), device ? "" : " (no GPU device)");
@@ -97,6 +107,7 @@ namespace {
             if (device && !present) { // (the presenter's own goes with it)
                 SDL_DestroyGPUDevice(device);
             }
+            device = nullptr;
         }
     } g_gpuCheck{"native GPU pixels"}, g_stageGpuCheck{"native GPU pixels of a stage board"};
     void GpuCompare(GpuCheck &c, const native::Frame &f, const native::Video &video, const uint8_t *ss, const std::vector<uint32_t> &cpu, int width,
@@ -263,7 +274,7 @@ void GpuCompare(GpuCheck &c, const native::Frame &f, const native::Video &video,
                 fprintf(stderr, "native GPU check (presented): %s\n", error.c_str());
             }
         } else {
-            c.device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL, false, nullptr);
+            c.device = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_MSL, getenv("CPS3RECOMP_GPU_DEBUG") != nullptr, nullptr);
             if (!c.device || !c.gpu.Open(c.device, error)) {
                 fprintf(stderr, "native GPU check: %s\n", c.device ? error.c_str() : SDL_GetError());
             }
@@ -346,6 +357,15 @@ namespace {
         double draw = 0, show = 0, showGpu = 0, build = 0, showNative = 0, nativeGpu = 0;
         std::vector<double> drawEach, nativeEach, showGpuEach, nativeGpuEach;
         ~Bench() {
+            End();
+        }
+        bool ended = false;
+        void End() {
+            if (ended) {
+                return;
+            }
+            ended = true;
+            presenter.Close();
             if (!frames) {
                 return;
             }
@@ -366,6 +386,12 @@ namespace {
         return std::chrono::duration<double>(std::chrono::steady_clock::now() - since).count();
     }
 } // namespace
+
+void EndNativeGpu() {
+    g_gpuCheck.End();
+    g_stageGpuCheck.End();
+    g_bench.End();
+}
 
 void Machine::BenchFrame() {
     Bench &b = g_bench;

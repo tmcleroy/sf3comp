@@ -2363,6 +2363,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "in %llu ticks of the screen\n", static_cast<unsigned long long>(p.tick));
         }
     }
+    cps3recomp::EndNativeGpu();
     p.Finish();
     if (!cps3recomp::Finish()) {
         return 4;

@@ -10,6 +10,39 @@
 namespace port {
 
 namespace {
+    // (debugging aid, CPS3RECOMP_NATIVE_GPU_TIMING=1: each pass submitted alone and waited for, its time on the GPU, the wait's
+    // own included, reported at the end: the most and the mean)
+    struct PassTimes {
+        const char *names[4] = {"uploads", "tiles", "resolve", "compose"};
+        double most[4] = {}, total[4] = {};
+        uint64_t count[4] = {};
+        ~PassTimes() {
+            if (!count[0]) {
+                return;
+            }
+            for (int i = 0; i < 4; i++) {
+                fprintf(stderr, "cps3recomp: native GPU pass %s: %llu, mean %.3f ms, most %.3f ms\n", names[i], static_cast<unsigned long long>(count[i]),
+                        count[i] ? 1000 * total[i] / static_cast<double>(count[i]) : 0.0, 1000 * most[i]);
+            }
+        }
+    } g_passTimes;
+    bool Timing() {
+        static const bool on = getenv("CPS3RECOMP_NATIVE_GPU_TIMING") != nullptr;
+        return on;
+    }
+    // (the pass just recorded submitted and waited for, timed; recording goes on in a new command buffer)
+    SDL_GPUCommandBuffer *TimePass(SDL_GPUDevice *device, SDL_GPUCommandBuffer *cmd, int pass) {
+        const Uint64 from = SDL_GetTicksNS();
+        if (SDL_GPUFence *fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd)) {
+            SDL_WaitForGPUFences(device, true, &fence, 1);
+            SDL_ReleaseGPUFence(device, fence);
+        }
+        const double t = static_cast<double>(SDL_GetTicksNS() - from) / 1e9;
+        g_passTimes.total[pass] += t;
+        g_passTimes.most[pass] = std::max(g_passTimes.most[pass], t);
+        g_passTimes.count[pass]++;
+        return SDL_AcquireGPUCommandBuffer(device);
+    }
 #include "native_shaders.inc"
 
     constexpr int kBufferWidth = 1024, kBufferHeight = 448;
@@ -212,14 +245,15 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
             }
         }
     }
-    const uint32_t tilesParams[4] = {static_cast<uint32_t>(f.bufferWidth), rows, 0, 0};
+    const uint32_t tilesParams[4] = {static_cast<uint32_t>(f.bufferWidth), rows, static_cast<uint32_t>(f.tiles.size()), m_rowStartsData[kBufferHeight]};
     const uint32_t fx = (f.screen.zoomX << 16) / 0x40, fy = (f.screen.zoomY << 16) / 0x40;
     const int32_t resolveParams[8] = {f.width, f.height, static_cast<int32_t>(fx), static_cast<int32_t>(fy), f.margin, f.textScrollY,
                                       static_cast<int32_t>(f.textPalette), 0};
     // One upload of everything
     // (the overlay: sent when it changed)
-    const bool over = overlay && overlay->pixels && overlay->width > 0 && overlay->height > 0 && overlay->width <= kOverlayWidth &&
-                      overlay->height <= kOverlayHeight;
+    // (one column and one row past it are written too: NativeGpu::Overlay)
+    const bool over = overlay && overlay->pixels && overlay->width > 0 && overlay->height > 0 && overlay->width < kOverlayWidth &&
+                      (overlay->rawAbove ? 2 * overlay->height : overlay->height) < kOverlayHeight;
     const bool sendOverlay = over && (!m_overlayKnown || overlay->version != m_overlaySent);
     const uint32_t overlayBytes = sendOverlay ? static_cast<uint32_t>(overlay->width * overlay->height * 4) : 0;
     // (the picture as shown: the frame's, or as large as the overlay, with it over it; twice as tall with rawAbove)
@@ -299,6 +333,9 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
         SDL_UploadToGPUTexture(copy, &from, &to, false);
     }
     SDL_EndGPUCopyPass(copy);
+    if (Timing()) {
+        cmd = TimePass(m_device, cmd, 0);
+    }
     // (debugging aid, CPS3RECOMP_NATIVE_GPU_SPLIT=1: the uploads submitted and waited for before the passes that read them)
     static const bool split = getenv("CPS3RECOMP_NATIVE_GPU_SPLIT") != nullptr;
     if (split) {
@@ -319,6 +356,9 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
         SDL_BindGPUComputeStorageBuffers(pass, 0, buffers, 5);
         SDL_DispatchGPUCompute(pass, static_cast<Uint32>((f.bufferWidth + 7) / 8), (rows + 7) / 8, 1);
         SDL_EndGPUComputePass(pass);
+        if (Timing()) {
+            cmd = TimePass(m_device, cmd, 1);
+        }
     }
     // The picture
     {
@@ -331,6 +371,9 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
         SDL_BindGPUComputeStorageBuffers(pass, 0, buffers, 3);
         SDL_DispatchGPUCompute(pass, static_cast<Uint32>((f.width + 7) / 8), static_cast<Uint32>((f.height + 7) / 8), 1);
         SDL_EndGPUComputePass(pass);
+        if (Timing()) {
+            cmd = TimePass(m_device, cmd, 2);
+        }
     }
     // The picture as the presenter samples it: with what is put over it (NativeGpu::Overlay), and a column and a row
     // past it the same as its edges
@@ -344,6 +387,9 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
         SDL_BindGPUComputeStorageBuffers(pass, 0, &m_composeParams, 1);
         SDL_DispatchGPUCompute(pass, static_cast<Uint32>((shownWidth + 8) / 8), static_cast<Uint32>((composedHeight + 8) / 8), 1);
         SDL_EndGPUComputePass(pass);
+        if (Timing()) {
+            cmd = TimePass(m_device, cmd, 3);
+        }
         m_lastShown = {m_composed, kOverlayWidth, kOverlayHeight, shownWidth, shownHeight};
     }
     return cmd;

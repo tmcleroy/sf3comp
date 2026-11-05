@@ -9,7 +9,7 @@
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(std430, set = 0, binding = 0) readonly buffer Params {
-    uint width, height, pad0, pad1;
+    uint width, height, tileCount, rowTileCount; // (the counts: what the buffers hold, for the bounds below)
 } params;
 layout(std430, set = 0, binding = 1) readonly buffer Tiles {
     int tiles[]; // 12 a tile: sx, sy, ex, ey, xBase, yIndex, dx, dy, source, base, mode, pad
@@ -27,11 +27,17 @@ layout(set = 1, binding = 0, r32ui) uniform writeonly uimage2D colours;
 
 void main() {
     const ivec2 p = ivec2(gl_GlobalInvocationID.xy);
-    if (p.x >= int(params.width) || p.y >= int(params.height)) {
+    if (p.x >= int(params.width) || p.y >= int(params.height) || p.x >= 1024 || p.y >= 448) {
         return;
     }
     uint v = 0u;
-    for (uint k = rowStarts[p.y]; k < rowStarts[p.y + 1]; k++) {
+    // (every index kept inside its buffer: rowStarts has 449 entries, rowTiles rowTileCount, tiles tileCount of 12, the
+    // textures 8 MB)
+    const uint last = min(rowStarts[p.y + 1], params.rowTileCount);
+    for (uint k = rowStarts[p.y]; k < last; k++) {
+        if (rowTiles[k] >= params.tileCount) {
+            continue;
+        }
         const uint i = rowTiles[k] * 12u;
         const int sx = tiles[i], ex = tiles[i + 2];
         if (p.x < sx || p.x >= ex) {
@@ -40,6 +46,9 @@ void main() {
         const int xi = tiles[i + 4] + (p.x - sx) * tiles[i + 6];
         const int yi = tiles[i + 5] + (p.y - tiles[i + 1]) * tiles[i + 7];
         const uint at = uint(tiles[i + 8]) + uint(yi >> 16) * 16u + uint(xi >> 16);
+        if (at >= 0x800000u) {
+            continue;
+        }
         const uint c = (texels[at >> 2] >> ((at & 3u) * 8u)) & 0xFFu;
         if (c == 0u) {
             continue;

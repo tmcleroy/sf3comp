@@ -23,13 +23,13 @@ layout(set = 1, binding = 2, rgba8) uniform writeonly image2D shown;
 void main() {
     const ivec2 p = ivec2(gl_GlobalInvocationID.xy);
     const uint rows = params.rawAbove != 0u ? 2u * params.height : params.height;
-    if (p.x > int(params.width) || p.y > int(rows)) {
+    if (p.x > int(params.width) || p.y > int(rows) || p.x >= 2048 || p.y >= 1024 || params.width == 0u || rows == 0u) { // (shown: 2048 x 1024)
         return;
     }
     const uint x = min(uint(p.x), params.width - 1u), row = min(uint(p.y), rows - 1u);
     const bool raw = params.rawAbove != 0u && row < params.height;
     const uint y = params.rawAbove != 0u && !raw ? row - params.height : row;
-    const ivec2 from = ivec2(int(x * params.pictureWidth / params.width), int(y * params.pictureHeight / params.height));
+    const ivec2 from = ivec2(int(min(x * params.pictureWidth / params.width, 1023u)), int(min(y * params.pictureHeight / params.height, 255u)));
     const uvec3 under = uvec3(imageLoad(picture, from).rgb * 255.0 + 0.5);
     uvec3 colour = under;
     if (!raw && params.overlayOn != 0u) {

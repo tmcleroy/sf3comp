@@ -28,7 +28,7 @@ uint SsByte(uint at) {
 
 void main() {
     const ivec2 p = ivec2(gl_GlobalInvocationID.xy);
-    if (p.x >= int(params.width) || p.y >= int(params.height)) {
+    if (p.x >= int(params.width) || p.y >= int(params.height) || p.x >= 1024 || p.y >= 256) { // (the picture: 1024 x 256)
         return;
     }
     const uint sx = uint(p.x) * params.fx, sy = uint(p.y) * params.fy;

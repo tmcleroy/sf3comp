@@ -3,6 +3,7 @@
 #include "raster.h"
 
 #include <algorithm>
+#include <cstdio>
 
 namespace cps3recomp::native {
 
