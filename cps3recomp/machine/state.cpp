@@ -131,17 +131,42 @@ void Machine::Serialize(Archive &ar) {
     ar.Pod(m_now);
     ar.Pod(m_frameStart);
     ar.Pod(m_spillover);
-    nativeSound.Serialize(ar);
-    ar.Pod(m_soundWrites);
-    ar.Vec(m_waitingSound);
-    if (native::Checking()) {
-        native.Serialize(ar);
-    } else if (native::On() && !ar.Saving()) {
+    // The native interface: kept by a check's run (native::Checking()), and read wherever a state has it (it starts with
+    // its mark), so that a player's state loads in a check's run and a check's in a player's; outside the checks, made
+    // again from the board after a state is put back (SyncNative). The native mixer: in save states since version 4;
+    // one from before (version 3) has none, and it is put back from the chip (System: NativeSoundFromBoard).
+    constexpr uint32_t kInterface = 0x4E415456; // NATV (video/native.cpp)
+    const auto interface = [&] {
+        return ar.Saving() ? native::Checking() : ar.Next(kInterface);
+    };
+    if (ar.version == 0 || ar.version >= 4) {
+        nativeSound.Serialize(ar);
+        ar.Pod(m_soundWrites);
+        ar.Vec(m_waitingSound);
+        if (interface()) {
+            native.Serialize(ar);
+        }
+    } else {
+        if (interface()) {
+            native.Serialize(ar);
+        }
+        m_soundWrites = 0;
+        m_waitingSound.clear();
+    }
+    if (!ar.Saving() && native::On() && !native::Checking()) {
         m_nativeInSync = false; // (made again from what was put back at the next frame that hands over: SyncNative)
         m_nativeSyncedAt = ~0ull;
         m_coloursOwed.clear();
         m_charsOwed = false;
     }
+}
+
+void Machine::NativeSoundFromBoard(double carry, size_t frameSamples) {
+    for (int v = 0; v < 16; v++) {
+        nativeSound.SetVoice(v, BoardVoice(v), voices[v].position, voices[v].fraction);
+    }
+    nativeSound.SetKeys(keyOn);
+    nativeSound.SetFrame(carry, frameSamples);
 }
 
 } // namespace cps3recomp::machine

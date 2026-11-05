@@ -25,6 +25,13 @@ public:
     explicit Pcm(machine::Machine &m);
     // The frame's sound, mixed to its end and added to `out` (left and right in turn), if given
     void EndFrame(std::vector<int16_t> *out);
+    // The frame's place in the sample rate: what is carried, and this frame's length in samples
+    double Carry() const {
+        return m_carry;
+    }
+    size_t FrameSamples() const {
+        return m_frameSamples;
+    }
     // A frame not mixed (the native mixer heard in its place): its length passed over, as EndFrame does
     void SkipFrame();
     // What the machine calls before a sound register is written (machine.h's beforeSoundWrite), for putting back

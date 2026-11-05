@@ -34,6 +34,7 @@
 #include "lift.h"
 #include "machine.h"
 
+#include <cstdlib>
 #include <iterator>
 #include <unordered_map>
 
@@ -63,6 +64,8 @@ namespace {
     constexpr uint32_t kDriverFlags = 0x02079C8C;  // byte: 1 on, 2 the music's, 4 paused
     constexpr uint32_t kKeptKeys = 0x02079C78;     // word: the keys as a pause found them
     constexpr uint32_t kKeptFlags = 0x02079C7C;    // bytes, by channel: the music's flags as a pause found them
+    constexpr uint32_t kVolumeOf = 0x0613B226;     // r4 level, r5 the tremolo, r6 the music's volume, r7 the channel: r0
+    constexpr uint32_t kStepOf = 0x0613B1D8;       // r4 pitch: r0 the chip's step
     constexpr uint32_t kSteps = 0x0660CFF8;        // the pitch's steps: words, 0xC00 of them (an octave), in the program
     constexpr uint32_t kSoundMode = 0x02079C10;    // long: the chip's mode word as set up (bit 16: the volumes curved)
     constexpr uint32_t kMasterFade = 0x02078D04;   // long: the music's fade (its bits 8-23)
@@ -135,6 +138,14 @@ namespace {
             for (uint32_t i = 0; i < 4; i++) {
                 m_kept[(a + i) & kMask] = static_cast<uint8_t>(v >> (24 - 8 * i));
             }
+        }
+        // Live: the guest, for the game's own routines called as the driver calls them (their time and what they leave
+        // on the stack and in the registers, as the game's code has them)
+        bool Dry() const {
+            return m_dry;
+        }
+        Guest &Live() {
+            return m_g;
         }
         void Hand(const native::SoundEvent &e) {
             if (m_dry) {
@@ -254,20 +265,16 @@ namespace {
         Hand(g, e);
     }
 
-    // 0613B226, the volume for a side (its native form, so that a dry run calls no game code): from the level (r4: the
-    // envelope's, scaled by the pan), the tremolo (r5), the music's volume (r6, a signed byte: -128 silent) and the
-    // channel (r7: its volume at 98 times 100's, 88's, the instrument's and the driver's, and for an effect the
-    // effects' volume), clamped to 15 bits; then, with the chip's mode bit 16 on, the music faded (a channel of the
-    // music's set: 111 is 0), else bent into the chip's curve (four straight pieces up to 0x7FFF, doubled). `r7` is
-    // left 0x2000 where the routine leaves it so.
-    struct Volume {
-        uint16_t value;
-        bool r7Changed;
-    };
+    // 0613B226, the volume for a side, in native form (for a dry run, which calls no game code; checksound's arcade-timing
+    // runs compare its events with the board's): from the level (r4: the envelope's, scaled by the pan), the tremolo
+    // (r5), the music's volume (r6, a signed byte: -128 silent) and the channel (r7: its volume at 98 times 100's, 88's,
+    // the instrument's and the driver's, and for an effect the effects' volume), clamped to 15 bits; then, with the
+    // chip's mode bit 16 on, the music faded (a channel of the music's set: 111 is 0), else bent into the chip's curve
+    // (four straight pieces up to 0x7FFF, doubled)
     int32_t Scaled(int32_t a, uint32_t b) { // (a byte of the game's, 0-127 about 64, times a value, over 64)
         return static_cast<int32_t>(static_cast<uint32_t>(a) * ((b + 64) & 127)) >> 6;
     }
-    Volume VolumeOf(Driver &g, uint32_t level, int32_t tremolo, int32_t musicVolume, uint32_t channel) {
+    uint16_t NativeVolumeOf(Driver &g, uint32_t level, int32_t tremolo, int32_t musicVolume, uint32_t channel) {
         Channel c{g, channel};
         const uint32_t depth = c.B(100);
         int32_t v = static_cast<int32_t>((depth ? depth + 1 : 0) * c.B(98)) << 1;
@@ -291,17 +298,15 @@ namespace {
         const uint32_t clamped = out > 0x7FFF ? 0x7FFF : out < 0 ? 0 : static_cast<uint32_t>(out);
         if (g.Read8(kSoundMode + 1) & 1) {
             if (c.B(111)) {
-                return {static_cast<uint16_t>(clamped), false};
+                return static_cast<uint16_t>(clamped);
             }
             const uint32_t fade = (g.Read32(kMasterFade) >> 8) & 0xFFFF;
-            return {static_cast<uint16_t>(static_cast<int32_t>((clamped & 0xFFFF) * fade) >> 7), false};
+            return static_cast<uint16_t>(static_cast<int32_t>((clamped & 0xFFFF) * fade) >> 7);
         }
         uint32_t curved;
-        bool r7 = false;
         if (clamped <= 0x1000) {
             curved = clamped << 2;
         } else {
-            r7 = true;
             if (clamped <= 0x2000) {
                 curved = (clamped << 1) + 0x2000;
             } else if (clamped <= 0x4000) {
@@ -313,12 +318,30 @@ namespace {
         if (static_cast<int32_t>(curved) >= 0x8000) {
             curved = 0x7FFF;
         }
-        return {static_cast<uint16_t>(curved << 1), r7};
+        return static_cast<uint16_t>(curved << 1);
+    }
+    // ... as the driver calls it: live, the game's routine itself
+    uint16_t VolumeOf(Driver &g, uint32_t level, int32_t tremolo, int32_t musicVolume, uint32_t channel) {
+        if (g.Dry()) {
+            return NativeVolumeOf(g, level, tremolo, musicVolume, channel);
+        }
+        Guest &live = g.Live();
+        live.R(4) = level;
+        live.R(5) = Signed(tremolo);
+        live.R(6) = Signed(musicVolume);
+        live.R(7) = channel;
+        live.Call(kVolumeOf);
+        return static_cast<uint16_t>(live.R(0));
     }
 
-    // 0613B1D8, the chip's step for a pitch (its native form): the pitch in 0xC00 steps an octave, the step of its place
-    // in the octave from the table (plus one) shifted by the octave, less one
+    // 0613B1D8, the chip's step for a pitch (in native form for a dry run; live, the game's routine): the pitch in 0xC00
+    // steps an octave, the step of its place in the octave from the table (plus one) shifted by the octave, less one
     uint16_t StepOf(Driver &g, int32_t pitch) {
+        if (!g.Dry()) {
+            g.Live().R(4) = Signed(pitch);
+            g.Live().Call(kStepOf);
+            return static_cast<uint16_t>(g.Live().R(0));
+        }
         int32_t octave = 0;
         while (pitch >= 0xC00) {
             pitch -= 0xC00;
@@ -341,9 +364,9 @@ namespace {
     }
 
     // 0613B3CC: a channel stepped on a frame and its voice set: r4 the channel, r5 its voice, r6 1 for the music's set
-    // (0 the effects'). The music's channel has its voice unless an effect is playing on it. Gives the time it takes,
-    // and r7 as the routine leaves it.
-    uint64_t StepChannel(Driver &g, uint32_t channel, uint8_t voice, bool music, uint32_t &r7) {
+    // (0 the effects'). The music's channel has its voice unless an effect is playing on it. Gives the time it takes (live,
+    // besides that of the game's routines it calls).
+    uint64_t StepChannel(Driver &g, uint32_t channel, uint8_t voice, bool music) {
         Channel c{g, channel};
         const uint32_t regs = kVoiceRegs + (static_cast<uint32_t>(voice) << 5);
         const uint16_t bit = static_cast<uint16_t>(voice < 32 ? 1u << voice : 0);
@@ -549,7 +572,9 @@ namespace {
             if (state != -1 && state != 0) {
                 const int32_t moved = static_cast<int16_t>(g.Read16(pan)) + static_cast<int16_t>(g.Read16(pan + 4));
                 const int32_t to = static_cast<int16_t>(g.Read16(pan + 2));
-                r7 = kEffects;
+                if (!g.Dry()) {
+                    g.Live().R(7) = kEffects; // (as the routine leaves it)
+                }
                 const bool there = static_cast<int16_t>(g.Read16(pan + 4)) >= 0 ? moved >= to : to >= moved;
                 if (there) {
                     g.Write16(pan, g.Read16(pan + 2));
@@ -572,7 +597,7 @@ namespace {
         const uint32_t ch = c.at;
         const int32_t musicVolume = music ? static_cast<int8_t>(g.Read8(kMusicVolume)) : 0;
         const uint32_t level = static_cast<uint32_t>(static_cast<int32_t>(static_cast<int16_t>(c.W(66))));
-        Volume left, right;
+        uint16_t left, right;
         bool rightFirst;
         if (g.Read8(kStereo)) {
             uint32_t at;
@@ -602,16 +627,14 @@ namespace {
             right = VolumeOf(g, level, c.L(32), musicVolume, ch);
             rightFirst = false;
         }
-        // (r7: the channel, as the routine passes it, or 0x2000 where the last volume leaves it)
-        r7 = (rightFirst ? left : right).r7Changed ? 0x2000 : ch;
         const auto side = [&](bool isLeft) {
-            const Volume &v = isLeft ? left : right;
-            g.Write16(regs + (isLeft ? 28 : 30), v.value);
+            const uint16_t v = isLeft ? left : right;
+            g.Write16(regs + (isLeft ? 28 : 30), v);
             native::SoundEvent e;
             e.kind = native::SoundEvent::kVolume;
             e.voice = voice;
             e.sides = isLeft ? 1 : 2;
-            (isLeft ? e.left : e.right) = static_cast<int16_t>(v.value);
+            (isLeft ? e.left : e.right) = static_cast<int16_t>(v);
             Hand(g, e);
         };
         side(!rightFirst);
@@ -727,9 +750,10 @@ namespace {
     bool g_channelRewritten = false, g_setUpRewritten = false, g_stopRewritten = false;
     bool ChannelRewrite(Guest &g) {
         Driver d(g, false);
-        uint32_t r7 = g.R(7);
-        const uint64_t cycles = StepChannel(d, g.R(4), static_cast<uint8_t>(g.R(5)), (g.R(6) & 0xFF) != 0, r7);
-        g.R(7) = r7;
+        const uint32_t sp = g.R(15);
+        g.R(15) = sp - 44; // (the routine's frame: seven registers, pr, macl and 8 bytes; what it calls goes below)
+        const uint64_t cycles = StepChannel(d, g.R(4), static_cast<uint8_t>(g.R(5)), (g.R(6) & 0xFF) != 0);
+        g.R(15) = sp;
         g.Return(cycles);
         return true;
     }
@@ -738,8 +762,7 @@ namespace {
             return;
         }
         Driver d(g, true);
-        uint32_t r7 = g.R(7);
-        StepChannel(d, g.R(4), static_cast<uint8_t>(g.R(5)), (g.R(6) & 0xFF) != 0, r7);
+        StepChannel(d, g.R(4), static_cast<uint8_t>(g.R(5)), (g.R(6) & 0xFF) != 0);
     }
     bool SetUpRewrite(Guest &g) {
         Driver d(g, false);
@@ -784,9 +807,20 @@ void RegisterSoundDriver() {
     g_setUpRewritten = GameLiftWanted("SoundSetUp");
     g_stopRewritten = GameLiftWanted("SoundStopAll");
     g_channelRewritten = GameLiftWanted("SoundChannel");
-    AddHook("SoundSetUpEvents", 0x06139316, 0x22E, 0x90E9CE5D71582AD6ull, SetUpHook);
-    AddHook("SoundStopAllEvents", 0x0613A334, 0xD4, 0x5F8C7600B189AA26ull, StopAllHook);
-    AddHook("SoundChannelEvents", 0x0613B3CC, 0x8E0, 0x7781CBAA0B34ED7Dull, ChannelHook);
+    // (the hooks, by name as the lifts: SFIII3_LIFTS_ONLY leaves out those it does not name; SFIII3_SOUND_NO_HOOKS
+    // leaves them all out, for checksound.sh to see that they change nothing)
+    if (getenv("SFIII3_SOUND_NO_HOOKS")) {
+        return;
+    }
+    if (GameLiftWanted("SoundSetUpEvents")) {
+        AddHook("SoundSetUpEvents", 0x06139316, 0x22E, 0x90E9CE5D71582AD6ull, SetUpHook);
+    }
+    if (GameLiftWanted("SoundStopAllEvents")) {
+        AddHook("SoundStopAllEvents", 0x0613A334, 0xD4, 0x5F8C7600B189AA26ull, StopAllHook);
+    }
+    if (GameLiftWanted("SoundChannelEvents")) {
+        AddHook("SoundChannelEvents", 0x0613B3CC, 0x8E0, 0x7781CBAA0B34ED7Dull, ChannelHook);
+    }
 }
 
 } // namespace cps3recomp

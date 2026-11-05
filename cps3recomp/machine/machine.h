@@ -191,6 +191,9 @@ public:
             nativeSound.Add(e);
         }
     }
+    // The native mixer put back from the chip's voices and keys as the board has them, with the frame's place in the
+    // sample rate (pcm.cpp's): for a save state from before the mixer was kept (version 3)
+    void NativeSoundFromBoard(double carry, size_t frameSamples);
     // ... an event that belongs after the game's code has made `writes` more writes to the sound chip (0: at once)
     void NativeSoundAfter(const native::SoundEvent &e, uint32 writes);
     // The check, level (c) (nativeCheck: pcm.cpp calls it at the end of every frame with what it mixed, all and voice

@@ -93,7 +93,27 @@ public:
     uint16_t Keys() const {
         return m_keys;
     }
+    // Where a voice is in its sample, and the fraction of a sample (12 bits)
+    uint32_t Position(int v) const {
+        return m_voices[v & 15].position;
+    }
+    uint32_t Fraction(int v) const {
+        return m_voices[v & 15].fraction;
+    }
     void Serialize(Archive &ar);
+    // Put back as a voice and the keys stand (a save state from before the native mixer: from the board's chip), and
+    // the frame's place in the sample rate (pcm.cpp's, which keeps the same count)
+    void SetVoice(int v, const Voice &settings, uint32_t position, uint32_t fraction) {
+        m_voices[v & 15] = {settings, position, fraction};
+    }
+    void SetKeys(uint16_t keys) {
+        m_keys = keys;
+    }
+    void SetFrame(double carry, size_t frameSamples) {
+        m_events.clear();
+        m_carry = carry;
+        m_frameSamples = frameSamples;
+    }
 
 private:
     struct Playing {

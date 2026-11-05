@@ -1096,7 +1096,7 @@ bool Port::LoadState(const std::string &path, std::string &error) {
     ar.Mark(0x43505332);
     uint32_t version = 0;
     ar.Pod(version);
-    const bool known = version == kStateVersion;
+    const bool known = version == kStateVersion || version == 3; // (3: the native mixer put back from the chip)
     ar.version = version;
     if (ar.Ok() && known) {
         machine->Serialize(ar);

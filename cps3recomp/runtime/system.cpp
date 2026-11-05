@@ -692,6 +692,16 @@ void Machine::RunFrame() {
     } else {
         m_pcm.SkipFrame();
     }
+    // (the mixer not heard kept where the heard one is, so that a save state has both as they stand: a state saved
+    // with either loads with the other)
+    if (!board.mixNative) {
+        board.NativeSoundFromBoard(m_pcm.Carry(), m_pcm.FrameSamples());
+    } else if (!m_boardSound && !board.nativeCheck) {
+        for (int v = 0; v < 16; v++) {
+            board.voices[v].position = board.nativeSound.Position(v);
+            board.voices[v].fraction = board.nativeSound.Fraction(v);
+        }
+    }
     const bool drawing = this->drawing && !holdPicture;
     m_renderer.text = !hidePanel;
     m_renderer.backdrop = backdrop;
@@ -993,6 +1003,10 @@ void Machine::Serialize(Archive &ar) {
     ar.Mark(0x43505333);
     board.Serialize(ar);
     m_pcm.Serialize(ar);
+    if (!ar.Saving() && ar.version != 0 && ar.version < 4) {
+        // (a state from before the native mixer was kept: it plays on from the chip as the state has it)
+        board.NativeSoundFromBoard(m_pcm.Carry(), m_pcm.FrameSamples());
+    }
     ar.Pod(frame);
     soundtrack.Serialize(ar);
 }

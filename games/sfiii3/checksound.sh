@@ -11,7 +11,8 @@
 # rewrites hand the events over) and with arcade timing (CPS3RECOMP_BUS_TIMING=1: the game's own code runs, and the
 # hooks work out its events and let them go at its writes to the chip). Then the default build's sound end to end:
 # what it plays (the native mixer, --audio-dump) against what --board plays (pcm.cpp), the same bytes, over attract
-# mode and the one-player game, by default and with arcade timing. And the rewrites against the game's own code
+# mode and the one-player game, by default and with arcade timing. Arcade timing's state hashes with the hooks and
+# without them (SFIII3_SOUND_NO_HOOKS), over the four runs: the same every frame. And the rewrites against the game's own code
 # (CPS3RECOMP_LIFT_CHECK, with only them registered) over attract mode and the one-player game. Prints "all the same",
 # or the first frame, voice and sample that differ. Exit 0 when all the same.
 #
@@ -61,6 +62,14 @@ for i in 0 1; do
         game "board-$arcade-${DUMPS[$i]}" $arcade --board --audio-dump "$OUT/board-$arcade-${DUMPS[$i]}.wav" ${ARGS[$i]}
     done
 done
+# arcade timing's state, with the hooks and without them (SFIII3_SOUND_NO_HOOKS): the same, every frame (they take
+# none of the board's time and change nothing)
+for i in "${!NAMES[@]}"; do
+    # shellcheck disable=SC2086
+    game "hooks-${NAMES[$i]}" 1 --hash-log "$OUT/hooks-${NAMES[$i]}.hash" ${ARGS[$i]}
+    # shellcheck disable=SC2086
+    SFIII3_SOUND_NO_HOOKS=1 game "nohooks-${NAMES[$i]}" 1 --hash-log "$OUT/nohooks-${NAMES[$i]}.hash" ${ARGS[$i]}
+done
 lifts() { # name args...
     local name=$1
     shift
@@ -101,6 +110,15 @@ for name in "${DUMPS[@]}"; do
             status=1
         fi
     done
+done
+for name in "${NAMES[@]}"; do
+    a="$OUT/hooks-$name.hash" b="$OUT/nohooks-$name.hash"
+    if [ -s "$a" ] && cmp -s "$a" "$b"; then
+        echo "arcade-$name: state hashes with the hooks and without them the same ($(wc -l < "$a" | tr -d ' ') frames)"
+    else
+        echo "arcade-$name: state hashes with the hooks and without them DIFFERENT ($(cmp "$a" "$b" 2>&1 | head -1))"
+        status=1
+    fi
 done
 for name in lifts-attract lifts-cpu7; do
     grep "cps3recomp: rewrite" "$OUT/$name.log" | sed "s/^cps3recomp: /$name: /"

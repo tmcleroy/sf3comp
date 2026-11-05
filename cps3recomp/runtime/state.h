@@ -68,6 +68,15 @@ public:
         Bytes(values.data(), static_cast<size_t>(count) * sizeof(T));
     }
     // A mark between parts: reading stops making sense if it is not where it was written
+    // (loading) Whether what comes next starts with that mark, read or not (a part that only some states have)
+    bool Next(uint32_t mark) const {
+        uint32_t value = 0;
+        if (m_saving || m_at + sizeof(value) > m_data.size()) {
+            return false;
+        }
+        memcpy(&value, &m_data[m_at], sizeof(value));
+        return value == mark;
+    }
     void Mark(uint32_t mark) {
         uint32_t value = mark;
         Pod(value);
