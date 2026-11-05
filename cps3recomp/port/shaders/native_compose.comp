@@ -1,0 +1,40 @@
+#version 450
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Tommy McLeroy. Part of cps3recomp (sf3comp).
+//
+// The native video's third pass (port/native_gpu.cpp): the picture as the presenter samples it. Each pixel of the shown
+// picture (`width` x `height`, its pixels from the frame's, `pictureWidth` x `pictureHeight`, at x * pictureWidth /
+// width, y * pictureHeight / height: the menu's picture is the game's three times as tall, 4:3), with the overlay over it
+// where there is one (`overlayOn`; NativeGpu::Overlay). An overlay pixel says what the port's drawing did to the pixel
+// under it (port/main.cpp, Probe): its colour over black (rgb) and how much of what was under it it covers (alpha):
+// all of it (255) where it drew over it, none (0) where it drew nothing. With `rawAbove`, the picture as it is first, and
+// the one with the overlay below it (the camera's zoom: present.h, Zoomed). One column and one row more than the picture,
+// the last again: the presenter's filtering at the picture's edges then blends with the edge itself, as for a texture of
+// the picture's own size. (SDL_GPU's compute layout: read-only buffers in set 0, read-write textures in set 1.)
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+layout(std430, set = 0, binding = 0) readonly buffer Params {
+    uint width, height, pictureWidth, pictureHeight, rawAbove, overlayOn, pad0, pad1;
+} params;
+layout(set = 1, binding = 0, rgba8) uniform readonly image2D picture;
+layout(set = 1, binding = 1, rgba8) uniform readonly image2D overlay;
+layout(set = 1, binding = 2, rgba8) uniform writeonly image2D shown;
+
+void main() {
+    const ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    const uint rows = params.rawAbove != 0u ? 2u * params.height : params.height;
+    if (p.x > int(params.width) || p.y > int(rows)) {
+        return;
+    }
+    const uint x = min(uint(p.x), params.width - 1u), row = min(uint(p.y), rows - 1u);
+    const bool raw = params.rawAbove != 0u && row < params.height;
+    const uint y = params.rawAbove != 0u && !raw ? row - params.height : row;
+    const ivec2 from = ivec2(int(x * params.pictureWidth / params.width), int(y * params.pictureHeight / params.height));
+    const uvec3 under = uvec3(imageLoad(picture, from).rgb * 255.0 + 0.5);
+    uvec3 colour = under;
+    if (!raw && params.overlayOn != 0u) {
+        const uvec4 over = uvec4(imageLoad(overlay, ivec2(int(x), int(y))) * 255.0 + 0.5);
+        colour = min(under * (255u - over.a) / 255u + over.rgb, uvec3(255u));
+    }
+    imageStore(shown, p, vec4(vec3(colour) / 255.0, 1.0));
+}

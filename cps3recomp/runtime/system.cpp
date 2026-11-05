@@ -303,6 +303,22 @@ void Machine::BenchFrame() {
     }
 }
 
+void Machine::KeepGpuFrame() {
+    const native::Video &v = board.native;
+    for (int page = 0; page < native::Textures::kPages; page++) {
+        const uint64_t version = v.textures.PageVersion(page);
+        if (version != m_gpuPages[static_cast<size_t>(page)]) {
+            m_gpuVideo.textures.PutPage(page, v.textures.Pixels() + static_cast<size_t>(page) * 0x10000);
+            m_gpuPages[static_cast<size_t>(page)] = version;
+        }
+    }
+    if (v.palette.Version() != m_gpuColours) {
+        m_gpuVideo.palette.SetAll(v.palette.Colours());
+        m_gpuColours = v.palette.Version();
+    }
+    m_gpuText.assign(board.SsRam(), board.SsRam() + 0x8000);
+}
+
 void Machine::MakePicture() const {
     if (!m_pictureOwed) {
         return;
@@ -497,6 +513,7 @@ void Machine::RunFrame() {
     } else if (drawing && gpuPicture && !board.nativeCheck && board.NativeInSync() && m_renderer.text && !m_renderer.backdrop) {
         // (for the GPU: the frame made ready, the picture drawn on the CPU only if asked for)
         native::BuildFrame(board.native, board.SpriteRamBytes(), m_renderer.margin, m_renderer.shift, m_gpuFrame);
+        KeepGpuFrame();
         m_width = m_gpuFrame.width;
         m_height = m_gpuFrame.height;
         m_pictureOwed = true;
@@ -739,10 +756,12 @@ void Machine::StepStage() {
 }
 
 void Machine::Serialize(Archive &ar) {
-    if (!ar.Saving()) {
+    if (!ar.Saving() && !ar.inMemory) {
         MakePicture(); // (the picture stays the one shown until a frame is drawn: of what was there)
         m_gpuReady = false;
     }
+    // (put back from memory, by run-ahead or rollback: the frame shown stays the last one run, the GPU's from what was
+    // kept of it, GpuVideo; its CPU picture, if asked for before the next frame, is of what was put back)
     ar.Mark(0x43505333);
     board.Serialize(ar);
     m_pcm.Serialize(ar);

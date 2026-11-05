@@ -13,6 +13,7 @@
 #include "romset.h"
 #include "soundtrack.h"
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -84,6 +85,14 @@ public:
     // The last frame made ready for the GPU (none: it was drawn on the CPU, or its picture changed since)
     const native::Frame *GpuFrame() const {
         return m_gpuReady ? &m_gpuFrame : nullptr;
+    }
+    // ... and what the GPU draws it from, as it was at that frame's end (the colours, the textures and the text layer's
+    // memory: kept apart from the machine's, which run-ahead and rollback put back after the frame shown was run)
+    const native::Video &GpuVideo() const {
+        return m_gpuVideo;
+    }
+    const uint8_t *GpuText() const {
+        return m_gpuText.data();
     }
     int PictureWidth() const {
         return m_width;
@@ -198,6 +207,11 @@ private:
     // (the frame made ready for the GPU, gpuPicture: its picture not yet drawn on the CPU)
     native::Frame m_gpuFrame;
     bool m_gpuReady = false;
+    native::Video m_gpuVideo;
+    std::vector<uint8_t> m_gpuText;
+    std::array<uint64_t, native::Textures::kPages> m_gpuPages{};
+    uint64_t m_gpuColours = 0;
+    void KeepGpuFrame();
     mutable bool m_pictureOwed = false;
     void MakePicture() const;
     void BenchFrame();

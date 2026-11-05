@@ -33,7 +33,30 @@ public:
     }
     // The frame drawn (its picture in Picture(), `width` x `height` of it): the commands go in `cmd` (or in the one
     // returned, which the caller submits)
-    SDL_GPUCommandBuffer *Draw(SDL_GPUCommandBuffer *cmd, const cps3recomp::native::Frame &frame, const cps3recomp::native::Video &video, const uint8_t *ssRam);
+    // What the port puts over the picture (the readout, the lines at the bottom, the menu), `width` x `height` of it,
+    // a pixel each (red in the low byte): its colour over black and, in the high byte, how much of what is under it it
+    // covers (port/main.cpp, Probe). The picture under it is the frame's, its pixels at x * frame width / `width`,
+    // y * frame height / `height` (the menu's is three times as tall). `rawAbove`: the frame's picture as it is first and
+    // the one with the overlay under it, twice as tall (the camera's zoom). `version`: changes when the pixels do (sent
+    // again only then)
+    struct Overlay {
+        const uint32_t *pixels = nullptr;
+        int width = 0, height = 0;
+        bool rawAbove = false;
+        uint64_t version = 0;
+    };
+    static constexpr int kOverlayWidth = 2048, kOverlayHeight = 1024; // (the most it can be: the menu's picture)
+    SDL_GPUCommandBuffer *Draw(SDL_GPUCommandBuffer *cmd, const cps3recomp::native::Frame &frame, const cps3recomp::native::Video &video, const uint8_t *ssRam,
+                               const Overlay *overlay = nullptr);
+    // What the presenter samples after Draw: the picture, or with an overlay the picture with it (`width` x `height` of
+    // a texture `textureWidth` x `textureHeight`; twice as tall with rawAbove)
+    struct Shown {
+        SDL_GPUTexture *texture = nullptr;
+        int textureWidth = 0, textureHeight = 0, width = 0, height = 0;
+    };
+    Shown LastShown() const {
+        return m_lastShown;
+    }
     SDL_GPUTexture *Picture() const {
         return m_picture;
     }
@@ -52,7 +75,12 @@ public:
 
 private:
     SDL_GPUDevice *m_device = nullptr;
-    SDL_GPUComputePipeline *m_tilesPass = nullptr, *m_resolvePass = nullptr;
+    SDL_GPUComputePipeline *m_tilesPass = nullptr, *m_resolvePass = nullptr, *m_composePass = nullptr;
+    SDL_GPUBuffer *m_composeParams = nullptr;
+    SDL_GPUTexture *m_overlay = nullptr, *m_composed = nullptr;
+    uint64_t m_overlaySent = 0;
+    bool m_overlayKnown = false;
+    Shown m_lastShown;
     SDL_GPUBuffer *m_tilesParams = nullptr, *m_tiles = nullptr, *m_rowStarts = nullptr, *m_rowTiles = nullptr, *m_textures = nullptr;
     SDL_GPUBuffer *m_resolveParams = nullptr, *m_palette = nullptr, *m_text = nullptr;
     SDL_GPUTransferBuffer *m_upload = nullptr, *m_download = nullptr;

@@ -198,10 +198,17 @@ struct Port {
     // line at the bottom, nothing online. Then the GPU may draw the picture from the native interface
     // (Presenter::ShowNative) in place of the CPU's
     bool ShownPlain() const;
+    // ... and what Shown would put over the picture, as an overlay the GPU puts over its own (NativeGpu::Overlay: empty
+    // when nothing); zoomed (true), as Windowed zooms (the overlay rawAbove)
+    bool WindowedOverlay(std::vector<uint32_t> &overlay, Zoomed &zoomed) const;
+    // ... and the menu's picture's (MenuPicture with the menu drawn over it), the menu's picture's size
+    void MenuOverlay(std::vector<uint32_t> &overlay, uint32_t &width, uint32_t &height) const;
+    // What Shown puts over a picture (the readout, the lines at the bottom, online's names and chat)
+    void ShownOver(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels = nullptr) const;
+    mutable std::vector<uint32_t> m_probeBlack, m_probeWhite;
     // Set by the frontend: the picture goes to the window through SDL's GPU API with the native video's renderer
-    // (Presenter::CanShowNative); and whether the last shown frame could have been drawn by it (ShownPlain): each frame
-    // is then made for the GPU (Machine::gpuPicture) unless the menu is open
-    bool gpuPresent = false, nativeShowable = true;
+    // (Presenter::CanShowNative): each frame is then made for the GPU (Machine::gpuPicture) unless the menu is open
+    bool gpuPresent = false;
     // How many pixels a line of it has (the machine's picture: wider when the game's sources ask)
     int ShownWidth() const {
         return machine->PictureWidth();

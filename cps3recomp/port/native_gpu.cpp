@@ -64,6 +64,8 @@ bool NativeGpu::Open(SDL_GPUDevice *device, std::string &error) {
     m_device = device;
     m_tilesPass = MakePass(device, k_native_tiles_comp_spirv, sizeof(k_native_tiles_comp_spirv), k_native_tiles_comp_msl, 5, 1);
     m_resolvePass = MakePass(device, k_native_resolve_comp_spirv, sizeof(k_native_resolve_comp_spirv), k_native_resolve_comp_msl, 3, 2);
+    m_composePass = MakePass(device, k_native_compose_comp_spirv, sizeof(k_native_compose_comp_spirv), k_native_compose_comp_msl, 1, 3);
+    m_composeParams = MakeBuffer(device, 32);
     m_tilesParams = MakeBuffer(device, 16);
     m_resolveParams = MakeBuffer(device, 32);
     m_rowStarts = MakeBuffer(device, (kBufferHeight + 1) * 4);
@@ -73,15 +75,24 @@ bool NativeGpu::Open(SDL_GPUDevice *device, std::string &error) {
     m_colours = MakeTexture(device, SDL_GPU_TEXTUREFORMAT_R32_UINT,
                             SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_SIMULTANEOUS_READ_WRITE, kBufferWidth,
                             kBufferHeight);
-    m_picture = MakeTexture(device, SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE,
+    m_picture = MakeTexture(device, SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+                            SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE |
+                                SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_SIMULTANEOUS_READ_WRITE,
                             kBufferWidth, 256);
-    if (!m_tilesPass || !m_resolvePass || !m_tilesParams || !m_resolveParams || !m_rowStarts || !m_textures || !m_palette || !m_text ||
+    // (what is put over it, and the two together: NativeGpu::Overlay)
+    m_overlay = MakeTexture(device, SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+                            SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE | SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_SIMULTANEOUS_READ_WRITE, kOverlayWidth,
+                            kOverlayHeight);
+    m_composed = MakeTexture(device, SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM, SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COMPUTE_STORAGE_WRITE,
+                             kOverlayWidth, kOverlayHeight);
+    if (!m_tilesPass || !m_resolvePass || !m_composePass || !m_composeParams || !m_overlay || !m_composed || !m_tilesParams || !m_resolveParams || !m_rowStarts || !m_textures || !m_palette || !m_text ||
         !m_colours || !m_picture || !Grow(m_tiles, m_tilesCapacity, 48 * 4096) || !Grow(m_rowTiles, m_rowTilesCapacity, 4 * 65536)) {
         error = SDL_GetError();
         Close();
         return false;
     }
     m_texturesSent = false;
+    m_overlayKnown = false;
     return true;
 }
 
@@ -89,12 +100,12 @@ void NativeGpu::Close() {
     if (!m_device) {
         return;
     }
-    for (SDL_GPUComputePipeline *p : {m_tilesPass, m_resolvePass}) {
+    for (SDL_GPUComputePipeline *p : {m_tilesPass, m_resolvePass, m_composePass}) {
         if (p) {
             SDL_ReleaseGPUComputePipeline(m_device, p);
         }
     }
-    for (SDL_GPUBuffer *b : {m_tilesParams, m_tiles, m_rowStarts, m_rowTiles, m_textures, m_resolveParams, m_palette, m_text}) {
+    for (SDL_GPUBuffer *b : {m_tilesParams, m_tiles, m_rowStarts, m_rowTiles, m_textures, m_resolveParams, m_palette, m_text, m_composeParams}) {
         if (b) {
             SDL_ReleaseGPUBuffer(m_device, b);
         }
@@ -104,12 +115,15 @@ void NativeGpu::Close() {
             SDL_ReleaseGPUTransferBuffer(m_device, t);
         }
     }
-    for (SDL_GPUTexture *t : {m_colours, m_picture}) {
+    for (SDL_GPUTexture *t : {m_colours, m_picture, m_overlay, m_composed}) {
         if (t) {
             SDL_ReleaseGPUTexture(m_device, t);
         }
     }
-    m_tilesPass = m_resolvePass = nullptr;
+    m_tilesPass = m_resolvePass = m_composePass = nullptr;
+    m_composeParams = nullptr;
+    m_overlay = m_composed = nullptr;
+    m_lastShown = {};
     m_tilesParams = m_tiles = m_rowStarts = m_rowTiles = m_textures = m_resolveParams = m_palette = m_text = nullptr;
     m_upload = m_download = nullptr;
     m_colours = m_picture = nullptr;
@@ -129,7 +143,8 @@ bool NativeGpu::Grow(SDL_GPUBuffer *&buffer, uint32_t &capacity, uint32_t bytes)
     return buffer != nullptr;
 }
 
-SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recomp::native::Frame &f, const cps3recomp::native::Video &v, const uint8_t *ss) {
+SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recomp::native::Frame &f, const cps3recomp::native::Video &v, const uint8_t *ss,
+                                      const Overlay *overlay) {
     using cps3recomp::native::Tile;
     m_width = f.width;
     m_height = f.height;
@@ -202,7 +217,18 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
     const int32_t resolveParams[8] = {f.width, f.height, static_cast<int32_t>(fx), static_cast<int32_t>(fy), f.margin, f.textScrollY,
                                       static_cast<int32_t>(f.textPalette), 0};
     // One upload of everything
-    const uint32_t total = 16 + 32 + tileBytes + (kBufferHeight + 1) * 4 + rowTileBytes + static_cast<uint32_t>(pages.size()) * kPage + (colours ? kPaletteSize : 0) + kTextSize;
+    // (the overlay: sent when it changed)
+    const bool over = overlay && overlay->pixels && overlay->width > 0 && overlay->height > 0 && overlay->width <= kOverlayWidth &&
+                      overlay->height <= kOverlayHeight;
+    const bool sendOverlay = over && (!m_overlayKnown || overlay->version != m_overlaySent);
+    const uint32_t overlayBytes = sendOverlay ? static_cast<uint32_t>(overlay->width * overlay->height * 4) : 0;
+    // (the picture as shown: the frame's, or as large as the overlay, with it over it; twice as tall with rawAbove)
+    const int shownWidth = over ? overlay->width : f.width, shownHeight = over ? overlay->height : f.height;
+    const bool rawAbove = over && overlay->rawAbove;
+    const int composedHeight = rawAbove ? 2 * shownHeight : shownHeight;
+    const uint32_t composeParams[8] = {static_cast<uint32_t>(shownWidth), static_cast<uint32_t>(shownHeight), static_cast<uint32_t>(f.width),
+                                       static_cast<uint32_t>(f.height), rawAbove ? 1u : 0u, over ? 1u : 0u, 0, 0};
+    const uint32_t total = 32 + overlayBytes + 16 + 32 + tileBytes + (kBufferHeight + 1) * 4 + rowTileBytes + static_cast<uint32_t>(pages.size()) * kPage + (colours ? kPaletteSize : 0) + kTextSize;
     if (!m_upload || m_uploadCapacity < total) {
         if (m_upload) {
             SDL_ReleaseGPUTransferBuffer(m_device, m_upload);
@@ -230,6 +256,14 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
         copies.push_back({buffer, at, size, offset});
         at += size;
     };
+    put(m_composeParams, composeParams, 32);
+    const uint32_t overlayAt = at;
+    if (sendOverlay) {
+        memcpy(map + at, overlay->pixels, overlayBytes);
+        at += overlayBytes;
+        m_overlaySent = overlay->version;
+        m_overlayKnown = true;
+    }
     put(m_tilesParams, tilesParams, 16);
     put(m_resolveParams, resolveParams, 32);
     if (!f.tiles.empty()) {
@@ -250,6 +284,19 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
         SDL_GPUTransferBufferLocation from = {m_upload, c.at};
         SDL_GPUBufferRegion to = {c.buffer, c.offset, c.size};
         SDL_UploadToGPUBuffer(copy, &from, &to, false);
+    }
+    if (sendOverlay) {
+        SDL_GPUTextureTransferInfo from = {};
+        from.transfer_buffer = m_upload;
+        from.offset = overlayAt;
+        from.pixels_per_row = static_cast<Uint32>(overlay->width);
+        from.rows_per_layer = static_cast<Uint32>(overlay->height);
+        SDL_GPUTextureRegion to = {};
+        to.texture = m_overlay;
+        to.w = static_cast<Uint32>(overlay->width);
+        to.h = static_cast<Uint32>(overlay->height);
+        to.d = 1;
+        SDL_UploadToGPUTexture(copy, &from, &to, false);
     }
     SDL_EndGPUCopyPass(copy);
     // (debugging aid, CPS3RECOMP_NATIVE_GPU_SPLIT=1: the uploads submitted and waited for before the passes that read them)
@@ -284,6 +331,20 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
         SDL_BindGPUComputeStorageBuffers(pass, 0, buffers, 3);
         SDL_DispatchGPUCompute(pass, static_cast<Uint32>((f.width + 7) / 8), static_cast<Uint32>((f.height + 7) / 8), 1);
         SDL_EndGPUComputePass(pass);
+    }
+    // The picture as the presenter samples it: with what is put over it (NativeGpu::Overlay), and a column and a row
+    // past it the same as its edges
+    {
+        SDL_GPUStorageTextureReadWriteBinding out[3] = {};
+        out[0].texture = m_picture;
+        out[1].texture = m_overlay;
+        out[2].texture = m_composed;
+        SDL_GPUComputePass *pass = SDL_BeginGPUComputePass(cmd, out, 3, nullptr, 0);
+        SDL_BindGPUComputePipeline(pass, m_composePass);
+        SDL_BindGPUComputeStorageBuffers(pass, 0, &m_composeParams, 1);
+        SDL_DispatchGPUCompute(pass, static_cast<Uint32>((shownWidth + 8) / 8), static_cast<Uint32>((composedHeight + 8) / 8), 1);
+        SDL_EndGPUComputePass(pass);
+        m_lastShown = {m_composed, kOverlayWidth, kOverlayHeight, shownWidth, shownHeight};
     }
     return cmd;
 }
