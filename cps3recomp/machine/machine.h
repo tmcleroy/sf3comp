@@ -124,6 +124,9 @@ public:
         return m_spriteGroup.data();
     }
     uint32 SpriteRam(uint32 word) const; // 32-bit word `word` of sprite RAM
+    const uint8 *SpriteRamBytes() const {
+        return m_spriteRam.data(); // (512 KB, big-endian)
+    }
     const uint8 *CharRam() const {
         return m_charRam.data(); // 8 MB, big-endian bytes; a 16x16 tile is 256 bytes, one per pixel
     }

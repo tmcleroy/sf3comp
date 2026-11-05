@@ -167,7 +167,10 @@ the board keeps the interface beside its own memories, `Machine::nativeCheck`), 
   store, every frame (the store made by the native loader from the lists the rewrites hand over). The object lists'
   heads (done): at every object DMA the game starts, the heads the DMA takes against those handed over; and the
   objects (done): the flattened list the board's DMA makes against the native interface's (FlattenObjects). Next: pixels.
-- **(b) pixels**: the native rasteriser's picture from the interface equals renderer.cpp's from the board, every
+- **(b) pixels** (done for the plain picture: video/raster.cpp, the draw list of quads and tilemap lines a GPU would
+  take, rasterised, resolved through the native palette, the text layer over it; compared in system.cpp after every
+  frame drawn without widescreen, a second board or objects left out): the native rasteriser's picture from the
+  interface equals renderer.cpp's from the board, every
   frame (and the GPU's capture equals the rasteriser's, on the machines that have one).
 - **(c) samples**: the native mixer's output from the voice events equals pcm.cpp's from the registers, every frame.
 

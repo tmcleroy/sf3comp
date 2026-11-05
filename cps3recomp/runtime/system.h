@@ -8,6 +8,7 @@
 
 #include "machine.h"
 #include "pcm.h"
+#include "raster.h"
 #include "renderer.h"
 #include "romset.h"
 #include "soundtrack.h"
@@ -172,6 +173,10 @@ public:
 
 private:
     Renderer m_renderer;
+    // (the pixel check: the native interface's picture, CPS3RECOMP_NATIVE_CHECK)
+    native::Rasteriser m_nativeRaster;
+    std::vector<uint32_t> m_nativePicture;
+    void NativePixels();
     Pcm m_pcm;
     std::vector<uint32_t> m_picture;
     std::unique_ptr<RomSet> m_stageSet;

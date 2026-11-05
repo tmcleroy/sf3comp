@@ -10,7 +10,9 @@
 # handed over); the textures (all 8 MB of character RAM against the native store, made from the character DMA lists
 # handed over: video_palette.cpp, video_textures.cpp); at every object DMA the game starts, the lists' heads it takes
 # against those handed over (src/video_lists.cpp) and the objects it makes against those the interface makes from the
-# heads, the registers and sprite RAM's object words (native::FlattenObjects). Over attract mode, a one-player game of made-up play (the computer's fights, the
+# heads, the registers and sprite RAM's object words (native::FlattenObjects). Level (b): every frame drawn the plain
+# way, the native rasteriser's picture (video/raster.cpp, from the interface alone and the game's own memories) against
+# renderer.cpp's from the board, pixel for pixel. Over attract mode, a one-player game of made-up play (the computer's fights, the
 # screens between), a two-player versus game and a training session. Then the same rewrites against the game's own
 # code (CPS3RECOMP_LIFT_CHECK, with only them registered) over attract mode and the one-player game. Exit 0 when all
 # the same.
@@ -77,6 +79,12 @@ for name in "${NAMES[@]}"; do
     echo "$name: objects: ${line#cps3recomp: native objects: }"
     if [ -z "$line" ] || ! echo "$line" | grep -q ", 0 different"; then
         grep "^native objects, frame" "$OUT/$name.log" | head -3
+        status=1
+    fi
+    line=$(grep "cps3recomp: native pixels:" "$OUT/$name.log")
+    echo "$name: pixels: ${line#cps3recomp: native pixels: }"
+    if [ -z "$line" ] || ! echo "$line" | grep -q ", 0 different"; then
+        grep "^native pixels, frame" "$OUT/$name.log" | head -3
         status=1
     fi
     line=$(grep "cps3recomp: native object lists:" "$OUT/$name.log")

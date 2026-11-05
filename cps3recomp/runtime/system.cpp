@@ -49,6 +49,43 @@ void Machine::Reset() {
 // punches, Start, the coins, service and test and player 2's hard kick; the second the other kicks
 extern bool (*g_rewritesNeededNow)(); // (recomp.cpp)
 
+// The pixel check (docs/NATIVE.md, level b): the native interface's picture, drawn by the native rasteriser from what
+// the game handed over, against renderer.cpp's from the board, every frame drawn the plain way (no widescreen, no
+// second board, nothing left out). Reported at the end.
+namespace {
+    struct PixelTotals {
+        uint64_t frames = 0, different = 0;
+        unsigned reports = 6;
+        ~PixelTotals() {
+            if (frames) {
+                fprintf(stderr, "cps3recomp: native pixels: %llu frames compared, %llu different\n", static_cast<unsigned long long>(frames),
+                        static_cast<unsigned long long>(different));
+            }
+        }
+    } g_pixelTotals;
+} // namespace
+
+void Machine::NativePixels() {
+    int width = 0, height = 0;
+    m_nativeRaster.Draw(board.native, board.SpriteRamBytes(), board.SsRam(), m_nativePicture, width, height);
+    g_pixelTotals.frames++;
+    if (width != m_width || height != m_height || m_nativePicture.size() < static_cast<size_t>(width) * height ||
+        m_picture.size() < static_cast<size_t>(width) * height ||
+        !std::equal(m_nativePicture.begin(), m_nativePicture.begin() + static_cast<size_t>(width) * height, m_picture.begin())) {
+        g_pixelTotals.different++;
+        if (g_pixelTotals.reports) {
+            g_pixelTotals.reports--;
+            size_t at = 0, n = std::min(m_nativePicture.size(), m_picture.size());
+            while (at < n && m_nativePicture[at] == m_picture[at]) {
+                at++;
+            }
+            fprintf(stderr, "native pixels, frame %llu: %dx%d (board) / %dx%d (native), the first to differ at %d,%d: %06X / %06X\n",
+                    static_cast<unsigned long long>(frame), m_width, m_height, width, height, width ? static_cast<int>(at % width) : 0,
+                    width ? static_cast<int>(at / width) : 0, at < n ? m_picture[at] : 0, at < n ? m_nativePicture[at] : 0);
+        }
+    }
+}
+
 void Machine::RunFrame() {
     // (the bus's timing: the arcade_timing feature, or CPS3RECOMP_BUS_TIMING=1 for the timing harness)
     static const bool forced = getenv("CPS3RECOMP_BUS_TIMING") != nullptr;
@@ -224,6 +261,9 @@ void Machine::RunFrame() {
         m_renderer.drawGroup = nullptr;
     } else if (drawing) {
         m_renderer.Draw(board, m_picture, m_width, m_height);
+        if (board.nativeCheck && m_renderer.margin == 0) {
+            NativePixels();
+        }
     }
     // (debugging aid, CPS3RECOMP_SPRITES=FRAME: the object list as drawn at that frame)
     static const long long spritesAt = getenv("CPS3RECOMP_SPRITES") ? atoll(getenv("CPS3RECOMP_SPRITES")) : -1;
