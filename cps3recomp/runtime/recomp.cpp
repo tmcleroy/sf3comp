@@ -890,7 +890,7 @@ namespace {
                 if (rt.noRewrites || (timed && !(g_rewritesNeededNow && g_rewritesNeededNow()))) {
                     // (one that hands the native interface what it draws: run dry, charged nothing, before the game's
                     // code runs: lift.h)
-                    if (lift.handsOver && !rt.noDryRuns && native::On()) {
+                    if (lift.handsOver && !rt.noDryRuns && guest.Board().NativeTaking()) { // (machine.h: not for frames no GPU draws)
                         BusOff off(cpu);
                         DryRun dry;
                         std::copy(cpu.R.begin(), cpu.R.end(), dry.r);
