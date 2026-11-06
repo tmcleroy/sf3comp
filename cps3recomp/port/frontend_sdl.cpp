@@ -342,10 +342,63 @@ int RunWindowed(Port &port) {
     SDL_AudioStream *audio = nullptr;
     port.menu.muted = port.opt.mute;
     bool silent = false;
+    // (for the checks, CPS3RECOMP_AUDIO_SINK=FILE:RATE[:QUANTUM]: no sound device; the stream is taken by the clock as a
+    // device at RATE would take it, QUANTUM frames at a time (as PipeWire's quantum), and what it plays written to FILE,
+    // 16-bit stereo; a quantum the stream could not fill is counted, and silence written for what was missing.
+    // games/sfiii3/checkko.sh hears the knock-out through it at the Steam Machine's 48 kHz and the Mac's 44.1 kHz)
+    struct Sink {
+        FILE *file = nullptr;
+        int rate = 0, quantum = 0;
+        uint64_t start = 0, taken = 0, short_ = 0;
+        std::vector<int16_t> buffer;
+    } sink;
+    if (const char *spec = getenv("CPS3RECOMP_AUDIO_SINK")) {
+        const std::string s = spec;
+        const size_t colon = s.find(':');
+        if (colon != std::string::npos) {
+            sink.file = fopen(s.substr(0, colon).c_str(), "wb");
+            sink.rate = atoi(s.c_str() + colon + 1);
+            const size_t second = s.find(':', colon + 1);
+            sink.quantum = second == std::string::npos ? 512 : std::max(1, atoi(s.c_str() + second + 1));
+        }
+        if (!sink.file || sink.rate <= 0) {
+            fprintf(stderr, "CPS3RECOMP_AUDIO_SINK: FILE:RATE[:QUANTUM]\n");
+            return 1;
+        }
+    }
+    const auto drainSink = [&]() {
+        if (!sink.file || !audio) {
+            return;
+        }
+        const uint64_t now = SDL_GetTicksNS();
+        if (!sink.start) {
+            sink.start = now;
+        }
+        const uint64_t due = (now - sink.start) * static_cast<uint64_t>(sink.rate) / 1000000000ull / static_cast<uint64_t>(sink.quantum) * static_cast<uint64_t>(sink.quantum);
+        sink.buffer.resize(static_cast<size_t>(sink.quantum) * 2);
+        for (; sink.taken < due; sink.taken += static_cast<uint64_t>(sink.quantum)) {
+            const int want = sink.quantum * 4;
+            const int got = std::max(0, SDL_GetAudioStreamData(audio, sink.buffer.data(), want));
+            if (got < want) {
+                sink.short_++;
+                memset(reinterpret_cast<uint8_t *>(sink.buffer.data()) + got, 0, static_cast<size_t>(want - got));
+            }
+            fwrite(sink.buffer.data(), 1, static_cast<size_t>(want), sink.file);
+        }
+    };
     {
         const SDL_AudioSpec spec{SDL_AUDIO_S16, 2, static_cast<int>(Machine::kSampleRate + 0.5)};
-        audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
-        if (audio) {
+        if (sink.file) {
+            const SDL_AudioSpec to{SDL_AUDIO_S16, 2, sink.rate};
+            audio = SDL_CreateAudioStream(&spec, &to);
+        } else {
+            audio = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, nullptr, nullptr);
+        }
+        if (audio && sink.file) {
+            if (audioLog) {
+                fprintf(stderr, "audio: a sink of %d Hz, %d frames a quantum\n", sink.rate, sink.quantum);
+            }
+        } else if (audio) {
             SDL_ResumeAudioStreamDevice(audio);
             if (audioLog) {
                 SDL_AudioSpec device{};
@@ -805,6 +858,7 @@ int RunWindowed(Port &port) {
         const double pace = port.paused ? 1.0 : static_cast<double>(rate.frames) / rate.ticks;
         const bool ran = port.Tick();
 
+        drainSink(); // (the checks' sink: what a device would have taken by now)
         if (audio && silent != (port.menu.muted || audioLog)) {
             silent = port.menu.muted || audioLog;
             SDL_SetAudioStreamGain(audio, silent ? 0.0f : 1.0f);
@@ -909,6 +963,11 @@ int RunWindowed(Port &port) {
     }
     for (SDL_Gamepad *gp : gamepads) {
         SDL_CloseGamepad(gp);
+    }
+    if (sink.file) {
+        fclose(sink.file);
+        fprintf(stderr, "cps3recomp: audio sink: %llu frames at %d Hz, %llu quanta short\n", static_cast<unsigned long long>(sink.taken), sink.rate,
+                static_cast<unsigned long long>(sink.short_));
     }
     if (audio) {
         SDL_DestroyAudioStream(audio);

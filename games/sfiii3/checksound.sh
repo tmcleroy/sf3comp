@@ -13,7 +13,9 @@
 # what it plays (the native mixer, --audio-dump) against what --board plays (pcm.cpp), the same bytes, over attract
 # mode and the one-player game, by default and with arcade timing. Arcade timing's state hashes with the hooks and
 # without them (SFIII3_SOUND_NO_HOOKS), over the four runs: the same every frame. And the rewrites against the game's own code
-# (CPS3RECOMP_LIFT_CHECK, with only them registered) over attract mode and the one-player game. Prints "all the same",
+# (CPS3RECOMP_LIFT_CHECK, with only them registered) over attract mode and the one-player game. Then checkko.sh: a
+# knock-out's sound and slow motion, by default and with --board, and as the window's frontend plays it at 48 and 44.1
+# kHz. Prints "all the same",
 # or the first frame, voice and sample that differ. Exit 0 when all the same.
 #
 #   games/sfiii3/checksound.sh ROM [BUILD] [FRAMES]     (BUILD: build/sfiii3; FRAMES: 12000 a run)
@@ -141,6 +143,8 @@ for name in lifts-attract lifts-cpu7; do
         status=1
     fi
 done
-[ $status = 0 ] && echo "checksound: all the same" || echo "checksound: DIFFERENT"
 rm -rf "$OUT"
+# The knock-out's sound and slow motion, and the frontend's sound through it (checkko.sh)
+"$(dirname "$0")/checkko.sh" "$ROM" "$BUILD" || status=1
+[ $status = 0 ] && echo "checksound: all the same" || echo "checksound: DIFFERENT"
 exit $status

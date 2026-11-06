@@ -57,6 +57,14 @@
   no clock, the loser replaced, a side a person's while they touch it. Survival: the player's character kept with
   its health (and a tenth back), a new opponent each time. Team: the loser's next on fresh, the winner with its
   health. Seen in pictures and logs; not hand-played.
+- The board's sound (test menu, system settings, SOUND): EEPROM byte 0x07, 1 JAMMA (mono, the default) or 0 EXTERNAL
+  (stereo), read at start-up into the driver's stereo byte 0x02079C5B. The port sets EXTERNAL (board_sound: Stereo) since
+  2026-11-06: in JAMMA the driver gives every voice both sides, so the knock-out's boom (voices 10 and 11, one sample
+  each side, keyed a sample apart) played twice on both, +6 dB, flanged, and clipping (198 samples in the first second
+  of checkko.sh's knock-out; 1116 in 12000 frames of that game, 6 with EXTERNAL). The knock-out's timing is the game's
+  (3sx's slowf.c and eff84's Time_Data): the message holds the game 90 frames (+1), then 93 frames of slow motion at a
+  quarter, a third and half speed, counted by vertical blanks; the sound driver runs at every one, so the sound is not
+  slowed. checkko.sh checks all that (and what the window's frontend plays, at 48 and 44.1 kHz) against --board.
 - Credits: byte 02007CE0 (free_play keeps it at 2). Round clock: byte 02011377 (seconds; infinite_time).
 - The DMA-done interrupt (level 10) drives the game's queue of character and palette DMAs (handler 060004D0 calls
   06138230: state word 0207603C, queues at 0207803C / 0207844C). Its timing matters: with the board's clock read
