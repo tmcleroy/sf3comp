@@ -42,7 +42,8 @@ namespace {
             uint16_t connection = 0;
         } parry[2];
         uint32_t frame = 0;
-        uint32_t parryTap = 0; // (the dummy's parry: the frame it last tapped)
+        uint32_t parryTap = 0; // (the dummy's parry: the frame it last tapped, or let an attack through)
+        bool parryTried = false;
         // (... and for each of player 1's animations (by character), its frames until its attack box comes out, so that the
         // next time it taps just before it can hit; and when player 1's move now started)
         struct Learned {
@@ -514,7 +515,10 @@ void TrainingBeforeFrame(Machine &m) {
     const int guardAction = FeatureValue("dummy_guard_action"); // (1 the red parry, 2 at random: one guarding in two)
     const bool red = (guardAction == 1 || (guardAction == 2 && (g.guardedAt * 2654435761u) >> 31)) && g.guardedAt &&
                      (g.guarding[1] || g.frame - g.guardedAt < 30);
-    if (session::InSession() && (FeatureOn("dummy_parry") || red) && InMatch()) {
+    // (Parries: the share of attacks it tries for, the session's dice thrown for each as its tap comes due; the red parry
+    // always)
+    const int parryPercent = red ? 100 : fight::ChoicePercent(FeatureValue("dummy_parry"));
+    if (session::InSession() && parryPercent && InMatch()) {
         const bool onRight = static_cast<int16_t>(Ram16(Player(1) + sfiii3::kX)) >= static_cast<int16_t>(Ram16(Player(0) + sfiii3::kX));
         // (an animation seen to hit before: the tap as it is about to, `lead` frames before; a move not seen yet: as it starts)
         static const int lead = getenv("SFIII3_PARRY_LEAD") ? atoi(getenv("SFIII3_PARRY_LEAD")) : 2;
@@ -534,11 +538,16 @@ void TrainingBeforeFrame(Machine &m) {
         g.projectileDistance = nearest;
         static const uint32_t again = getenv("SFIII3_PARRY_AGAIN") ? static_cast<uint32_t>(atoi(getenv("SFIII3_PARRY_AGAIN"))) : 18;
         if ((due || projectile) && (g.parryTap == 0 || g.frame - g.parryTap > again)) {
-            m.players[1] = g.moveLow[0] && !projectile ? kDown : (onRight ? kLeft : kRight);
+            // (an attack let through: the tap's time taken all the same, so that the same attack is not tried for again)
+            const bool tries = session::Chance(parryPercent);
+            if (tries) {
+                m.players[1] = g.moveLow[0] && !projectile ? kDown : (onRight ? kLeft : kRight);
+            }
             if (!RunningAhead()) {
                 g.parryTap = g.frame;
+                g.parryTried = tries;
             }
-        } else if (g.parryTap && g.frame - g.parryTap < 2) {
+        } else if (g.parryTap && g.parryTried && g.frame - g.parryTap < 2) {
             m.players[1] = 0; // (let go, so the next tap is a fresh one)
         }
     }
@@ -628,10 +637,11 @@ void RegisterTraining(Game &game) {
         {"dummy_stun_mash", "Dummy", "Mashes out of stun",
          "Stunned, the dummy works the stick and the buttons as fast as it can, as a player does to get out sooner."},
         {"dummy_parry", "Dummy", "Parries",
-         "Player 2 tries to parry player 1's attacks: it taps towards player 1 (or down for an attack made crouching). A move it has "
-         "seen before it parries just before it can hit (it learns how long each animation takes to bring out its attack, chained "
-         "and cancelled moves too); one it has not, as it starts. In tests it parried about three in four of made-up play's "
-         "attacks (a third without the learning)."},
+         "Player 2 tries to parry this share of player 1's attacks (the rest it lets through), at random: it taps towards player 1 "
+         "(or down for an attack made crouching). A move it has seen before it parries just before it can hit (it learns how long "
+         "each animation takes to bring out its attack, chained and cancelled moves too); one it has not, as it starts. In tests, "
+         "trying for every attack, it parried about three in four of made-up play's attacks (a third without the learning).",
+         0, fight::kPercentChoices},
         {"parry_readout", session::kPage, "Parry readout",
          "When a parry window opens (the stick forward, down, in the air, or up against a jump-in): whether the parry came, on which "
          "frame of the window, or how long after the window opened the hit came instead."},
@@ -693,7 +703,8 @@ void RegisterTraining(Game &game) {
         return static_cast<uint16_t>((frame & 1) ? 0 : (kPunch1 | kKick1));
     };
     d.dummy.heldActionTitle = "Escapes throws";
-    d.dummy.heldActionWords = "Player 2 escapes throws (light punch and light kick as the throw takes hold): always, or one in two at random.";
+    d.dummy.heldActionWords = "Player 2 escapes this share of throws (light punch and light kick as the throw takes hold), at random: "
+                              "100% every one, 50% one in two.";
     // Knocked down: the quick stand (down tapped as it lands)
     d.dummy.getUp.push_back({"Quick stand", [](int frame, uint16_t, uint16_t) -> uint16_t {
                                  return static_cast<uint16_t>(((frame / 2) & 1) ? 0 : kDown);

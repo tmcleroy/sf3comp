@@ -133,6 +133,8 @@ namespace {
     DummyOptions g_options;
 }
 
+const std::vector<const char *> kPercentChoices = {"Off", "100%", "90%", "80%", "70%", "60%", "50%", "40%", "30%", "20%", "10%"};
+
 void RegisterDummy(const DummyOptions &options) {
     const size_t first = TheGame().features.size();
     g_options = options;
@@ -170,7 +172,7 @@ void RegisterDummy(const DummyOptions &options) {
                              "With an answer chosen: player 2 answers only one time in two, with any slot that has a recording, "
                              "so you cannot learn when or how it will."});
     if (options.heldAction) {
-        game.features.push_back({"dummy_tech", "Dummy", options.heldActionTitle, options.heldActionWords, 0, {"Off", "Always", "At random"}});
+        game.features.push_back({"dummy_tech", "Dummy", options.heldActionTitle, options.heldActionWords, 0, kPercentChoices});
     }
     if (!options.getUp.empty()) {
         std::vector<const char *> names = {"Where it fell"};
@@ -292,6 +294,7 @@ void Dummy::BeforeFrame(uint16_t &one, uint16_t &two, const DummyView &view) {
             m_g.reversal = true;
         }
     }
+    const Doing before = m_g.was;
     m_g.was = doing;
 
     // What it does left alone
@@ -357,12 +360,12 @@ void Dummy::BeforeFrame(uint16_t &one, uint16_t &two, const DummyView &view) {
             held = chosen.whileGuarding ? static_cast<uint16_t>(held | does) : does;
         }
     }
-    // Held (thrown)
-    if (doing == Doing::Held && m_g.stunFrames == 1) {
-        m_g.techPick = (Random() & 0x100) != 0; // (at random: decided as each throw begins)
+    // Held (thrown): the escape tried for the share of throws chosen, decided by the dice as each throw begins
+    const int tech = ChoicePercent(FeatureValue("dummy_tech"));
+    if (doing == Doing::Held && before != Doing::Held) {
+        m_g.techPick = Chance(tech);
     }
-    const int tech = FeatureValue("dummy_tech");
-    if (doing == Doing::Held && g_options.heldAction && (tech == 1 || (tech == 2 && m_g.techPick))) {
+    if (doing == Doing::Held && g_options.heldAction && tech && m_g.techPick) {
         held = g_options.heldAction(m_g.stunFrames, towards, away);
     }
     // Knocked down

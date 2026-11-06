@@ -206,6 +206,9 @@ void Hit(int player, unsigned damage, bool chip) {
     g_combos.Hit(player, damage, 0, !chip && !g_freeSinceHit[player]);
     g_freeSinceHit[player] = chip;
 }
+bool Chance(int percent) {
+    return g_dummy.Chance(percent);
+}
 fight::Doing Now(int player) {
     return g_frames.Now(player);
 }

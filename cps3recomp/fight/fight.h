@@ -248,6 +248,12 @@ struct DummyOptions {
     int downAfter = 34; // frames of reeling after which the dummy is taken to be knocked down
 };
 void RegisterDummy(const DummyOptions &options);
+// A dummy's option of how often it does something: its choices (Off, then 100% down to 10% in tens: Off and "always"
+// keep the numbers an option of off and on had, 0 and 1), and the share a choice's number means, in percent
+extern const std::vector<const char *> kPercentChoices;
+inline int ChoicePercent(int value) {
+    return value <= 0 || value > 10 ? 0 : 110 - 10 * value;
+}
 
 // What the dummy needs to know of the fight each frame, from the game's sources
 struct DummyView {
@@ -273,6 +279,11 @@ public:
     void Hud(std::vector<HudLine> &lines, float y = 0.17f) const;
     bool Recording() const {
         return m_g.recording;
+    }
+    // The dummy's dice (kept with its state, so that a rollback or a match online throws the same): true `percent` times
+    // in a hundred
+    bool Chance(int percent) {
+        return percent >= 100 || (percent > 0 && static_cast<int>(Random() % 100u) < percent);
     }
 
     static constexpr int kSlots = 3;
