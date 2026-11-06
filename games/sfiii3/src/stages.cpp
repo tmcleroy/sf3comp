@@ -151,6 +151,11 @@ namespace {
         int32_t upSpeed;     // how far its camera goes up for a line of its higher fighter's height past 88 (16.16)
         int cameraLayer;     // which of its stage's seven layers is the camera's (the stage's head 0x54 before the first)
         const StageAlone *alone = nullptr; // (its stage from its stage code alone: none, a match played behind it)
+        // How much of its step to where it would be its camera takes in a frame, in hundredths: 3rd Strike's and 2nd
+        // Impact's camera code cut it to 80 in 100 (3rd Strike's 0x060B8620, 2nd Impact's 0x060A29A6: the step times 80
+        // by the divide, by 100); New Generation's takes it whole (its moves, 0x0607C178 and 0x0607C1E4, move the layer
+        // by the columns, no more than the most a frame, and nothing cuts them)
+        int cut = 80;
     };
     // (its fighters' layer: the camera's middle across at +0x20 of it, as in 3rd Strike; its place up at +0x1C shown and
     // +0x24, its top at +0x6E: stage_camera.cpp)
@@ -159,7 +164,7 @@ namespace {
     constexpr uint32_t kMovedUp = 0x14; // (of the stage's head, 0x54 before its layers: how far up the camera's layer is from its start)
     const StageGame kNewGeneration = {"sfiiin", {0x0201BF0C, 0x0201BF14, 0x0201BF24}, {0x0201BEFE, 0x0201BF80}, 0x0201BF58, 0x0201BF5C, 680, 320,
                                       {0x0200EB33, 0x0201DB15}, {0x0200D22B, 0x0200D22D, 0x0201DAF1, 0x0200D603, 0x0200D605, 0x0201DB09},
-                                      0x02012CA3, {0x0200D18C, 0x0200D564}, 0x1C000, 1, &kNewGenerationAlone};
+                                      0x02012CA3, {0x0200D18C, 0x0200D564}, 0x1C000, 1, &kNewGenerationAlone, 100};
     const StageGame kSecondImpact = {"sfiii2n", {0x0202225C, 0x02022264, 0x02022274}, {0x0202224E, 0x020222D0}, 0x020222A8, 0x020222AC, 0, 0,
                                      {0x02010167, 0x02023EF5}, {0x0200E5A3, 0x0200E5A5, 0x0200E9AF, 0x0200E9B1, 0, 0}, 0x020142E7,
                                      {0x0200E504, 0x0200E910}, 0x1C000, 1, &kSecondImpactAlone};
@@ -589,7 +594,11 @@ namespace {
         // are put where its camera code takes it exactly to where it is sent: one in the picture's left quarter, one in
         // its right, their middle where it is to go (its camera code then goes to their middle: scr_11_22, stage_camera.cpp's
         // ToMiddle; the two of the same character, as on its board, where no fighter has been chosen), so far that the
-        // step it takes, cut to 80 in 100 (and to the most a frame, made enough), is the step wanted. Further than
+        // step it takes, cut to 80 in 100 by 2nd Impact's camera code and whole by New Generation's (StageGame::cut; and
+        // to the most a frame, made enough), is the step wanted. (Until 2026-11-06 the step was made for the cut on
+        // New Generation's stages too: its camera took the whole of a step a quarter longer than wanted, went a column
+        // past where it was sent and back the next frame, every frame, with the fighters standing still: the play-test's
+        // stage jittering 2 pixels left and right.) Further than
         // kSteered from there (a round's start, a stage built), it is put there. In the check against its own match in
         // play the match's own places are given (Gift::seen), and its camera code makes its camera as the match's did.
         const uint32_t fighters0 = game.camera[1] - 0x20;
@@ -603,7 +612,7 @@ namespace {
                 }
             } else {
                 const int d = steered ? gift.across - had : 0, want = std::abs(d);
-                const int step = want ? (want * 100 + 79) / 80 : 0;
+                const int step = want ? (want * 100 + game.cut - 1) / game.cut : 0;
                 if (step > static_cast<int16_t>(Word(ram, head0 + 0x4E))) {
                     SetWord(ram, head0 + 0x4E, step);
                 }
