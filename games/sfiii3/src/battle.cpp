@@ -1558,6 +1558,10 @@ void PreparingFast() {
 void ModesFrame(Machine &m) {
     PreparingFast();
     m.hidePanel = false;
+    // (the picture before a tag held over the new machine's first frames, and never longer, however this frame goes on:
+    // set only by the tag-style fight's frame, it stayed held, the picture frozen for good, when the round was decided,
+    // the battle won or the mode left within those frames: a computer's partner brought in as the clock ran out)
+    m.holdPicture = b.mode == kTeam && b.tagStyle && b.taggedAt && b.frames - b.taggedAt < kTagHold;
     {
         // (the team battle's CPU difficulty, the board's again once the mode is over)
         static int was = -1;
@@ -1704,7 +1708,8 @@ void ModesFrame(Machine &m) {
     }
     if (b.mode == kTeam && b.tagStyle && !b.decided) {
         TagFrame(m, raw);
-        // (the picture before the tag kept over its first frames, whose sprites the new machine has not yet made)
+        // (the picture before the tag kept over its first frames, whose sprites the new machine has not yet made; and
+        // from the frame of the tag itself: ModesFrame's own is from before it)
         m.holdPicture = b.taggedAt && b.frames - b.taggedAt < kTagHold;
         for (int p = 0; p < Machine::kMaxPlayers; p++) {
             if ((p >= 2 || Person(p)) && Fought()) {
