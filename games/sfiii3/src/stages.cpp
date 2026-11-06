@@ -205,6 +205,8 @@ namespace {
         uint32_t frames = 0; // its frames, for working its controls on the way
         int lastCamera = 0;  // its camera as its last frame left it
         int given = 0;       // ... and the camera it was given (its fighters placed for)
+        int givenUp = 0;     // ... and how far up (Give)
+        bool gaveCamera = false; // (given one for its last frame)
         // (the ends its camera really keeps, where they are nearer than its ends words say: learned when it stays put
         // short of where it was sent; 0 not known)
         int realLeft = 0, realRight = 0, stuck = 0, stuckAt = 0;
@@ -232,6 +234,7 @@ namespace {
     // fighters' records, the camera held, scripted moves, shakes: StageAlone::matchHands) as it took them. Each frame
     // the two stages' layers are drawn (their stage objects and tilemaps) and compared, and 3rd Strike's picture
     // composed over each. Reported at the end.
+    bool ComparingPlay();
     struct Compare {
         bool on = false;
         State state;                 // (the second board's)
@@ -241,18 +244,23 @@ namespace {
         uint32_t refModes = 0;    // (the match's board's calls of the game's modes since the last comparison)
         uint64_t late = 0, lateDifferent = 0; // (frames in which it did not run them: its frame ran long; of them, different)
         bool refFollows = false;
-        uint64_t frames = 0, layersDifferent = 0, composedDifferent = 0, objectsDifferent = 0;
+        uint64_t frames = 0, layersDifferent = 0, composedDifferent = 0, objectsDifferent = 0, zoomDifferent = 0, upFrames = 0, idleFrames = 0;
         int cameraLeast = 1 << 30, cameraMost = -(1 << 30);
         int stage = -1;
         unsigned reports = 4;
+        // (in play: the made-up play's dice, and the sticks and buttons held)
+        uint64_t dice = 0;
+        uint32_t pads[2] = {}, kicks[2] = {};
         ~Compare() {
             if (frames) {
-                fprintf(stderr, "stages: stage alone against the match's (stage %d): %llu frames compared, the stage's layers %llu different, "
-                                "its objects %llu different, the composed picture %llu different; its camera given %d-%d; the match's frames that ran long %llu "
-                                "(%llu of them with the layers different)\n",
-                        stage, static_cast<unsigned long long>(frames), static_cast<unsigned long long>(layersDifferent),
-                        static_cast<unsigned long long>(objectsDifferent), static_cast<unsigned long long>(composedDifferent), cameraLeast, cameraMost,
-                        static_cast<unsigned long long>(late), static_cast<unsigned long long>(lateDifferent));
+                fprintf(stderr, "stages: stage alone against %s (stage %d): %llu frames compared (%llu with its camera up, %llu with its fighters idle), the stage's "
+                                "layers %llu different, its objects %llu different, its zoom %llu different, the composed picture %llu different; its camera "
+                                "given %d-%d; the match's frames that ran long %llu (%llu of them with the layers different)\n",
+                        ComparingPlay() ? "its own match in play" : "the match's", stage, static_cast<unsigned long long>(frames),
+                        static_cast<unsigned long long>(upFrames), static_cast<unsigned long long>(idleFrames), static_cast<unsigned long long>(layersDifferent),
+                        static_cast<unsigned long long>(objectsDifferent), static_cast<unsigned long long>(zoomDifferent),
+                        static_cast<unsigned long long>(composedDifferent), cameraLeast, cameraMost, static_cast<unsigned long long>(late),
+                        static_cast<unsigned long long>(lateDifferent));
             }
         }
     } g_cmp;
@@ -260,6 +268,48 @@ namespace {
         static const bool on = getenv("SFIII3_STAGE_COMPARE") != nullptr;
         return on;
     }
+    // The check against the stage game's own match in play (SFIII3_STAGE_COMPARE=play): the match is played (made-up
+    // play on the stage board, its fighters walking, jumping and standing idle in turn, its own camera following them),
+    // and the stage alone is given only what the stage alone is given in a fight (Give: its camera across and up, its
+    // fighters' places), from the match's own fighters and camera, and the dice and frame count (noise, not the stage's
+    // to make). The ground truth is the stage game's own picture of its stage; the check with SFIII3_STAGE_COMPARE=1
+    // handed the stage alone everything the match hands its stage (the fighters' records whole among it), so the stage
+    // alone never had to make its camera from what it is given, and could not differ there.
+    bool ComparingPlay() {
+        static const bool on = getenv("SFIII3_STAGE_COMPARE") && std::string(getenv("SFIII3_STAGE_COMPARE")) == "play";
+        return on;
+    }
+    // The stage check in play (SFIII3_STAGE_CHECK=1: checkguests.sh), each frame a stage game's stage is shown in a fight:
+    // its camera where it was sent (across and up, after its frame: Give), its picture's zoom whole when its own frame
+    // is (the stage's head's +0x2E, +0x30 at 64), no music of 3rd Strike's heard with the stage's, no sound of the
+    // stage board's playing when a stage is built there (a stage chosen after another), none heard with no stage
+    // chosen. Reported at the end.
+    bool Checking() {
+        static const bool on = getenv("SFIII3_STAGE_CHECK") != nullptr;
+        return on;
+    }
+    struct PlayCheck {
+        uint64_t frames = 0, across = 0, up = 0, upFrames = 0, zoom = 0, twoSongs = 0, songFrames = 0, leftOver = 0, built = 0, heardAlone = 0;
+        unsigned reports[6] = {3, 3, 3, 3, 3, 3};
+        ~PlayCheck() {
+            if (Checking()) {
+                fprintf(stderr, "stages: the stage check: %llu frames on a stage game's stage (%llu with its camera up), its camera off where it was sent: "
+                                "across %llu, up %llu; its picture's zoom not whole with its frame whole: %llu; 3rd Strike's music heard with the stage's: %llu "
+                                "(of %llu frames of the stage's music); stages built %llu, with the stage board's sound playing %llu; its sound heard with no "
+                                "stage: %llu\n",
+                        static_cast<unsigned long long>(frames), static_cast<unsigned long long>(upFrames), static_cast<unsigned long long>(across),
+                        static_cast<unsigned long long>(up), static_cast<unsigned long long>(zoom), static_cast<unsigned long long>(twoSongs),
+                        static_cast<unsigned long long>(songFrames), static_cast<unsigned long long>(built), static_cast<unsigned long long>(leftOver),
+                        static_cast<unsigned long long>(heardAlone));
+            }
+        }
+        void Report(int kind, const char *what, uint64_t frame) {
+            if (reports[kind]) {
+                reports[kind]--;
+                fprintf(stderr, "stages: the stage check, frame %llu: %s\n", static_cast<unsigned long long>(frame), what);
+            }
+        }
+    } g_check;
 
     // Stage boards kept as they were once in their fights (a stage reached once is there at once after), by game and
     // stage; the most recently used kept, up to 16
@@ -454,6 +504,66 @@ namespace {
         return game.alone && !match;
     }
 
+    // What the stage board's stage is given each frame for its camera (BeforeStage, from 3rd Strike's camera and
+    // fighters mapped to its stage; in the check against its own match in play, SFIII3_STAGE_COMPARE=play, from that
+    // match's): its camera's middle across, its fighters' places across (its coordinates) and heights, and how far up
+    // its camera is
+    struct Gift {
+        int across = 0;
+        int placed[2] = {};
+        int height[2] = {};
+        int up = 0;
+    };
+    // The gift written where its game's camera code reads it: its fighters' places (+0x64 across, +0x68 up, as in 3rd
+    // Strike), so that its game's camera step, which makes its camera from them each frame, leaves it about there; its
+    // camera's words; and its layers' places up, for the frames its game holds its camera (its own round's start)
+    void Give(uint8_t *ram, const StageGame &game, const Gift &gift, bool alone) {
+        (void)alone;
+        for (int p = 0; p < 2; p++) {
+            SetWord(ram, game.players[p] + 0x64, gift.placed[p]);
+            SetWord(ram, game.players[p] + 0x68, gift.height[p]);
+        }
+        const uint32_t fighters = game.camera[1] - 0x20;
+        for (const uint32_t at : {fighters + kShownUp, fighters + kUp}) {
+            SetWord(ram, at, gift.up);
+            SetWord(ram, at + 2, 0);
+        }
+        // (and how far up it is for its other layers, and their places up from that, as its game makes them each frame
+        // (stage_camera.cpp's LayerUp), which it does not while its camera is held; the layers in use have begun their
+        // steps)
+        const uint32_t head = fighters - 0x54 - static_cast<uint32_t>(game.cameraLayer) * 0x90;
+        const int moved = gift.up - static_cast<int16_t>(Word(ram, fighters + kHomeUp));
+        SetWord(ram, head + kMovedUp, moved);
+        for (int n = 0; n < 7; n++) {
+            const uint32_t layer = head + 0x54 + static_cast<uint32_t>(n) * 0x90;
+            if (layer == fighters || Word(ram, layer + kSteps) == 0) {
+                continue;
+            }
+            const uint32_t speed = (static_cast<uint32_t>(Word(ram, layer + kSpeedUp)) << 16) | Word(ram, layer + kSpeedUp + 2);
+            uint32_t place = speed * static_cast<uint32_t>(moved);
+            const int topEnd = static_cast<int16_t>(Word(ram, layer + kTopEnd));
+            if (topEnd < static_cast<int16_t>(place >> 16)) {
+                place = static_cast<uint32_t>(topEnd) << 16;
+            }
+            place = (((place >> 16) + Word(ram, layer + kHomeUp)) << 16) | (place & 0xFFFF);
+            for (const uint32_t at : {layer + kShownUp, layer + kUp}) {
+                SetWord(ram, at, static_cast<int>(place >> 16));
+                SetWord(ram, at + 2, static_cast<int>(place & 0xFFFF));
+            }
+        }
+        g.given = gift.across;
+        g.givenUp = gift.up;
+        g.gaveCamera = true;
+        for (const uint32_t at : game.camera) {
+            SetWord(ram, at, gift.across);
+        }
+        for (const uint32_t at : game.edge) {
+            if (at) {
+                SetWord(ram, at, gift.across - 192);
+            }
+        }
+    }
+
     // Before each of the stage board's frames: on the way to its fight, coins, Start and a character; in it, no clock,
     // nobody hurt, no controls, and its camera where 3rd Strike's is (from one stage's ends to the other's)
     void BeforeStage(Machine &machine, machine::Machine &stage) {
@@ -484,9 +594,46 @@ namespace {
         }
         // (its stage alone: nothing played, no controls; its camera given once its stage's frame runs: AloneFrame)
         const bool alone = Alone(game) || (Comparing() && &stage == machine.SecondStageBoard());
+        // (the stage check: where its last frame left its camera, against where it was sent; within the ends its game
+        // keeps it between)
+        if (Checking() && g.gaveCamera && &stage == machine.StageBoard() && kChoices[g.loaded].game != &kThirdStrike) {
+            const uint32_t fighters = game.camera[1] - 0x20;
+            const int had = static_cast<int16_t>(Word(ram, game.camera[1])), hadUp = static_cast<int16_t>(Word(ram, fighters + kUp));
+            const int lo = static_cast<int16_t>(Word(ram, fighters + 0x6A)), hi = static_cast<int16_t>(Word(ram, fighters + 0x66));
+            const int top = static_cast<int16_t>(Word(ram, fighters + kTopEnd));
+            const int wantedUp = std::clamp(g.givenUp, 0, std::max(top, 0));
+            g_check.frames++;
+            g_check.upFrames += wantedUp > 0;
+            char what[160];
+            if (g.given >= lo && g.given <= hi && std::abs(had - g.given) > 1) {
+                g_check.across++;
+                snprintf(what, sizeof(what), "its camera across at %d, sent to %d (its ends %d-%d)", had, g.given, lo, hi);
+                g_check.Report(0, what, machine.frame);
+            }
+            if (std::abs(hadUp - wantedUp) > 1) {
+                g_check.up++;
+                snprintf(what, sizeof(what), "its camera up at %d, sent to %d", hadUp, wantedUp);
+                g_check.Report(1, what, machine.frame);
+            }
+        }
+        g.gaveCamera = false;
         if (alone) {
             stage.inputs = stage.extra = 0xFFFFFFFFu;
             if (!g.fought || (Comparing() && !g_cmp.refFollows)) {
+                return;
+            }
+            if (ComparingPlay() && &stage == machine.SecondStageBoard() && machine.StageBoard()) {
+                // (the check against its own match in play: given what the stage alone is given in a fight, from the
+                // match's own camera and fighters)
+                const uint8_t *ref = machine.StageBoard()->mainRam;
+                Gift gift;
+                gift.across = static_cast<int16_t>(Word(ref, game.camera[1]));
+                gift.up = std::max(0, static_cast<int>(static_cast<int16_t>(Word(ref, game.camera[1] + 4))));
+                for (int p = 0; p < 2; p++) {
+                    gift.placed[p] = static_cast<int16_t>(Word(ref, game.players[p] + 0x64));
+                    gift.height[p] = static_cast<int16_t>(Word(ref, game.players[p] + 0x68));
+                }
+                Give(ram, game, gift, true);
                 return;
             }
         }
@@ -515,6 +662,36 @@ namespace {
             return;
         }
         stage.inputs = stage.extra = 0xFFFFFFFFu;
+        if (ComparingPlay() && &stage == machine.StageBoard() && !alone) {
+            // (the check against its own match in play: its fighters played, made up: 600 frames idle, then 600 of
+            // walking, jumping and attacking, by turns; the same for a stage each run)
+            uint64_t &r = g_cmp.dice;
+            if (r == 0) {
+                r = 0x9E3779B97F4A7C15ull * static_cast<uint64_t>(StageNow() + 1);
+            }
+            if ((g.inFight / 600) % 2 == 1) {
+                for (int p = 0; p < 2; p++) {
+                    r = r * 6364136223846793005ull + 1442695040888963407ull;
+                    if (((r >> 33) & 7) == 0) {
+                        // (a stick and buttons held for a while: up the most often, for the camera's way up)
+                        static const uint32_t kSticks[] = {0, 1, 1, 9, 5, 4, 8, 4, 8, 2, 0, 1};
+                        const uint64_t q = r >> 20;
+                        uint32_t held = kSticks[q % 12] | (static_cast<uint32_t>((q >> 8) & (q >> 16)) & 0x70);
+                        const uint32_t kicks = static_cast<uint32_t>((q >> 24) & (q >> 28)) & 7;
+                        g_cmp.pads[p] = held << (8 * p);
+                        g_cmp.kicks[p] = kicks;
+                    }
+                }
+            } else {
+                g_cmp.pads[0] = g_cmp.pads[1] = g_cmp.kicks[0] = g_cmp.kicks[1] = 0;
+            }
+            uint32_t inputs = g_cmp.pads[0] | g_cmp.pads[1], extra = 0;
+            extra |= (g_cmp.kicks[0] & 1 ? 0x80000u : 0) | (g_cmp.kicks[0] & 2 ? 0x40000u : 0) | (g_cmp.kicks[0] & 4 ? 0x20000u : 0);
+            extra |= (g_cmp.kicks[1] & 1 ? 0x100000u : 0) | (g_cmp.kicks[1] & 2 ? 0x200000u : 0);
+            inputs |= g_cmp.kicks[1] & 4 ? 0x4000000u : 0;
+            stage.inputs = ~inputs;
+            stage.extra = ~extra;
+        }
         g.inFight++;
         // (both its fighters a player's, not its computer's, so that with no controls they stand still: the record's byte 3,
         // as in 3rd Strike, 0 the computer; a computer opponent would fight on, supers and all, behind 3rd Strike's)
@@ -588,6 +765,9 @@ namespace {
                 ram[at & 0x7FFFF] = g.life;
             }
         }
+        if (ComparingPlay() && &stage == machine.StageBoard()) {
+            return; // (the check against its own match in play: its camera its own)
+        }
         const int camera = static_cast<int16_t>(Ram16(sfiii3::kCameraX));
         const int right = static_cast<int16_t>(Ram16(sfiii3::kCameraRight[0])), left = static_cast<int16_t>(Ram16(sfiii3::kCameraLeft[0]));
         // (in widescreen its camera stays as far from its stage's ends as 3rd Strike's is kept from its own: where its game
@@ -646,8 +826,9 @@ namespace {
             }
             const int middle = (placed[0] + placed[1]) / 2;
             const int push = middle < theirLeft ? theirLeft - middle : middle > theirRight ? theirRight - middle : 0;
+            Gift gift;
             for (int p = 0; p < 2; p++) {
-                SetWord(ram, game.players[p] + 0x64, placed[p] + push - g.offset);
+                gift.placed[p] = placed[p] + push - g.offset;
             }
             // (3rd Strike between rounds, its camera's ends not its stage's yet (1 and 95 seen, before a round's start):
             // its middle, where 3rd Strike's camera begins a round, its fighters either side of it. Followed from
@@ -657,14 +838,14 @@ namespace {
             if (!ownEnds && g_cameraWanted == kFollow) {
                 theirs = (theirLeft + theirRight) / 2;
                 for (int p = 0; p < 2; p++) {
-                    SetWord(ram, game.players[p] + 0x64, theirs + (p ? 40 : -40) - g.offset);
+                    gift.placed[p] = theirs + (p ? 40 : -40) - g.offset;
                 }
             }
             if (g_cameraWanted != kFollow) {
                 theirs = std::clamp(g_cameraWanted, theirLeft, theirRight); // (the modes' scrolling stage: its camera its own)
                 for (int p = 0; p < 2; p++) {
                     placed[p] = theirs + (p ? 40 : -40);
-                    SetWord(ram, game.players[p] + 0x64, placed[p] - g.offset);
+                    gift.placed[p] = placed[p] - g.offset;
                 }
             }
             // Up as 3rd Strike's camera is (its fighters' layer's place up, a line for a line: Oro's entrance on his stage,
@@ -677,36 +858,9 @@ namespace {
             const int wantedUp = std::clamp(up, 0, std::max(top, 0));
             const int height = wantedUp > 0 ? 88 + static_cast<int>((static_cast<int64_t>(wantedUp) * 65536 + game.upSpeed - 1) / game.upSpeed) : 0;
             for (int p = 0; p < 2; p++) {
-                SetWord(ram, game.players[p] + 0x68, height);
+                gift.height[p] = height;
             }
-            const uint32_t fighters = game.camera[1] - 0x20;
-            for (const uint32_t at : {fighters + kShownUp, fighters + kUp}) {
-                SetWord(ram, at, wantedUp);
-                SetWord(ram, at + 2, 0);
-            }
-            // (and how far up it is for its other layers, and their places up from that, as its game makes them each
-            // frame (stage_camera.cpp's LayerUp), which it does not while its camera is held; the layers in use have
-            // begun their steps)
-            const uint32_t head = fighters - 0x54 - static_cast<uint32_t>(game.cameraLayer) * 0x90;
-            const int moved = wantedUp - static_cast<int16_t>(Word(ram, fighters + kHomeUp));
-            SetWord(ram, head + kMovedUp, moved);
-            for (int n = 0; n < 7; n++) {
-                const uint32_t layer = head + 0x54 + static_cast<uint32_t>(n) * 0x90;
-                if (layer == fighters || Word(ram, layer + kSteps) == 0) {
-                    continue;
-                }
-                const uint32_t speed = (static_cast<uint32_t>(Word(ram, layer + kSpeedUp)) << 16) | Word(ram, layer + kSpeedUp + 2);
-                uint32_t place = speed * static_cast<uint32_t>(moved);
-                const int topEnd = static_cast<int16_t>(Word(ram, layer + kTopEnd));
-                if (topEnd < static_cast<int16_t>(place >> 16)) {
-                    place = static_cast<uint32_t>(topEnd) << 16;
-                }
-                place = (((place >> 16) + Word(ram, layer + kHomeUp)) << 16) | (place & 0xFFFF);
-                for (const uint32_t at : {layer + kShownUp, layer + kUp}) {
-                    SetWord(ram, at, static_cast<int>(place >> 16));
-                    SetWord(ram, at + 2, static_cast<int>(place & 0xFFFF));
-                }
-            }
+            gift.up = wantedUp;
             // (debugging aid, SFIII3_STAGE_UP=1: 3rd Strike's camera up, and its)
             static const bool upLog = getenv("SFIII3_STAGE_UP") != nullptr;
             if (upLog && (up > 0 || g.frames % 60 == 0)) {
@@ -740,21 +894,14 @@ namespace {
                 g.stuck = 0;
             }
             g.stuckAt = had;
-            g.given = theirs;
-            for (const uint32_t at : game.camera) {
-                SetWord(ram, at, theirs);
-            }
+            gift.across = theirs;
+            Give(ram, game, gift, alone);
             // (debugging aid, SFIII3_STAGE_CAMERA=1: the camera given, and what its frame before left)
             static const bool log = getenv("SFIII3_STAGE_CAMERA") != nullptr;
             static const bool everyFrame = getenv("SFIII3_STAGE_CAMERA_ALL") != nullptr;
             if (log && (g.frames % 60 == 0 || everyFrame)) {
                 fprintf(stderr, "stage camera: 3rd Strike %d (%d-%d), given %d (%d-%d), it had %d (in its fight %u, ends learned %d %d)\n", camera, left,
                         right, theirs, theirLeft, theirRight, g.lastCamera, g.inFight, g.realLeft, g.realRight);
-            }
-            for (const uint32_t at : game.edge) {
-                if (at) {
-                    SetWord(ram, at, theirs - 192);
-                }
             }
         }
     }
@@ -794,9 +941,15 @@ namespace {
                     guest.Write8(place + n, g_cmp.handed[at++]);
                 }
             }
-            for (const auto &[place, size] : a.matchHands) {
-                for (uint32_t n = 0; n < size && at < g_cmp.handed.size(); n++) {
-                    guest.Write8(place + n, g_cmp.handed[at++]);
+            for (size_t i = 0; i < a.matchHands.size(); i++) {
+                const auto &[place, size] = a.matchHands[i];
+                // (in play: only the dice's two counters and the hit stop's and frame count's words, the last three: the
+                // rest the stage alone makes from what it is given, as in a fight)
+                const bool noise = i + 3 >= a.matchHands.size();
+                for (uint32_t n = 0; n < size && at < g_cmp.handed.size(); n++, at++) {
+                    if (!ComparingPlay() || noise) {
+                        guest.Write8(place + n, g_cmp.handed[at]);
+                    }
                 }
             }
         }
@@ -829,6 +982,16 @@ namespace {
         if (!g.built) {
             g.built = true;
             backFromScreen = a.screenSetUp != 0;
+            // (the stage check: the stage board's sound as its stage is built: the last stage's music stopped)
+            if (Checking() && !second) {
+                g_check.built++;
+                if (guest.Board().keyOn != 0) {
+                    g_check.leftOver++;
+                    char what[96];
+                    snprintf(what, sizeof(what), "stage %d built with the stage board's voices %04X playing", stage, guest.Board().keyOn);
+                    g_check.Report(2, what, machine->frame);
+                }
+            }
             a.beforeBuild(guest, stage);
             run(a.build);
         } else {
@@ -1054,8 +1217,9 @@ namespace {
             return;
         }
         g_cmp.frames++;
-        g_cmp.cameraLeast = std::min(g_cmp.cameraLeast, g.given);
-        g_cmp.cameraMost = std::max(g_cmp.cameraMost, g.given);
+        const int given = ComparingPlay() ? g_cmp.state.given : g.given;
+        g_cmp.cameraLeast = std::min(g_cmp.cameraLeast, given);
+        g_cmp.cameraMost = std::max(g_cmp.cameraMost, given);
         static native::Rasteriser r;
         static std::vector<uint32_t> a, b;
         int w = 0, h = 0;
@@ -1094,6 +1258,17 @@ namespace {
             }
         }
         const bool objects = sameObjects && sameTilemaps;
+        // (the whole picture's zoom, each board's own)
+        const bool sameZoom = (one->native.registers.screen[7] & 0xFF) == (two->native.registers.screen[7] & 0xFF) &&
+                              (one->native.registers.screen[15] & 0xFF) == (two->native.registers.screen[15] & 0xFF);
+        g_cmp.zoomDifferent += !sameZoom;
+        g_cmp.upFrames += static_cast<int16_t>(Word(one->mainRam, kChoices[g.loaded].game->camera[1] + 4)) > 0;
+        g_cmp.idleFrames += ComparingPlay() && ((g.inFight / 600) % 2 == 0);
+        if (!sameZoom && g_cmp.reports) {
+            fprintf(stderr, "stages: the check, frame %llu: the zoom %02X %02X (the match's) / %02X %02X (alone)\n", static_cast<unsigned long long>(machine.frame),
+                    one->native.registers.screen[7] & 0xFF, one->native.registers.screen[15] & 0xFF, two->native.registers.screen[7] & 0xFF,
+                    two->native.registers.screen[15] & 0xFF);
+        }
         if (!objects && g_cmp.reports) {
             if (!sameTilemaps) {
                 for (int t = 0; t < 4; t++) {
@@ -1139,7 +1314,7 @@ namespace {
         g_cmp.composedDifferent += !composed;
         // (debugging aid, SFIII3_STAGE_COMPARE_PIXELS=1: every frame whose pictures differ said)
         static const bool everyPicture = getenv("SFIII3_STAGE_COMPARE_PIXELS") != nullptr;
-        if (((!layers || !objects || !composed) && g_cmp.reports) || (everyPicture && (!layers || !composed))) {
+        if (((!layers || !objects || !composed || !sameZoom) && g_cmp.reports) || (everyPicture && (!layers || !composed))) {
             g_cmp.reports -= g_cmp.reports > 0;
             fprintf(stderr, "stages: the check, frame %llu (in its fight %u): the stage's layers %s, its objects %s (%zu / %zu), the composed picture %s; "
                             "the match's stage ran at %.3f of its frame\n",
@@ -1152,6 +1327,56 @@ namespace {
 void StagesBeforeFrame(Machine &machine) {
     if (Comparing()) {
         CompareStages(machine);
+    }
+    // (debugging aid, SFIII3_STAGE_TRACE=FILE: each shown frame, the stage board's camera and layers as its last frame
+    // left them, its fighters' camera words, its scrolls and zoom)
+    static FILE *trace = getenv("SFIII3_STAGE_TRACE") ? fopen(getenv("SFIII3_STAGE_TRACE"), "w") : nullptr;
+    if (trace && g.loaded && machine.StageBoard() && kChoices[g.loaded].game != &kThirdStrike) {
+        const StageGame &game = *kChoices[g.loaded].game;
+        const uint8_t *ram = machine.StageBoard()->mainRam;
+        const uint32_t fighters = game.camera[1] - 0x20, head = fighters - 0x54 - static_cast<uint32_t>(game.cameraLayer) * 0x90;
+        fprintf(trace, "%llu fought %d given %d 3s %d,%d | head moved %d,%d now %d held? | f", static_cast<unsigned long long>(machine.frame), g.fought, g.given,
+                static_cast<int16_t>(Ram16(sfiii3::kCameraX)), static_cast<int16_t>(Ram16(sfiii3::kCameraY)), static_cast<int16_t>(Word(ram, head + 0x12)),
+                static_cast<int16_t>(Word(ram, head + 0x14)), static_cast<int16_t>(Word(ram, head + 0x40)));
+        for (const uint32_t p : game.players) {
+            fprintf(trace, " %d,%d,%d,%d", static_cast<int16_t>(Word(ram, p + 0x60)), static_cast<int16_t>(Word(ram, p + 0x62)), static_cast<int16_t>(Word(ram, p + 0x64)),
+                    static_cast<int16_t>(Word(ram, p + 0x68)));
+        }
+        fprintf(trace, " | L");
+        for (int n = 0; n < 7; n++) {
+            const uint32_t l = head + 0x54 + static_cast<uint32_t>(n) * 0x90;
+            fprintf(trace, " %d:%d,%d,%d", static_cast<int16_t>(Word(ram, l + 4)), static_cast<int16_t>(Word(ram, l + 0x20)), static_cast<int16_t>(Word(ram, l + 0x1C)),
+                    static_cast<int16_t>(Word(ram, l + 0x0A)));
+        }
+        const native::FrameRegisters &r = machine.StageBoard()->native.registers;
+        fprintf(trace, " | T");
+        for (int t = 0; t < 4; t++) {
+            fprintf(trace, " %04X,%04X", r.tilemap[t][0], r.tilemap[t][1]);
+        }
+        fprintf(trace, " | S");
+        for (int s = 0; s < 8; s++) {
+            fprintf(trace, " %d,%d", r.scroll[s][0] & 0x3FF, r.scroll[s][1] & 0x3FF);
+        }
+        fprintf(trace, " | zoom %02X %02X | screen", r.screen[7] & 0xFF, r.screen[15] & 0xFF);
+        for (int s = 0; s < 16; s++) {
+            fprintf(trace, " %04X", r.screen[s]);
+        }
+        fprintf(trace, " | head");
+        for (uint32_t at = 0; at < 0x54; at += 2) {
+            fprintf(trace, " %04X", Word(ram, head + at));
+        }
+        // (and SFIII3_STAGE_TRACE_RAM=ADDRESS:BYTES, hex: those of its RAM too)
+        static const char *more = getenv("SFIII3_STAGE_TRACE_RAM");
+        if (more) {
+            char *end;
+            const uint32_t at = static_cast<uint32_t>(strtoul(more, &end, 16));
+            const uint32_t bytes = *end == ':' ? static_cast<uint32_t>(strtoul(end + 1, nullptr, 16)) : 0x10;
+            fprintf(trace, " | ram");
+            for (uint32_t n = 0; n < bytes; n += 2) {
+                fprintf(trace, " %04X", Word(ram, at + n));
+            }
+        }
+        fprintf(trace, "\n");
     }
     // (a stage alone's board started up: kept as it is, at its modes' routine, every stage of its game started from there)
     if (g_booting && machine.StageBoard() && g.loaded && (g_reached || (g_bootFrames += kBootFrames) > kMostBootFrames)) {
@@ -1199,6 +1424,41 @@ void StagesBeforeFrame(Machine &machine) {
         // (the stage viewer: only music heard, the unseen fight's voices and effects left out)
         machine.board.silenced[v] = (musicElsewhere && MusicVoice(v)) || (g_onlyMusic && (musicElsewhere || !MusicVoice(v)));
         silenced += machine.board.silenced[v];
+    }
+    if (Checking()) {
+        // (the stage check, each frame: no music of 3rd Strike's heard with the stage's (a voice keyed on whose music
+        // channel plays and whose effect channel does not, as its sound driver gives the voices out: sound_driver.cpp),
+        // none of the stage board's heard with no stage of its chosen; and its picture's zoom whole when its frame is)
+        if (music) {
+            g_check.songFrames++;
+            int heard = 0;
+            for (uint32_t v = 0; v < 16; v++) {
+                const bool musics = (Ram8(0x02078D0C + v * 116 + 94) & 0x80) == 0, effects = (Ram8(0x0207944C + v * 116 + 94) & 0x80) == 0;
+                heard += ((machine.board.keyOn >> v) & 1) && musics && !effects && !machine.board.silenced[v];
+            }
+            if (heard) {
+                g_check.twoSongs++;
+                char what[96];
+                snprintf(what, sizeof(what), "%d voices of 3rd Strike's music heard with the stage's", heard);
+                g_check.Report(3, what, machine.frame);
+            }
+        }
+        if (machine.stageSound && !g.loaded) {
+            g_check.heardAlone++;
+        }
+        if (g.loaded && g.fought && OnStage() && machine.StageBoard() && kChoices[g.loaded].game != &kThirdStrike) {
+            const StageGame &game = *kChoices[g.loaded].game;
+            const uint8_t *ram = machine.StageBoard()->mainRam;
+            const uint32_t head = game.camera[1] - 0x20 - 0x54 - static_cast<uint32_t>(game.cameraLayer) * 0x90;
+            const native::FrameRegisters &r = machine.StageBoard()->native.registers;
+            const int zoomX = r.screen[7] & 0xFF, zoomY = r.screen[15] & 0xFF;
+            if (Word(ram, head + 0x2E) == 64 && Word(ram, head + 0x30) == 64 && (zoomX != 0x40 || zoomY != 0x40)) {
+                g_check.zoom++;
+                char what[96];
+                snprintf(what, sizeof(what), "its picture's zoom %02X %02X, its frame whole", zoomX, zoomY);
+                g_check.Report(4, what, machine.frame);
+            }
+        }
     }
     // (debugging aid, SFIII3_STAGE_SOUND=1: every 300 frames, the voices left out and the stage board's sound)
     static const bool log = getenv("SFIII3_STAGE_SOUND") != nullptr;

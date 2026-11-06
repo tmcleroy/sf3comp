@@ -34,6 +34,13 @@
 # code.)
 # CHECKNATIVE_NO_REWRITES=1: the native runs with the game's own code in place of the rewrites and no dry runs
 # (nothing handed over), to see that the check finds that
+# With the GPU (not CHECKNATIVE_NO_GPU): two more runs, the window's own GPU path with a guest stage (the window's twin,
+# port/main.cpp's CPS3RECOMP_PRESENT_COMPARE: each frame made for the GPU as a window makes it, the guest's interface
+# kept as it was at the frame's end (Machine::KeepGpuGuest), shown, read back and compared with the CPU's picture shown
+# the same way, every frame), over a one-player game whose stage is chosen again every 330 frames through all 28 of New
+# Generation's and 2nd Impact's (each game's board made afresh, its stages built mid-fight), none, and one again; 4:3,
+# and widescreen the other way round. (The stage runs above compare the GPU's picture drawn from the guest's interface
+# itself; this, the window's copy of it.)
 # CHECKNATIVE_JOBS: how many runs at once (6: each takes about 1 GB; all eight at once filled a 16 GB Mac's memory with
 # the other checks)
 ROM=${1:?usage: checknative.sh ROM [BUILD] [FRAMES]}
@@ -57,7 +64,17 @@ run() { # name kind args...
     while [ "$(jobs -rp | wc -l)" -ge "$JOBS" ]; do
         sleep 1
     done
-    if [ "$kind" = native ]; then
+    if [ "$kind" = present ]; then
+        # shellcheck disable=SC2068
+        (
+            timing=()
+            [ -n "$CHECKNATIVE_ARCADE" ] && timing=(--features arcade_timing)
+            CPS3RECOMP_PRESENT_COMPARE=1 CPS3RECOMP_PRESENT_COMPARE_SHOTS=different nice -n 20 lockf -k /tmp/recomp-gpu.lock gtimeout -k 30 1800 \
+                "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$FRAMES" --settings "$OUT/$name.ini" --eeprom "$OUT/$name.bin" "${timing[@]}" \
+                --present-every 1:"$OUT/$name-" --present-size 768x448 $@ > /dev/null 2> "$OUT/$name.log"
+            echo $? > "$OUT/$name.status"
+        ) &
+    elif [ "$kind" = native ]; then
         # shellcheck disable=SC2068
         (
             [ -n "$CHECKNATIVE_NO_REWRITES" ] && export CPS3RECOMP_NO_REWRITES=1 CPS3RECOMP_NO_DRY_RUNS=1
@@ -85,9 +102,39 @@ run() { # name kind args...
 for i in "${!NAMES[@]}"; do
     run "${NAMES[$i]}" native ${ARGS[$i]}
 done
+PRESENTS=()
+if [ -z "$CHECKNATIVE_NO_GPU" ]; then
+    # (the stages chosen again every 330 frames from 2000: src/stages.cpp's choices 1-13 New Generation's, 14-28 2nd
+    # Impact's; then none, then one again)
+    keys=""
+    f=2000
+    for c in $(seq 1 28) 0 3; do
+        keys+="$f:fstages=$c,"
+        f=$((f + 330))
+    done
+    wkeys=""
+    f=2000
+    for c in $(seq 28 -1 1) 0 25; do
+        wkeys+="$f:fstages=$c,"
+        f=$((f + 330))
+    done
+    PRESENTS=(present-stages present-stages-wide)
+    run present-stages present --auto 7:300:1 --features stages=3 --keys "${keys%,}"
+    run present-stages-wide present --auto 31:300:1 --features stages=25,widescreen,widescreen_walls --keys "${wkeys%,}"
+fi
 run lifts-attract lifts
 run lifts-cpu7 lifts --auto 7:300:1
 wait
+for name in "${PRESENTS[@]}"; do
+    line=$(grep "cps3recomp: present compare:" "$OUT/$name.log")
+    echo "$name: ${line#cps3recomp: present compare: }"
+    compared=$(echo "$line" | sed -n 's/.*, \([0-9]*\) compared with the CPU.*/\1/p')
+    if [ "$(cat "$OUT/$name.status" 2>/dev/null)" != 0 ] || [ -z "$line" ] || [ "${compared:-0}" -lt 5000 ] || ! echo "$line" | grep -q ", 0 different ("; then
+        grep "^present compare, frame" "$OUT/$name.log" | head -3
+        tail -2 "$OUT/$name.log"
+        status=1
+    fi
+done
 for name in "${NAMES[@]}" lifts-attract lifts-cpu7; do
     if [ "$(cat "$OUT/$name.status" 2>/dev/null)" != 0 ]; then
         echo "$name: the run failed"
