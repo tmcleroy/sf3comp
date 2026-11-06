@@ -32,6 +32,24 @@ def fail(why):
     sys.exit(1)
 
 
+def png_black(path):
+    # (all black: the port's own PNGs are RGB with no filter, so every byte inflated is 0; any other, as png_maximum)
+    data = open(path, 'rb').read()
+    at, idat, kind = 8, b'', 0
+    while at < len(data):
+        length, name = struct.unpack('>I4s', data[at:at + 8])
+        if name == b'IHDR':
+            kind = data[at + 17]
+        elif name == b'IDAT':
+            idat += data[at + 8:at + 8 + length]
+        at += 12 + length
+    if kind == 2:
+        raw = zlib.decompress(idat)
+        if raw.count(0) == len(raw):
+            return True
+    return png_maximum(path) == 0
+
+
 def png_maximum(path):
     # (the largest colour value of a PNG the port writes: 8-bit RGB or RGBA, any filter)
     data = open(path, 'rb').read()
@@ -217,8 +235,87 @@ def loud(path, quiet):
     print("ok")
 
 
+def shots_of(prefix):
+    import glob
+    return sorted(int(re.search(r'(\d+)\.png$', p).group(1)) for p in glob.glob(prefix + '*.png'))
+
+
+def went_on(rows, frames, log):
+    # (the run went on to its last frame: a frame that never ended (the game's code run round for good inside it) left
+    # the trace short, and the run was stopped by its time limit)
+    if len(rows) < frames:
+        tail = [l for l in open(log).read().splitlines() if l.strip()][-2:]
+        fail("the game stopped at frame %d of %d (hung: the program was stopped by its time limit) %s" % (len(rows), frames, tail))
+
+
+def shown(states_path, prefix, frames, log, most):
+    # (the model viewer and the colour editor, started again, another character chosen in them, after another mode: the
+    # run goes on to its end, and from the round's first frame each time it is shown: no black picture for more than
+    # `most` frames while the round is on, and the last picture not black)
+    rows = trace(states_path, 0x20154C8 - 0x20154A7 + 1)
+    went_on(rows, frames, log)
+    on = [r[0] == 2 and (r[0x20154C6 - 0x20154A7] == 0xFF or r[0x20154C8 - 0x20154A7] == 0xFF) for r in rows]
+    starts = [i + 1 for i in range(len(on)) if on[i] and (i == 0 or not on[i - 1])]
+    shots = shots_of(prefix)
+    black = {f: png_black('%s%06d.png' % (prefix, f)) for f in shots}
+    longest, run, worst = 0, 0, None
+    for f in shots:
+        if f - 1 < len(on) and on[f - 1] and any(s + 20 <= f for s in starts) and black[f]:
+            run += 10
+            if run > longest:
+                longest, worst = run, f
+        else:
+            run = 0
+    print("the round on at %s; %d pictures; the longest black while it was on: %d frames (to %s); the last picture %s" %
+          (starts[:6], len(shots), longest, worst, "black" if shots and black[shots[-1]] else "shown"))
+    if not starts:
+        fail("the round never came: black all the way")
+    if longest > most:
+        fail("black for %d frames with the round on" % longest)
+    if shots and black[shots[-1]]:
+        fail("black at the end")
+    print("ok")
+
+
+def frozen(states_path, prefix, frames, log, most, side2):
+    # (tag team battles, three a side, the computer's side tagging: the run goes on to its end, the picture never the
+    # same for more than `most` frames once the first battle's fight is on (a tag as the round was decided held it for
+    # good), the computer's side tagged in, and no frame of the fight over a second)
+    import hashlib
+    rows = trace(states_path, 0x20154C8 - 0x20154A7 + 1)
+    went_on(rows, frames, log)
+    text = open(log).read()
+    tags = re.findall(r'side (\d) tags in', text)
+    first = next((i + 1 for i, r in enumerate(rows) if r[0] == 2 and (r[0x20154C6 - 0x20154A7] == 0xFF or r[0x20154C8 - 0x20154A7] == 0xFF)), None)
+    if first is None:
+        fail("no fight")
+    shots = [f for f in shots_of(prefix) if f >= first]
+    longest, run, worst, last = 0, 0, None, None
+    for f in shots:
+        h = hashlib.md5(open('%s%06d.png' % (prefix, f), 'rb').read()).digest()
+        run = run + 10 if h == last else 0
+        if run > longest:
+            longest, worst = run, f
+        last = h
+    times = re.findall(r'whole frames ([\d.]+) ms at most', text)
+    slowest = max((float(t) for t in times), default=0)
+    print("fight from frame %d; %d tags (%d the computer's); the picture the same for %d frames at most (to %s); the slowest frame %.1f ms" %
+          (first, len(tags), tags.count('2'), longest, worst, slowest))
+    if side2 and tags.count('2') == 0:
+        fail("the computer's side never tagged")
+    if longest > most:
+        fail("the picture stood still for %d frames (frozen)" % longest)
+    if slowest > 1000:
+        fail("a frame of the fight took %.0f ms" % slowest)
+    print("ok")
+
+
 what = sys.argv[1]
-if what == 'veiled':
+if what == 'shown':
+    shown(sys.argv[2], sys.argv[3], int(sys.argv[4]), sys.argv[5], int(sys.argv[6]))
+elif what == 'frozen':
+    frozen(sys.argv[2], sys.argv[3], int(sys.argv[4]), sys.argv[5], int(sys.argv[6]), sys.argv[7] == '1')
+elif what == 'veiled':
     veiled(sys.argv[2], sys.argv[3], int(sys.argv[4]))
 elif what == 'viewer':
     viewer(sys.argv[2])

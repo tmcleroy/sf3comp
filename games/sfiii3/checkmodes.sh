@@ -22,6 +22,22 @@
 #               next opponent comes on (it was not: the same opponent each time)
 #   ball        Parry the ball straight from the menu: the most stun set, nobody stunned at the first hit
 #
+# ... and of the next play-test (each run with a time limit: a run that stops going on is "hung"):
+#
+#   view_q, view_alex, view_again, edit_ryu, edit_again, view_after_tag
+#               the model viewer and the colour editor with an animation chosen and "Play all" (the menu keeps them), on
+#               several characters, started again, another character chosen in them, and after a tag team battle: the
+#               run goes on to its end (an animation put in the fighter's record in the entrances before the round,
+#               or begun without its frames' size, sent the game's animation code into what is not code, and the
+#               program hung inside a frame, its picture black), and while the round is on the picture is never black
+#               for more than 60 frames (a tag as the battle's round was decided left the picture held for good: the
+#               viewer started after it stayed black)
+#   tag_3, tag_5, tag_11, tag_13
+#               tag team battles of made-up play against the computer, three a side (tag_13: two), two battles a run:
+#               the run goes on to its end, the computer's side tags, and the picture never stands still for more than
+#               300 frames (seed 5: the computer's partner brought in as the clock ran out, the round decided within
+#               the tag's held frames, and the picture held for good)
+#
 #   games/sfiii3/checkmodes.sh ROM [BUILD]     (BUILD: build/sfiii3)
 ROM=${1:?usage: checkmodes.sh ROM [BUILD]}
 BUILD=${2:-build/sfiii3}
@@ -29,11 +45,13 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 OUT=$(mktemp -d)
 CHECK="python3 $HERE/modecheck.py"
 
+# (each run with a time limit, LIMIT seconds: one that hangs is stopped, its status 124)
+LIMITED=$(command -v gtimeout || command -v timeout)
 run() { # NAME FRAMES ARGS...: a run, its stderr in OUT/NAME.log
     local name=$1 frames=$2
     shift 2
     mkdir -p "$OUT/$name"
-    nice -n 20 "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$frames" --settings "$OUT/$name/settings.ini" \
+    nice -n 20 $LIMITED -k 10 "${LIMIT:-300}" "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$frames" --settings "$OUT/$name/settings.ini" \
         --eeprom "$OUT/$name/eeprom.bin" "$@" > /dev/null 2> "$OUT/$name.log"
     echo $? > "$OUT/$name.status"
 }
@@ -54,11 +72,40 @@ SFIII3_BATTLE_SEED=7 SFIII3_BATTLE_LOG=1 run ringout_gauge 6500 --keys 30:cringo
     --trace 20694C4-20695BF:"$D/ringout_gauge/trace.bin" &
 SFIII3_BONUS_LOG=1 run ball 2600 --keys 30:cbonus_ball --auto 7:300:1 --trace 20695F7-2069600:"$D/ball/trace.bin" &
 wait
+# (the viewer and the editor: pictures every 10 frames, the match's state and the sides' locks traced)
+look() { # NAME: the arguments for its pictures and trace
+    echo --shot-every 10:"$D/$1/m_" --trace 20154A7-20154C8:"$D/$1/state.bin"
+}
+PLAY_ALL=skip_intro=1,free_play=1,model_animation=1,model_all=1
+run view_q 5000 --features $PLAY_ALL,model_character=18,model_background=22 --keys 30:cmodel_start $(look view_q) &
+run view_alex 7000 --features $PLAY_ALL,model_character=1,model_background=1 --keys 30:cmodel_start $(look view_alex) &
+run view_again 9000 --features $PLAY_ALL,model_character=16,model_background=1 --keys 30:cmodel_start,1000:cmodel_start,1600:fmodel_character=11 \
+    $(look view_again) &
+run edit_ryu 6000 --features skip_intro=1,free_play=1,model_character=2,model_background=1,colours_animation=1531 \
+    --keys 30:ccolours_start,1100:fmodel_character=4 $(look edit_ryu) &
+run edit_again 6000 --features skip_intro=1,free_play=1,model_character=11,model_background=4,colours_animation=481 \
+    --keys 30:ccolours_start,1000:ccolours_start $(look edit_again) &
+SFIII3_BATTLE_SEED=5 run view_after_tag 10500 --features team_size=1,model_character=7 --keys 30:cteam_start,7400:cmodel_start \
+    --auto 5:300:1 $(look view_after_tag) &
+wait
+# (tag team battles, two a run: pictures every 10 frames)
+tags() { # NAME SEED SIZE
+    SFIII3_BATTLE_SEED=$2 SFIII3_BATTLE_TIMES=1 SFIII3_BATTLE_LOG=1 run "$1" 14000 --features team_size=$3 --keys 30:cteam_start,9000:cteam_start \
+        --auto "$2":300:1 $(look "$1")
+}
+tags tag_3 3 1 &
+tags tag_5 5 1 &
+tags tag_11 11 1 &
+tags tag_13 13 0 &
+wait
 
 status=0
 judge() { # NAME CHECK...
     local name=$1
     shift
+    if [ "$(cat "$OUT/$name.status")" = 124 ]; then
+        echo "$name: FAILED: hung (the program stopped going on: stopped after ${LIMIT:-300} s)"; tail -2 "$OUT/$name.log"; status=1; return
+    fi
     if [ "$(cat "$OUT/$name.status")" != 0 ]; then
         echo "$name: the run failed"; tail -3 "$OUT/$name.log"; status=1; return
     fi
@@ -78,6 +125,15 @@ judge survival gauge "$D/survival/trace.bin" "$D/survival.log"
 judge ringout playtime "$D/ringout/trace.bin" "$D/ringout.log"
 judge ringout_gauge gauge "$D/ringout_gauge/trace.bin" "$D/ringout_gauge.log"
 judge ball stun "$D/ball/trace.bin" "$D/ball.log"
+judge view_q shown "$D/view_q/state.bin" "$D/view_q/m_" 5000 "$D/view_q.log" 60
+judge view_alex shown "$D/view_alex/state.bin" "$D/view_alex/m_" 7000 "$D/view_alex.log" 60
+judge view_again shown "$D/view_again/state.bin" "$D/view_again/m_" 9000 "$D/view_again.log" 60
+judge edit_ryu shown "$D/edit_ryu/state.bin" "$D/edit_ryu/m_" 6000 "$D/edit_ryu.log" 60
+judge edit_again shown "$D/edit_again/state.bin" "$D/edit_again/m_" 6000 "$D/edit_again.log" 60
+judge view_after_tag shown "$D/view_after_tag/state.bin" "$D/view_after_tag/m_" 10500 "$D/view_after_tag.log" 60
+for t in tag_3 tag_5 tag_11 tag_13; do
+    judge $t frozen "$D/$t/state.bin" "$D/$t/m_" 14000 "$D/$t.log" 300 1
+done
 [ $status = 0 ] && echo "checkmodes: all the same"
 rm -rf "$OUT"
 exit $status

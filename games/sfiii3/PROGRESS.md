@@ -71,6 +71,20 @@
   RunSpareFrames); Parry the ball from the menu sets up the stun gauges as a match's set-up would (0x061186F2's work:
   the most stun was 0, so the first ball stunned); the model viewer and colour editor black until the round is on,
   the versus fight's intro not shown.
+- Play-test fixes, the second (2026-11-06, Steam Machine; checkmodes.sh's view_*, edit_* and tag_* runs, each with a time
+  limit, fail on the code before and pass after): the model viewer and colour editor hung the program, its picture
+  black, with an animation chosen or "Play all" (the menu keeps both): the animation was put in the fighter's record in
+  the entrances before the round (now from the round's first frame only), and only its address and frame were put in,
+  not its frames' size (4 or 6 longs, in the two longs before it) nor the rest set_char_move_init sets, so a frame was
+  read across its ends and the game's animation code ran into what is not code (illegal instructions), inside one frame
+  for good (Guest::Call's inner dispatch has no limit). Now begun as the game begins one (model.cpp's BeginAnimation;
+  what has no frames' size before it is passed over), and char_move (fight_boxes.cpp) stops for the frame after 4096
+  commands (an animation of the viewer's whose commands begin another that begins it again went round for good). "Play
+  all" from the first animation for 20000 frames on each of the 21 characters (400-1000 animations begun each): no hang,
+  no illegal instruction. Tag team:
+  the picture held over a tag's first frames (holdPicture) was set only in the tag-style fight's frame, so a tag as the
+  round was decided (the computer's partner brought in as the clock ran out) held the picture for good: the game went on
+  unseen (and the model viewer started after it stayed black). Now set every frame (ModesFrame).
 - The board's sound (test menu, system settings, SOUND): EEPROM byte 0x07, 1 JAMMA (mono, the default) or 0 EXTERNAL
   (stereo), read at start-up into the driver's stereo byte 0x02079C5B. The port sets EXTERNAL (board_sound: Stereo) since
   2026-11-06: in JAMMA the driver gives every voice both sides, so the knock-out's boom (voices 10 and 11, one sample
