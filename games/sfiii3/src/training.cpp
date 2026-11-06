@@ -114,6 +114,7 @@ namespace {
             }
         }
     }
+    constexpr uint16_t kDizzy = 25; // (a record's reaction, routine_no[2], while stunned: seen through every stun)
 
     int16_t Signed16(uint32_t address) {
         return static_cast<int16_t>(Ram16(address));
@@ -504,8 +505,14 @@ void TrainingBeforeFrame(Machine &m) {
         m.players[0] = m.players[1] = 0;
     }
     // Stunned (the stun timer, two bytes on from the most it takes, counts down from 130 or so), the dummy mashes: the
-    // stick round and the buttons, a different one each frame
-    if (session::InSession() && FeatureOn("dummy_stun_mash") && InMatch() && Ram8(sfiii3::kStunMost[1] + 2) != 0) {
+    // stick round and the buttons, a different one each frame. Stunned is the record's reaction, the stun's (routine_no[1]
+    // 1 hurt, [2] 25 dizzy): the timer is no guide to its end, mashing takes it below 0 and it is left there (254, 255),
+    // so the dummy mashed on for good and the mashing's moves came out. Nothing pressed in its last frames either (the
+    // timer near its end: about 4 a frame mashed), so that no button pressed as it ends makes a move.
+    const uint8_t stunTimer = Ram8(sfiii3::kStunMost[1] + 2);
+    const bool stunned = Ram16(Player(1) + sfiii3::kDoing) == 1 && Ram16(Player(1) + sfiii3::kWhich) == kDizzy && stunTimer != 0 &&
+                         stunTimer < 0xF0;
+    if (session::InSession() && FeatureOn("dummy_stun_mash") && InMatch() && stunned && stunTimer > 6) {
         static const uint16_t kMash[] = {kLeft | kPunch1, kDown | kKick1, kRight | kPunch2, kUp | kKick2, kLeft | kPunch3, kDown | kKick3};
         m.players[1] = (g.frame & 1) ? 0 : kMash[(g.frame / 2) % std::size(kMash)];
     }
