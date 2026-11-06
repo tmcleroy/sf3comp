@@ -47,8 +47,8 @@
   frames shown, below 0x100 a command, 0xFAFF holds; the fourth the picture); the record's +0x200 is the animation
   playing, +0x204 its cell (in fours of bytes), +0x214 the frames left of it, +0x20C the step; 0x06089848 advances it.
   The model viewer plays one chosen (A0..J159, the ones a character lacks passed over), or all in turn.
-- Stage viewer (training page): Machine::onlyStage draws the board's own stage objects and no text layer (or the
-  stage board's picture alone); the stick moves both fighters together so the camera scrolls.
+- Stage viewer (the Alternative modes' mode; the training page's own entry removed 2026-11-06): Machine::onlyStage draws
+  the board's own stage objects and no text layer (or the stage board's picture alone).
 - Survival, endless battle and team battle (games/sfiii3/src/battle.cpp, as cps2recomp's fight/battle.h): a board
   reset to character select for two players, that machine kept, and each next match made on a spare machine
   (runtime/spare.h, cps2recomp's) from it while the knock-out plays (six of its frames a frame, about 70 frames of
@@ -92,7 +92,7 @@
   (it learns each of player 1's animations' frames until its attack comes out and taps 2 frames before, again no
   sooner than 18 frames on: 168 parries to 63 hits over three seeds of made-up play; misses are mostly throws and
   first sightings; projectiles parried as they come within three frames of their closing speed: 7 of 8 of Gill's
-  fireballs), guards (standing against jump-ins and the overheads it has been hit by, moves within 280 and projectiles within 160), escapes throws, quick-stands, mashes out of stun (timer two bytes on from kStunMost), a stage
+  fireballs), guards (standing against jump-ins and the overheads it has been hit by, moves within 280 and projectiles within 160), escapes throws, quick-stands, mashes out of stun (while its reaction is the stun's, routine_no 1/25, and the timer two bytes on from kStunMost not near its end), a stage
   choice (0x020154F5), the frame data log. Seen working
   in a made-up fight's pictures only. Frame data is read once a frame from the records (not the game's own steps)
   and checked on one move so far: Alex's standing LP reads startup 5, active 2, recovery 8, and the training script's
@@ -105,6 +105,31 @@
   out" puts health back to full below a quarter (no hook on the game's knock-out yet). The player records, boxes, camera and meter places are facts from Grouflon's 3rd_training_lua (no licence:
   facts only, no code), made for the 990512 set; life and positions checked on this 990608 set, the rest seen to
   work in a fight's pictures only.
+- Training's play-test fixes (2026-11-06; `games/sfiii3/checktraining.sh ROM BUILD`, headless, player 1's play scripted
+  movies, judged by trainingcheck.py from SFIII3_TRAINING_LOG's frames, SFIII3_PARRIES and CPS3RECOMP_HUD_LOG's HUD
+  lines; each check fails on the code before and passes after):
+  - The combo readout counted every hit of a session as one combo: 3rd Strike takes a hit's damage the step after its
+    contact, when the one hit already reads as reeling. A combo now goes on only while the player has not been free
+    since the hit before (session.cpp).
+  - The parry readout named grounded parries anti-air: a tap forward on the floor opens the forward window and the
+    anti-air one (waza_flag[12]) together, and the last opened was named. A parry is named by the game's own reaction
+    (31/32 high: forward, or anti-air against a jump's attack, jump_att_flag; 33 down; 34/35 in the air).
+  - The dummy's parry and throw escape are shares, 100% down to 10% (Off and 100% keep the old settings' numbers 0 and
+    1; dummy_tech's old "At random", 2, now reads 90%), thrown with the dummy's dice (in the session's state): 50% parried
+    41 of 88 scripted attacks, escaped 25 of 47 throws.
+  - Mashing out of stun went on after the stun, and its moves came out: the stun timer is mashed below 0 and left
+    there (254). The dummy mashes only while its reaction is the stun's and stops a few timer counts before its end.
+  - The computer's level (dummy_level, with Played by the game or Watch): its play time (Control_Time) held where the
+    level of eight begins in the board difficulty's table (Level_08_Data); at 8 it took 1023 of player 1's health in
+    6000 frames, at 1 603.
+  - The input display shows nothing for neutral, and a button pressed with the stick in the middle as the button alone.
+  - The frame data log stopped for good at the first move with no numbers (hit out of, or never able to hit): its start
+    was left open. And a hit or guard takes the attack's boxes away, often the step they come out, so a move's active
+    count went by when it met the other (2 LP: 2 and 6): a move's attack now counts as out on the step it met the other
+    (its meoshi_hit_flag set, or the other hit by its record) and on through that animation frame. Every scripted move
+    written, the same numbers for the same move hit or guarded; a note at the bottom of the screen says where the file
+    is as each move is written.
+  - The training page's Stage viewer removed (the Alternative modes' stage viewer is the mode).
 
 ## Gotchas
 
