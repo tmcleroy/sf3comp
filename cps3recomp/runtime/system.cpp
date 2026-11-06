@@ -597,10 +597,11 @@ int Machine::Compose(bool native, std::vector<uint32_t> &pixels, int &width, int
         m_bands = false;
         if (m_front) {
             // (any of its stage's objects, on the picture or not: as the one frame asks, native::AddGuest)
+            m_frontPiece = 0x100;
             for (const native::Object &o : m_stage->native.objects) {
                 if (nativeStageObject && nativeStageObject(o) && native::InFront(o.priority, m_front)) {
                     m_bands = true;
-                    break;
+                    m_frontPiece = std::min<int>(m_frontPiece, o.priority);
                 }
             }
         }
@@ -660,7 +661,7 @@ int Machine::Compose(bool native, std::vector<uint32_t> &pixels, int &width, int
         m_renderer.drawGroupContext = this;
         m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
             const Machine &me = *static_cast<Machine *>(self);
-            return !me.ownStageObject(me.board, object) && !(me.m_bands && ObjectInFront(me.board, object, me.m_front));
+            return !me.ownStageObject(me.board, object) && !(me.m_bands && ObjectInFront(me.board, object, me.m_frontPiece));
         };
         const bool text = m_renderer.text;
         if (!onlyStage) {
@@ -679,7 +680,7 @@ int Machine::Compose(bool native, std::vector<uint32_t> &pixels, int &width, int
             m_renderer.text = text;
             m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
                 const Machine &me = *static_cast<Machine *>(self);
-                return !me.ownStageObject(me.board, object) && ObjectInFront(me.board, object, me.m_front);
+                return !me.ownStageObject(me.board, object) && ObjectInFront(me.board, object, me.m_frontPiece);
             };
             DrawLayers(native, m_renderer, board, pixels, width, height);
         }

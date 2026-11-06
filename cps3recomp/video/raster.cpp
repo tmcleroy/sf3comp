@@ -198,6 +198,7 @@ void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift,
     f.bufferWidth = std::min(std::max(f.width, clip.right + 1), kBufferRight + 1);
     f.bufferHeight = std::min(std::max(f.height, clip.bottom + 1), kBufferBottom + 1);
     f.tiles.clear();
+    f.tilePriority.clear();
     f.guest = false;
     f.guestVideo = nullptr;
     f.guestBufferWidth = f.guestBufferHeight = 0;
@@ -224,6 +225,7 @@ void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift,
             if (MakeTile(clip, d.tile, d.colour, d.granularity64 ? 64 : 256, d.flipX, d.flipY, d.x + margin - shift, d.y + shiftY, d.blend, d.scaleX, d.scaleY, t)) {
                 t.producer = producer;
                 f.tiles.push_back(t);
+                f.tilePriority.push_back(d.priority);
             }
             continue;
         }
@@ -260,6 +262,7 @@ void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift,
                          (tile >> 10) & 1, 0x10000, 0x10000, t)) {
                 t.producer = producer;
                 f.tiles.push_back(t);
+                f.tilePriority.push_back(d.priority);
             }
         }
     }
@@ -320,8 +323,19 @@ bool AddGuest(const Video &guest, const uint8_t *guestSpriteRam, Frame &f, KeepO
     // game's things in front of those go in a buffer of their own, over them; else the game's are all in its one buffer.
     // Machine::Compose's two pictures ask the same of the objects)
     bool bands = false;
-    for (uint32_t i = 0; i < guest.objects.size() && !bands && f.front; i++) {
-        bands = (!keep || keep(keepContext, guest.objects[i], i)) && InFront(guest.objects[i].priority, f.front);
+    int piece = 0x100;
+    for (uint32_t i = 0; i < guest.objects.size() && f.front; i++) {
+        if ((!keep || keep(keepContext, guest.objects[i], i)) && InFront(guest.objects[i].priority, f.front)) {
+            bands = true;
+            piece = std::min<int>(piece, guest.objects[i].priority);
+        }
+    }
+    // (the game's in front of the guest's frontmost piece only; the rest of its in front of its fighters under the pieces)
+    f.frontPiece = bands ? piece : 0;
+    for (size_t i = 0; i < f.tiles.size() && bands; i++) {
+        if (f.tiles[i].producer == 3 && !(i < f.tilePriority.size() && InFront(f.tilePriority[i], piece))) {
+            f.tiles[i].producer = 0;
+        }
     }
     for (Tile t : g.tiles) {
         t.producer = t.producer == 3 ? 2 : 1;

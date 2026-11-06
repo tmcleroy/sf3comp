@@ -234,6 +234,7 @@ private:
     // (whether an object of a board, by its number in its object list, is in front: its native object's priority)
     static bool ObjectInFront(const machine::Machine &m, uint32_t object, int front);
     int m_front = 0; // (the front of the composition being drawn)
+    int m_frontPiece = 0; // (... and the stage's frontmost piece in front: native::Frame::frontPiece)
     bool m_bands = false; // (... and whether the stage board's stage has pieces in front)
     void DrawWithStage(std::vector<uint32_t> &pixels, int &width, int &height);
     void DrawStageOnly(bool native, std::vector<uint32_t> &pixels);

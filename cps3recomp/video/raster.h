@@ -75,9 +75,12 @@ struct Frame {
     // priority again (the game's things in front of its fighters: its banners, its effects), which are drawn over them:
     // four buffers, the guest's (1), the game's (0), the guest's in front (2), the game's in front (3), each over the
     // last as one picture over another. `bands` says the guest has such pieces this frame (else the game's are all in
-    // its one buffer, as without)
-    int front = 0;
+    // its one buffer, as without). The game's things in front of them are those of a lower priority than the guest's
+    // frontmost piece (`frontPiece`): the game's of a priority between that and its fighters' (its projectiles, its
+    // sparks) stay under the pieces, as the guest's own game draws them
+    int front = 0, frontPiece = 0;
     bool bands = false;
+    std::vector<uint8_t> tilePriority; // (the game's tiles' priorities, as `tiles`: for AddGuest)
 };
 // Which of a frame's objects are drawn (none: all): a rule on each object, with its context. For a frame made of two
 // producers' layers (a guest stage's under the game's: docs/NATIVE.md), each producer's part.

@@ -427,10 +427,13 @@ namespace {
     bool StageObject(const machine::Machine &m, uint32_t object) {
         return StageWords(m.SpriteList()[object * 4], m.SpriteList()[object * 4 + 2]);
     }
-    // A fighter's object: 6 bits a pixel, a palette below 0x40 (3rd Strike's 0x08 and 0x10, New Generation's the same,
-    // 2nd Impact's 0x00 and 0x18), not blending (not its shadow), not the stage's
+    // A fighter's object: 6 bits a pixel, the players' palettes 0x00-0x1F (0x08 and 0x10 most often, 0x00 and 0x18 by
+    // the colour chosen, in all three games' fights: SFIII3_PRIORITY_STATS), not blending (not its shadow). (Not every
+    // palette below 0x40: New Generation's effects in front, palette 0x3E at priority 10, were taken for a fighter, and its
+    // stages' pieces in front at 20 and 22 put under its fighters again)
     bool FighterWords(uint32_t v1, uint32_t v3) {
-        return (v3 & 3) != 0 && ((v1 >> 9) & 1) && (v1 & 0x1FF) < 0x40 && !((v1 >> 10) & 1);
+        const uint32_t palette = v1 & 0x1FF;
+        return (v3 & 3) != 0 && ((v1 >> 9) & 1) && palette < 0x20 && !((v1 >> 10) & 1);
     }
     // The frontmost priority of a board's fighters (their objects' heads' priorities, native::Object::priority: lower is
     // drawn later); 0 none. The stage's pieces in front of the fighters, as the stage's own game draws them, are those of a
@@ -1852,19 +1855,24 @@ namespace {
         // (two pictures, as Machine::Compose draws them: the stage's, then the rest over it; with pieces in front of the
         // fighters, those over that, then the rest's in front of them)
         static bool s_bands;
+        static int s_piece;
         s_bands = false;
+        s_piece = 0x100;
         for (const native::Object &o : board->native.objects) {
-            s_bands |= s_rule(o.words[0], o.words[2]) && native::InFront(o.priority, s_front);
+            if (s_rule(o.words[0], o.words[2]) && native::InFront(o.priority, s_front)) {
+                s_bands = true;
+                s_piece = std::min<int>(s_piece, o.priority);
+            }
         }
         r.keep = [](const void *, const native::Object &o, uint32_t) { return s_rule(o.words[0], o.words[2]) && !(s_bands && native::InFront(o.priority, s_front)); };
         r.Draw(board->native, board->SpriteRamBytes(), board->SsRam(), two, w, h);
         r.overlay = true;
-        r.keep = [](const void *, const native::Object &o, uint32_t) { return !s_rule(o.words[0], o.words[2]) && !(s_bands && native::InFront(o.priority, s_front)); };
+        r.keep = [](const void *, const native::Object &o, uint32_t) { return !s_rule(o.words[0], o.words[2]) && !(s_bands && native::InFront(o.priority, s_piece)); };
         r.Draw(board->native, board->SpriteRamBytes(), board->SsRam(), two, w, h);
         if (s_bands) {
             r.keep = [](const void *, const native::Object &o, uint32_t) { return s_rule(o.words[0], o.words[2]) && native::InFront(o.priority, s_front); };
             r.Draw(board->native, board->SpriteRamBytes(), board->SsRam(), two, w, h);
-            r.keep = [](const void *, const native::Object &o, uint32_t) { return !s_rule(o.words[0], o.words[2]) && native::InFront(o.priority, s_front); };
+            r.keep = [](const void *, const native::Object &o, uint32_t) { return !s_rule(o.words[0], o.words[2]) && native::InFront(o.priority, s_piece); };
             r.Draw(board->native, board->SpriteRamBytes(), board->SsRam(), two, w, h);
         }
         r.overlay = false;
