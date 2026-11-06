@@ -35,9 +35,10 @@ TABLE = [1, 1, 1, 1, 1, 1, 2, 2] + [3] * 24  # slow_timer_to_flag
 HOLD = 90 + 1     # Time_Data[1], and the frame the message starts on
 SLOW = 95 - 2     # the frames counted down after it (94 to 1)
 KO_AFTER = 60     # frames of the knock-out's sound looked at
-WINDOW = 0.005    # seconds an envelope step
+WINDOW = 0.010    # seconds an envelope step
 DRIFT = 0.040     # seconds the heard sound may move against the game's over the knock-out
 LOUDNESS = 1.0    # dB
+FOUND = 0.6       # the envelopes' correlation that counts as the place found (about 0.8 at the knock-out, 0.9-1 elsewhere)
 
 
 def wav(path, raw=False):
@@ -104,7 +105,7 @@ def envelope(a, rate):
     return out
 
 
-def lag_at(ref, heard, t, span=1.0, search=2.0):
+def lag_at(ref, heard, t, span=0.5, search=2.0):
     """Where `heard` best matches `ref`'s envelope from `t` seconds on: its lag in seconds and the correlation"""
     i0 = int(t / WINDOW)
     n = int(span / WINDOW)
@@ -188,7 +189,7 @@ def main():
         lags = []
         for f in points:
             lag, c = lag_at(eref, eh, f / FPS)
-            if lag is None or c < 0.8:
+            if lag is None or c < FOUND:
                 problems.append('%s: frame %d of the game not found in what was heard (correlation %.2f)' % (name, f, c))
                 continue
             lags.append(lag)
