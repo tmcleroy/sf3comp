@@ -100,7 +100,39 @@ namespace {
         if (list >= kLists || at < 0x06000000u || n >= ListCount(at)) {
             return 0;
         }
-        return Peek32(at + 4 * static_cast<uint32_t>(n));
+        const uint32_t animation = Peek32(at + 4 * static_cast<uint32_t>(n));
+        // (an animation has its frames' size before it, 4 or 6 longs: what is not one is passed over)
+        const uint16_t size = Peek16(animation - 8);
+        return size == 4 || size == 6 ? animation : 0;
+    }
+    // An animation begun as the game begins one (set_char_move_init, 0x060890E0: fight_boxes.cpp's SetMove): its list
+    // and index noted, the frame's longs cleared, the two longs before it (its frames' size, 4 or 6 longs, the pose and
+    // the kind of move...) put in the record, the frame before its first, shown a frame (the game's char_move takes up
+    // the first). Only the animation and its frame were put in once: an animation whose frames are another size than
+    // the last one's (or a next frame left from the last) was read across its frames' ends, and the game's animation
+    // code ran on what is not code.
+    constexpr uint32_t kRoutine = 0x206, kIndex = 0x208, kFrameSize = 0x20C, kFrameData = 0x214, kNextFrame = 0x22A;
+    constexpr uint32_t kLastPicture = 0x234, kComeBackFrame = 0x22C, kBeganAs = 0xAC, kHitsMade = 0x17A, kHitsMade2 = 0x188;
+    void BeginAnimation(uint32_t base, int choice, uint32_t animation) {
+        const uint32_t list = static_cast<uint32_t>((choice - 1) / kMostInList), index = static_cast<uint32_t>((choice - 1) % kMostInList);
+        SetRam16(base + kRoutine, static_cast<uint16_t>(list));
+        SetRam16(base + kIndex, static_cast<uint16_t>(index));
+        SetRam32(base + kAnimation, animation);
+        for (uint32_t n = 0; n < 24; n += 4) {
+            SetRam32(base + kFrameData + n, 0);
+        }
+        SetRam32(base + kFrameSize, Peek32(animation - 8));
+        SetRam32(base + kFrameSize + 4, Peek32(animation - 4));
+        SetRam16(base + kCell, static_cast<uint16_t>(-static_cast<int16_t>(Ram16(base + kFrameSize))));
+        SetRam8(base + kCellLeft, 1);
+        SetRam8(base + kNextFrame, 0);
+        SetRam16(base + kLastPicture, 0);
+        SetRam16(base + kComeBackFrame, 0);
+        SetRam16(base + kBeganAs, static_cast<uint16_t>(list));
+        SetRam16(base + kBeganAs + 2, static_cast<uint16_t>(index));
+        SetRam16(base + kBeganAs + 4, 1);
+        SetRam16(base + kHitsMade, 0);
+        SetRam16(base + kHitsMade2, 0);
     }
     // The colour editor's panel (as cps2recomp's fight/colour_editor.cpp has it)
     enum Row { kRowCharacter, kRowBackground, kRowSize, kRowAnimation, kRowSet, kRowLine, kRowColour, kRowRed, kRowGreen, kRowBlue,
@@ -206,6 +238,10 @@ namespace {
         return v.on && session::InSession() && (Ram8(sfiii3::kLocked[0]) == 0xFF || Ram8(sfiii3::kLocked[1]) == 0xFF) && state >= 1 &&
                state <= 8;
     }
+    // (... and the round on: the character framed, the viewer's own doings (animations, the editor's) on its record)
+    bool Framed() {
+        return Showing() && v.arrived;
+    }
     std::string Character() {
         return CharacterName(Ram16(sfiii3::kPlayer[0] + 0x3C0));
     }
@@ -258,7 +294,7 @@ namespace {
             v.cellSince = v.frames;
         }
         // (a frame held longer than kLongestFrame is the animation's end too: a knock-out's last, say, which lies there)
-        const bool over = Ram32(base + kAnimation) != animation || Ram8(base + kCellLeft) >= 0xF0 || cell < v.lastCell ||
+        const bool over = Ram32(base + kAnimation) != animation || Ram8(base + kCellLeft) >= 0xF0 || static_cast<int16_t>(cell) < static_cast<int16_t>(v.lastCell) ||
                           v.frames - v.cellSince > kLongestFrame;
         v.lastCell = cell;
         if (!startNow && over && !v.ended) {
@@ -284,12 +320,10 @@ namespace {
                     Ram32(base + kAnimation), Ram16(base + kCell), Ram8(base + kCellLeft), startNow ? " new" : "");
         }
         if (startNow || (v.ended && v.frames - v.endedAt >= wait)) {
-            SetRam32(base + kAnimation, animation);
-            SetRam16(base + kCell, 0);
-            SetRam8(base + kCellLeft, 1);
+            BeginAnimation(base, choice, animation);
             v.target = animation;
             v.ended = false;
-            v.lastCell = 0;
+            v.lastCell = Ram16(base + kCell); // (the frame before its first)
         }
     }
 
@@ -437,7 +471,7 @@ namespace {
         Say("Random colours undone");
     }
     void ResetSet(Machine &m) {
-        if (!v.editing || !Showing()) {
+        if (!v.editing || !Framed()) {
             return;
         }
         PutBack(m);
@@ -449,12 +483,12 @@ namespace {
         v.unsaved = 0;
     }
     void RandomCommand(Machine &m) {
-        if (v.editing && Showing()) {
+        if (v.editing && Framed()) {
             Randomise(m);
         }
     }
     void ResetCharacter(Machine &m) {
-        if (!v.editing || !Showing()) {
+        if (!v.editing || !Framed()) {
             return;
         }
         PutBack(m);
@@ -785,7 +819,13 @@ void ModelBeforeFrame(Machine &m) {
         }
         v.arrived = true; // (the round is on: the entrances and its banners were run at speed)
     }
-    if (on) {
+    // (what the viewer does to the fighters, from the round's first frame only: in the entrances before it (the round's
+    // state 1, Showing already) the records are not yet the fight's, and an animation put in one then (it played none)
+    // sent the game's animation code into what is not code: the board's CPU ran on through garbage, inside one frame of
+    // the port's, for good. The program hung, its picture black: "Animation" and "Play all" (the menu's own choices,
+    // kept from the last time) did it, as the way to the round now runs at speed)
+    const bool framed = on && v.arrived;
+    if (framed) {
         // (player 2, not seen, kept a little to player 1's right: the camera, which keeps both in the picture, follows player
         // 1, and the two never overlap (overlapping, the game swaps their palettes, by which player 2's is left out))
         SetRam16(sfiii3::kPlayer[1] + sfiii3::kX, static_cast<uint16_t>(static_cast<int16_t>(Ram16(sfiii3::kPlayer[0] + sfiii3::kX)) + kBeside));
@@ -797,15 +837,15 @@ void ModelBeforeFrame(Machine &m) {
             SetFastForward(fast);
         }
     }
-    if (on && v.editing) {
+    if (framed && v.editing) {
         Editor(m);
     }
-    if (on) {
-        Animate(m);
+    if (framed && v.on && v.arrived) {
+        Animate(m); // (not after the editor started the viewer again: a set or a character changed)
     }
     // (slow motion: the port runs the game slower while the character is shown, as its own speed does)
     const int speed = FeatureValue("model_speed");
-    SetSlowMotion(on && speed > 0 ? 1 << speed : 1);
+    SetSlowMotion(framed && speed > 0 ? 1 << speed : 1);
 }
 
 // The editor's panel, at the right of the picture; the animation's name at the bottom
@@ -815,7 +855,7 @@ void ModelHud(std::vector<HudLine> &lines, std::vector<HudBox> &boxes) {
         v.named = v.choice;
         v.namedAt = v.frames;
     }
-    if (Showing() && v.choice > 0 && v.frames - v.namedAt < kNamedFor) {
+    if (Framed() && v.choice > 0 && v.frames - v.namedAt < kNamedFor) {
         char name[16];
         snprintf(name, sizeof(name), "%c%d", 'A' + (v.choice - 1) / kMostInList, (v.choice - 1) % kMostInList);
         lines.push_back({0.5f, 0.04f, 0, name});

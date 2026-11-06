@@ -553,6 +553,14 @@ namespace {
     // runs out the next (cg_next_ix's, or the one after), its commands run (each in the game's table, until one says to
     // stop for this frame) and the frame taken up (check_cgd_patdat, jumped to). Leaves every register as the game's
     // code.
+    //
+    // (an animation's commands that never come to a frame: one that begins another animation whose commands begin the
+    // first again, say. The board's char_move goes round them for good, and so the port's frame never ended, the program
+    // hung. The game's own moves never do; the model viewer's animations, begun out of their moves, did. After
+    // kMostCommands commands in one char_move (and the ones it calls through those commands), it stops for the frame as a
+    // command would)
+    constexpr int kMostCommands = 4096;
+    int g_commandDepth = 0, g_commands = 0;
     bool CharMove(Guest &g) {
         const uint32_t record = g.R(4);
         g.Write8(record + kStepped, 1);
@@ -566,6 +574,9 @@ namespace {
             return true;
         }
         bool take = false;
+        if (g_commandDepth++ == 0) {
+            g_commands = 0;
+        }
         {
             Frame frame(g, 16); // (r14, r13, pr, macl)
             const uint8_t next = g.Read8(record + kNextFrame);
@@ -590,6 +601,9 @@ namespace {
                     break;
                 }
                 // (a command)
+                if (++g_commands > kMostCommands) {
+                    break; // (round and round: above)
+                }
                 g.R(0) = kCommands;
                 g.R(5) = at;
                 g.R(2) <<= 2;
@@ -606,6 +620,7 @@ namespace {
                 g.Write16(record + kFrame, static_cast<uint16_t>(g.R(2)));
             }
         }
+        g_commandDepth--;
         if (take) {
             g.R(4) = record;
             g.Call(kNewFrame);
