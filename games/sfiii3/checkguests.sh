@@ -202,7 +202,7 @@ for name in "${SESSIONS[@]}"; do
     for c in $(seq "$first" "$last"); do
         if [ "$c" -le 34 ]; then want+="sfiiin:$((c - 22)) "; else want+="sfiii2n:$((c - 35)) "; fi
     done
-    got=$(echo "$line" | tr ';' '\n' | sed -n 's/^ *\([a-z0-9]*:[0-9]*\) \([0-9]*\) frames$/\1 \2/p' | awk '$2 >= 150 || /^own/ {print $1}' | tr '\n' ' ')
+    got=$(echo "${line#*shown:}" | tr ';' '\n' | sed -n 's/^ *\([a-z0-9]*:[0-9]*\) \([0-9]*\) frames$/\1 \2/p' | awk '$2 >= 150 || /^own/ {print $1}' | tr '\n' ' ')
     if [ "$got" != "$want" ]; then
         echo "  wanted: $want"
         status=1
