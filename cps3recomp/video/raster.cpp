@@ -316,12 +316,15 @@ bool AddGuest(const Video &guest, const uint8_t *guestSpriteRam, Frame &f, KeepO
         oneBuffer();
         return false;
     }
-    // (its pieces in front of the game's fighters, if any: then the game's things in front of those go in a buffer of
-    // their own, over them; else the game's are all in its one buffer)
+    // (its pieces in front of the game's fighters, if any of its objects drawn is one, on the picture or not: then the
+    // game's things in front of those go in a buffer of their own, over them; else the game's are all in its one buffer.
+    // Machine::Compose's two pictures ask the same of the objects)
     bool bands = false;
+    for (uint32_t i = 0; i < guest.objects.size() && !bands && f.front; i++) {
+        bands = (!keep || keep(keepContext, guest.objects[i], i)) && InFront(guest.objects[i].priority, f.front);
+    }
     for (Tile t : g.tiles) {
         t.producer = t.producer == 3 ? 2 : 1;
-        bands |= t.producer == 2;
         f.tiles.push_back(t);
     }
     if (!bands) {

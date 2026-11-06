@@ -596,9 +596,12 @@ int Machine::Compose(bool native, std::vector<uint32_t> &pixels, int &width, int
         m_front = FrontNow();
         m_bands = false;
         if (m_front) {
-            const uint32_t objects = static_cast<uint32_t>(std::min<size_t>(m_stage->native.objects.size(), m_stage->SpriteCount()));
-            for (uint32_t object = 0; object < objects && !m_bands; object++) {
-                m_bands = stageObject(*m_stage, object) && ObjectInFront(*m_stage, object, m_front);
+            // (any of its stage's objects, on the picture or not: as the one frame asks, native::AddGuest)
+            for (const native::Object &o : m_stage->native.objects) {
+                if (nativeStageObject && nativeStageObject(o) && native::InFront(o.priority, m_front)) {
+                    m_bands = true;
+                    break;
+                }
             }
         }
         m_stageRenderer.margin = m_renderer.margin;
