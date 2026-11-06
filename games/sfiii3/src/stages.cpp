@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <iterator>
+#include <cstring>
 #include <string>
 #include <filesystem>
 #include <memory>

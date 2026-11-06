@@ -196,7 +196,7 @@ void Machine::DrawLayers(bool native, Renderer &r, const machine::Machine &m, st
     n.overlay = r.overlay;
     n.backdrop = r.backdrop;
     m_shownKeep = {r.drawGroup, r.drawGroupContext};
-    n.keep = r.drawGroup ? [](const void *context, const native::Object &o, uint32_t index) {
+    n.keep = r.drawGroup ? +[](const void *context, const native::Object &o, uint32_t index) {
         const ShownKeep &k = *static_cast<const ShownKeep *>(context);
         return k.fn(k.context, o.group, index);
     } : nullptr;
