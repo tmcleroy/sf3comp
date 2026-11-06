@@ -45,6 +45,9 @@ namespace {
         uint16_t hits[2] = {}, marker[2] = {};
         uint8_t health[2] = {}, blocking[2] = {}, freeze[2] = {};
         bool reeling[2] = {}, guarding[2] = {};
+        // (frame data: the animation frame each player's move met the other on, this move: active as long as it lasts)
+        uint16_t contactAnim[2] = {}, contactCell[2] = {};
+        bool contacted[2] = {}, metFlag[2] = {};
         uint32_t guardedAt = 0; // (the dummy) the frame it last began to guard ("While guarding": the red parry)
         // (the parry readout: each player's last window opened, and what came of it)
         struct Parry {
@@ -57,7 +60,8 @@ namespace {
             uint16_t connection = 0;
         } parry[2];
         uint32_t frame = 0;
-        uint32_t parryTap = 0; // (the dummy's parry: the frame it last tapped)
+        uint32_t parryTap = 0; // (the dummy's parry: the frame it last tapped, or let an attack through)
+        bool parryTried = false;
         // (... and for each of player 1's animations (by character), its frames until its attack box comes out, so that the
         // next time it taps just before it can hit; and when player 1's move now started)
         struct Learned {
@@ -128,6 +132,23 @@ namespace {
             }
         }
     }
+
+    // The computer player's levels: its play time (Control_Time, a word of seconds fought), and the board difficulty's set
+    // of level tables (kRank); the level of eight's table (Level_08_Data: for each kRank three rows of seven play times, at
+    // which levels 1-7 end; computer_entry.cpp's LevelByPlayTime, row 0)
+    constexpr uint32_t kPlayTime = 0x02011372, kRank = 0x0201584C, kLevels8 = 0x061753E6;
+    // The play time at which level `level` (0-7) begins, as the game reads the tables (the set's offset cut to a signed
+    // byte, as its code has it)
+    int PlayTimeOfLevel(int level) {
+        if (level <= 0) {
+            return 0;
+        }
+        const int32_t set = static_cast<int8_t>(static_cast<int8_t>(Ram8(kRank)) * 42);
+        const uint32_t times = kLevels8 + static_cast<uint32_t>(set);
+        return static_cast<int16_t>(Peek16(times + static_cast<uint32_t>(std::min(level, 7) - 1) * 2)) + 1;
+    }
+
+    constexpr uint16_t kDizzy = 25; // (a record's reaction, routine_no[2], while stunned: seen through every stun)
 
     int16_t Signed16(uint32_t address) {
         return static_cast<int16_t>(Ram16(address));
@@ -213,6 +234,26 @@ namespace {
         }
     }
 
+    // A parry just made by player p, as the game made it (fight_judge.cpp's Parried): its reaction (routine_no[2]) 31 or 32
+    // forward, or anti-air when the attack was a jump's (the attacker's jump_att_flag: the game parried it with the
+    // anti-air window), 33 down, 34 or 35 in the air (0-3, kParryWindow's order; -1 not a parry's reaction)
+    int ParryKind(int p) {
+        const uint32_t base = Player(p);
+        const uint16_t how = Ram16(base + 0x28);
+        if (how == 33) {
+            return 1;
+        }
+        if (how == 34 || how == 35) {
+            return 2;
+        }
+        if (how != 31 && how != 32) {
+            return -1;
+        }
+        const uint32_t by = Ram32(base + 0x14) & 0x0FFFFFFF; // (the record that hit it, dmg_adrs)
+        const uint32_t attacker = by >= 0x02000000 && by < 0x02080000 ? by : Player(1 - p);
+        return Ram8(attacker + 0x304) != 0 ? 3 : 0; // (jump_att_flag)
+    }
+
     // The parry readout. A parry in a window says which of its frames it came on; a hit or guard arriving while a window
     // is open but not parried, the wrong window; a hit within 20 frames after a window closed, too early by so many; a
     // window opened within 20 frames after a hit, too late by so many.
@@ -235,10 +276,12 @@ namespace {
                     fprintf(stderr, "parry: player %d %s %s, %d frames\n", p + 1, kKinds[parry.kind], kResults[result], frames);
                 }
             };
-            bool open = false;
+            bool open = false, opened = false;
             for (int k = 0; k < 4; k++) {
                 const uint8_t now = Ram8(sfiii3::kParryWindow[k] + p * sfiii3::kParryWindowPlayer2);
-                if (parry.window[k] == 0 && now != 0) {
+                // (a tap forward on the floor opens the forward window and the anti-air one together: named the first)
+                if (parry.window[k] == 0 && now != 0 && !opened) {
+                    opened = true;
                     parry.kind = static_cast<int8_t>(k);
                     parry.opened = g.frame;
                     parry.armed = true;
@@ -253,6 +296,12 @@ namespace {
                 parry.lastHit = g.frame;
             }
             if (parried && parry.kind >= 0) {
+                // (which parry it was, as the game made it: the defender's reaction, 31 high or 32 high against an
+                // attack low on it (forward; against a jump's attack, the anti-air window), 33 low, 34 and 35 in the air)
+                const int kind = ParryKind(p);
+                if (kind >= 0) {
+                    parry.kind = static_cast<int8_t>(kind);
+                }
                 say(1, static_cast<int>(g.frame - parry.opened));
                 parry.closed = 0;
                 continue;
@@ -315,7 +364,8 @@ namespace {
                     g.guardedAt = g.frame;
                 }
             }
-            landed[1 - p] = hit || guardStarted;
+            // (by the attacker's own record, not a projectile of its: the record that hit, dmg_adrs)
+            landed[1 - p] = (hit || guardStarted) && (Ram32(base + 0x14) & 0x0FFFFFFF) == Player(1 - p);
             wasHit[p] = hit;
             wasGuarded[p] = guardStarted;
             g.guarding[p] = Guarding(p);
@@ -346,8 +396,24 @@ namespace {
             view.frozen = Ram8(base + sfiii3::kFreeze) != 0;
             view.attacking = Ram8(base + sfiii3::kAttacking) != 0;
             view.jumping = Signed16(base + sfiii3::kY) > 0;
-            view.attackOut = AnyBox(p, sfiii3::kAttackBoxes, 4);
-            (void)landed;
+            // The attack out: its boxes, or the move having met the other this step, and on through the animation frame
+            // it met it on. A hit or a guard takes the attack's boxes away, often in the step they came out (never seen
+            // here) and for the rest of that frame of the animation, so a move's active steps were counted only up to its
+            // contact (and none when that was its first): the same move gave different numbers hit, guarded and missed.
+            // The animation frame with the attack (its box set's attack, cg_ja.atix) is active whatever it met.
+            const uint16_t animNow = Ram16(base + sfiii3::kAnimation + 2), cellNow = Ram16(base + sfiii3::kAnimationFrame);
+            // (met: the other hit or guarding by this player's record, or its attack's "met" flag set (meoshi_hit_flag, the
+            // attack's own: a guard is seen a step after its contact))
+            const bool met = Ram8(base + sfiii3::kCancelHit) != 0;
+            landed[p] = landed[p] || (met && !g.metFlag[p]);
+            g.metFlag[p] = met;
+            if (landed[p]) {
+                g.contacted[p] = true;
+                g.contactAnim[p] = animNow;
+                g.contactCell[p] = cellNow;
+            }
+            view.attackOut = AnyBox(p, sfiii3::kAttackBoxes, 4) || landed[p] ||
+                             (g.contacted[p] && animNow == g.contactAnim[p] && cellNow == g.contactCell[p]);
             // (debugging aid, SFIII3_STEPS=1: what is read of each player, each frame)
             static const bool printSteps = getenv("SFIII3_STEPS") != nullptr;
             static const int stepsOf = printSteps ? atoi(getenv("SFIII3_STEPS")) - 1 : 0; // (1: player 1's, 2: player 2's)
@@ -357,6 +423,9 @@ namespace {
             }
             const fight::Doing before = session::Now(p);
             session::Step(p, view);
+            if (session::Now(p) == fight::Doing::Free || view.control != fight::StepView::Own) {
+                g.contacted[p] = false;
+            }
             // Each move's animation as it starts, and its startup once measured (the dummy's parry learns them; and a
             // debugging aid, SFIII3_MOVES=1, prints each move's character, animation, startup, active and recovery as
             // measured, for tools/framecheck.py to compare with the training script's recorded animations)
@@ -388,6 +457,22 @@ namespace {
                     printf("move %d %u %04x %u %u %u\n", p, Ram16(base + 0x3C0), g.moveAnim[p], move.startup, move.active, move.recovery);
                 }
             }
+        }
+        // (debugging aid, SFIII3_TRAINING_LOG=1: each frame of a round, what checktraining.sh judges by: both players'
+        // doings (fight::Doing), player 2's controls as the game took them, thrown, health, stun (taken, the most, the
+        // timer), places, the animations, and the parry windows)
+        static const bool trainingLog = getenv("SFIII3_TRAINING_LOG") != nullptr;
+        if (trainingLog && !RunningAhead()) {
+            const Machine *m = TheMachine();
+            fprintf(stderr, "tl %llu %u d %d %d held %04x %04x thrown %u life %u %u stun %u %u %u x %d %d y %d %d anim %04x %04x play %d win %u%u%u%u how %u %u\n",
+                    static_cast<unsigned long long>(m ? m->frame : 0), g.frame, static_cast<int>(session::Now(0)), static_cast<int>(session::Now(1)), m ? m->players[0] : 0,
+                    m ? m->players[1] : 0, Ram8(Player(1) + sfiii3::kThrown), Ram8(Player(0) + sfiii3::kLife),
+                    Ram8(Player(1) + sfiii3::kLife), Ram32(sfiii3::kStunMost[1] + 6) >> 24, Ram8(sfiii3::kStunMost[1]),
+                    Ram8(sfiii3::kStunMost[1] + 2), Signed16(Player(0) + sfiii3::kX), Signed16(Player(1) + sfiii3::kX),
+                    Signed16(Player(0) + sfiii3::kY), Signed16(Player(1) + sfiii3::kY), Ram16(Player(0) + sfiii3::kAnimation + 2),
+                    Ram16(Player(1) + sfiii3::kAnimation + 2), Signed16(0x02011372), Ram8(sfiii3::kParryWindow[0] + sfiii3::kParryWindowPlayer2) != 0,
+                    Ram8(sfiii3::kParryWindow[1] + sfiii3::kParryWindowPlayer2) != 0, Ram8(sfiii3::kParryWindow[2] + sfiii3::kParryWindowPlayer2) != 0,
+                    Ram8(sfiii3::kParryWindow[3] + sfiii3::kParryWindowPlayer2) != 0, Ram16(Player(1) + 0x26), Ram16(Player(1) + 0x28));
         }
     }
 
@@ -460,25 +545,25 @@ void TrainingBeforeFrame(Machine &m) {
                 SetRam8(Player(p) + 3, 1);
             }
         }
-    }
-    // The stage viewer: only the stage drawn (and with the Stages option another game's, its music playing), the stick
-    // moving both fighters across it together, so that the camera goes along; nothing else of the controls reaches the game
-    const bool viewer = session::InSession() && FeatureOn("stage_viewer");
-    m.onlyStage = viewer && InMatch();
-    if (m.onlyStage) {
-        const uint16_t stick = m.players[0];
-        const int step = (stick & kRight) ? 6 : (stick & kLeft) ? -6 : 0;
-        const int left = Signed16(sfiii3::kCameraLeft[0]) - 164, right = Signed16(sfiii3::kCameraRight[0]) + 164;
-        const int one = Signed16(Player(0) + sfiii3::kX), two = Signed16(Player(1) + sfiii3::kX);
-        if (step && std::min(one, two) + step >= left && std::max(one, two) + step <= right) {
-            SetRam16(Player(0) + sfiii3::kX, static_cast<uint16_t>(one + step));
-            SetRam16(Player(1) + sfiii3::kX, static_cast<uint16_t>(two + step));
+        // The computer's level (Dummy: "Computer's level"): its play time held where the level begins (the game's levels
+        // go by it: Control_Time against the board difficulty's row of level tables)
+        const int level = FeatureValue("dummy_level");
+        if (level > 0 && (watch || FeatureOn("dummy_computer"))) {
+            SetRam16(kPlayTime, static_cast<uint16_t>(PlayTimeOfLevel(level - 1)));
         }
-        m.players[0] = m.players[1] = 0;
     }
+    // (only the stage drawn: the Alternative modes' stage viewer's, which BattleBeforeFrame sets after this; the training
+    // menu's own stage viewer is gone, the mode is the stage viewer)
+    m.onlyStage = false;
     // Stunned (the stun timer, two bytes on from the most it takes, counts down from 130 or so), the dummy mashes: the
-    // stick round and the buttons, a different one each frame
-    if (session::InSession() && FeatureOn("dummy_stun_mash") && InMatch() && Ram8(sfiii3::kStunMost[1] + 2) != 0) {
+    // stick round and the buttons, a different one each frame. Stunned is the record's reaction, the stun's (routine_no[1]
+    // 1 hurt, [2] 25 dizzy): the timer is no guide to its end, mashing takes it below 0 and it is left there (254, 255),
+    // so the dummy mashed on for good and the mashing's moves came out. Nothing pressed in its last frames either (the
+    // timer near its end: about 4 a frame mashed), so that no button pressed as it ends makes a move.
+    const uint8_t stunTimer = Ram8(sfiii3::kStunMost[1] + 2);
+    const bool stunned = Ram16(Player(1) + sfiii3::kDoing) == 1 && Ram16(Player(1) + sfiii3::kWhich) == kDizzy && stunTimer != 0 &&
+                         stunTimer < 0xF0;
+    if (session::InSession() && FeatureOn("dummy_stun_mash") && InMatch() && stunned && stunTimer > 6) {
         static const uint16_t kMash[] = {kLeft | kPunch1, kDown | kKick1, kRight | kPunch2, kUp | kKick2, kLeft | kPunch3, kDown | kKick3};
         m.players[1] = (g.frame & 1) ? 0 : kMash[(g.frame / 2) % std::size(kMash)];
     }
@@ -488,7 +573,10 @@ void TrainingBeforeFrame(Machine &m) {
     const int guardAction = FeatureValue("dummy_guard_action"); // (1 the red parry, 2 at random: one guarding in two)
     const bool red = (guardAction == 1 || (guardAction == 2 && (g.guardedAt * 2654435761u) >> 31)) && g.guardedAt &&
                      (g.guarding[1] || g.frame - g.guardedAt < 30);
-    if (session::InSession() && (FeatureOn("dummy_parry") || red) && InMatch()) {
+    // (Parries: the share of attacks it tries for, the session's dice thrown for each as its tap comes due; the red parry
+    // always)
+    const int parryPercent = red ? 100 : fight::ChoicePercent(FeatureValue("dummy_parry"));
+    if (session::InSession() && parryPercent && InMatch()) {
         const bool onRight = static_cast<int16_t>(Ram16(Player(1) + sfiii3::kX)) >= static_cast<int16_t>(Ram16(Player(0) + sfiii3::kX));
         // (an animation seen to hit before: the tap as it is about to, `lead` frames before; a move not seen yet: as it starts)
         static const int lead = getenv("SFIII3_PARRY_LEAD") ? atoi(getenv("SFIII3_PARRY_LEAD")) : 2;
@@ -508,11 +596,16 @@ void TrainingBeforeFrame(Machine &m) {
         g.projectileDistance = nearest;
         static const uint32_t again = getenv("SFIII3_PARRY_AGAIN") ? static_cast<uint32_t>(atoi(getenv("SFIII3_PARRY_AGAIN"))) : 18;
         if ((due || projectile) && (g.parryTap == 0 || g.frame - g.parryTap > again)) {
-            m.players[1] = g.moveLow[0] && !projectile ? kDown : (onRight ? kLeft : kRight);
+            // (an attack let through: the tap's time taken all the same, so that the same attack is not tried for again)
+            const bool tries = session::Chance(parryPercent);
+            if (tries) {
+                m.players[1] = g.moveLow[0] && !projectile ? kDown : (onRight ? kLeft : kRight);
+            }
             if (!RunningAhead()) {
                 g.parryTap = g.frame;
+                g.parryTried = tries;
             }
-        } else if (g.parryTap && g.frame - g.parryTap < 2) {
+        } else if (g.parryTap && g.parryTried && g.frame - g.parryTap < 2) {
             m.players[1] = 0; // (let go, so the next tap is a fresh one)
         }
     }
@@ -592,21 +685,24 @@ void RegisterTraining(Game &game) {
          "The stage a training session is fought on: one of 3rd Strike's, or one of New Generation's or 2nd Impact's (their "
          "sets beside this one's, sfiiin.zip and sfiii2n.zip, as for the Display page's Stages).",
          kFeatureMenuChoices, TrainingStageNames()},
-        {"stage_viewer", session::kPage, "Stage viewer",
-         "In a training session: only the stage is drawn (no fighters, no panel), and the stick moves along it. With the Stages "
-         "option, another game's stage and its music."},
         {"training_watch", session::kPage, "Watch the game play itself",
          "In a training session, both players are the game's computer player: a fight to watch, as long as it is on (health "
          "comes back below a quarter, as in any session)."},
         {"dummy_computer", "Dummy", "Played by the game",
-         "Player 2 is the game's own computer player, as in a one-player game (at the board's difficulty setting).", kFeatureExclusive},
+         "Player 2 is the game's own computer player, as in a one-player game (at the board's difficulty setting, and the level chosen below).", kFeatureExclusive},
+        {"dummy_level", "Dummy", "Computer's level",
+         "With \"Played by the game\" (or \"Watch the game play itself\"): how well the computer plays, by the arcade's own levels "
+         "(it plays better the longer a one-player game has gone on: its play time is held where the level chosen begins). "
+         "\"As the game goes\": the arcade's way, the play time counting up as the fight goes on.",
+         0, {"As the game goes", "1 (weakest)", "2", "3", "4", "5", "6", "7", "8 (strongest)"}},
         {"dummy_stun_mash", "Dummy", "Mashes out of stun",
          "Stunned, the dummy works the stick and the buttons as fast as it can, as a player does to get out sooner."},
         {"dummy_parry", "Dummy", "Parries",
-         "Player 2 tries to parry player 1's attacks: it taps towards player 1 (or down for an attack made crouching). A move it has "
-         "seen before it parries just before it can hit (it learns how long each animation takes to bring out its attack, chained "
-         "and cancelled moves too); one it has not, as it starts. In tests it parried about three in four of made-up play's "
-         "attacks (a third without the learning)."},
+         "Player 2 tries to parry this share of player 1's attacks (the rest it lets through), at random: it taps towards player 1 "
+         "(or down for an attack made crouching). A move it has seen before it parries just before it can hit (it learns how long "
+         "each animation takes to bring out its attack, chained and cancelled moves too); one it has not, as it starts. In tests, "
+         "trying for every attack, it parried about three in four of made-up play's attacks (a third without the learning).",
+         0, fight::kPercentChoices},
         {"parry_readout", session::kPage, "Parry readout",
          "When a parry window opens (the stick forward, down, in the air, or up against a jump-in): whether the parry came, on which "
          "frame of the window, or how long after the window opened the hit came instead."},
@@ -636,7 +732,7 @@ void RegisterTraining(Game &game) {
         start.id = Ram16(base + sfiii3::kAnimation + 2);
         return start;
     };
-    d.ownAids = {"hit_boxes", "dummy_parry", "dummy_stun_mash", "dummy_computer", "training_watch", "stage_viewer", "parry_readout", "stun_readout", "gauge_refill"};
+    d.ownAids = {"hit_boxes", "dummy_parry", "dummy_stun_mash", "dummy_computer", "dummy_level", "training_watch", "parry_readout", "stun_readout", "gauge_refill"};
     // The dummy's guard: player 1's move starting or able to hit, near enough (280 across: the distance a move can hit
     // from is not known; nearer missed more, farther no fewer); standing against an attack from the air (made-up play,
     // three seeds: 25 hits taken to 43 with the toolkit's own, which crouches always)
@@ -668,7 +764,8 @@ void RegisterTraining(Game &game) {
         return static_cast<uint16_t>((frame & 1) ? 0 : (kPunch1 | kKick1));
     };
     d.dummy.heldActionTitle = "Escapes throws";
-    d.dummy.heldActionWords = "Player 2 escapes throws (light punch and light kick as the throw takes hold): always, or one in two at random.";
+    d.dummy.heldActionWords = "Player 2 escapes this share of throws (light punch and light kick as the throw takes hold), at random: "
+                              "100% every one, 50% one in two.";
     // Knocked down: the quick stand (down tapped as it lands)
     d.dummy.getUp.push_back({"Quick stand", [](int frame, uint16_t, uint16_t) -> uint16_t {
                                  return static_cast<uint16_t>(((frame / 2) & 1) ? 0 : kDown);

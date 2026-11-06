@@ -82,6 +82,9 @@ void Step(int player, const fight::StepView &view);
 void Contact(int victim, bool guarded);
 void Hit(int player, unsigned damage, bool chip = false);
 fight::Doing Now(int player);
+// The session's dice (the dummy's, kept in the session's state: the same throws in a rollback and online): true `percent`
+// times in a hundred
+bool Chance(int percent);
 fight::Frames::Move LastMove(int player);
 
 // Around the port's machine's frame (the game's beforeFrame and frame), and its save states

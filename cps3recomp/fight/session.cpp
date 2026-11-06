@@ -9,6 +9,7 @@
 #include <utility>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 namespace cps3recomp::session {
 
@@ -16,6 +17,7 @@ namespace {
     Description d;
 
     constexpr int kRefillAfter = 90; // frames without a hit after which health comes back
+    constexpr int kLogNoteFor = 150; // frames the frame data log's note stays up after it writes
     constexpr uint16_t kSticks = kLeft | kRight | kUp | kDown;
     constexpr uint16_t kAllButtons = kPunch1 | kPunch2 | kPunch3 | kKick1 | kKick2 | kKick3;
 
@@ -25,6 +27,10 @@ namespace {
     fight::Combos g_combos;
     fight::Dummy g_dummy;
     bool g_fighting = false;
+    // Each player has been free (fight::Doing::Free) at a step since the hit before: the next hit starts a new combo. (Not
+    // what the player is doing as the damage is taken: a game may take a hit's damage a step after its contact, when the
+    // player is reeling from that hit already, and then every hit read as part of a combo.)
+    bool g_freeSinceHit[2] = {true, true};
     // Getting to a session from switching on: coins while there are fewer than two credits (and no free play), then
     // both Start buttons until both players are choosing (the game runs unseen meanwhile)
     bool g_boot = false;
@@ -44,12 +50,50 @@ namespace {
         g_fighting = fighting;
         g_inputs.Clear();
         g_combos.Clear();
+        g_freeSinceHit[0] = g_freeSinceHit[1] = true;
         g_dummy.Afresh();
         g_frames.Reset();
     }
 
     bool Fighting() {
         return d.fighting && d.fighting();
+    }
+
+    // The frame data log's note, for a few seconds after each move it writes: where the file is (the log shows nothing
+    // else on the screen)
+    void LogNote(const Machine &machine, std::vector<HudLine> &lines) {
+        static uint32_t seen = 0;
+        static uint64_t until = 0;
+        if (g_log.Written() != seen) {
+            seen = g_log.Written();
+            until = machine.frame + kLogNoteFor;
+        }
+        if (!FeatureOn("frame_log") || g_log.Path().empty() || machine.frame >= until) {
+            return;
+        }
+        std::string path = g_log.Path();
+        const char *home = getenv("HOME");
+        if (home && *home && path.compare(0, strlen(home), home) == 0) {
+            path = "~" + path.substr(strlen(home));
+        }
+        char count[32];
+        snprintf(count, sizeof(count), " (%u moves)", seen);
+        lines.push_back({0.5f, 0.95f, 0, "frame data saved to " + path + count, 150, 255, 150});
+    }
+
+    // (debugging aid, CPS3RECOMP_HUD_LOG=1: the HUD's lines each time they change, for the checks to read)
+    void LogHud(const Machine &machine, const std::vector<HudLine> &lines) {
+        static const bool log = getenv("CPS3RECOMP_HUD_LOG") != nullptr;
+        static std::vector<HudLine> last;
+        if (!log || RunningAhead() || lines == last) {
+            return;
+        }
+        last = lines;
+        fprintf(stderr, "hud: frame %llu:", static_cast<unsigned long long>(machine.frame));
+        for (const HudLine &line : lines) {
+            fprintf(stderr, " [%s]", line.text.c_str());
+        }
+        fprintf(stderr, "\n");
     }
 
     void Boot(Machine &machine) {
@@ -171,6 +215,9 @@ bool NoKnockOut() {
 
 void Step(int player, const fight::StepView &view) {
     g_frames.Step(player, view);
+    if (g_frames.Now(player) == fight::Doing::Free) {
+        g_freeSinceHit[player] = true;
+    }
     if (d.moveStart && FeatureOn("frame_log")) {
         g_log.Step(player, g_frames, d.moveStart);
     }
@@ -179,9 +226,12 @@ void Contact(int victim, bool guarded) {
     g_frames.Contact(victim, guarded);
 }
 void Hit(int player, unsigned damage, bool chip) {
-    // A combo goes on while the player has not got free since the last hit
-    const fight::Doing doing = g_frames.Now(player);
-    g_combos.Hit(player, damage, 0, !chip && (doing == fight::Doing::HitStun || doing == fight::Doing::Held));
+    // A combo goes on while the player has not got free since the last hit (a guarded hit's chip ends one)
+    g_combos.Hit(player, damage, 0, !chip && !g_freeSinceHit[player]);
+    g_freeSinceHit[player] = chip;
+}
+bool Chance(int percent) {
+    return g_dummy.Chance(percent);
 }
 fight::Doing Now(int player) {
     return g_frames.Now(player);
@@ -259,11 +309,13 @@ void Frame(Machine &machine) {
         }
     }
     g_frames.Hud(FeatureOn("frame_data"), FeatureOn("frame_meter"), lines, boxes, d.framesY, d.framesTop, machine.PictureWidth(), 0);
+    LogNote(machine, lines);
     if (d.hud) {
         d.hud(machine, lines, boxes);
     }
     SetBoxes(std::move(boxes));
     g_dummy.Hud(lines, 0.17f);
+    LogHud(machine, lines);
     SetHud(std::move(lines));
 }
 
@@ -271,6 +323,7 @@ void State(Archive &ar) {
     ar.Mark(0x5452414E); // TRAN
     ar.Pod(g_fighting);
     ar.Pod(g_combos);
+    ar.Pod(g_freeSinceHit);
     ar.Pod(g_inputs);
     g_dummy.Serialize(ar);
     ar.Vec(g_roundStart);
@@ -313,7 +366,8 @@ void Register(const Description &description) {
     {
         game.features.push_back({"input_display", kPage, "Input display",
                                  "Shows what each player presses and for how many frames: the stick as a keypad number from the "
-                                 "player's side (6 forward, 4 back, 2 down), then the buttons."});
+                                 "player's side (6 forward, 4 back, 2 down), then the buttons; nothing for the stick left in the "
+                                 "middle."});
     }
     game.features.insert(game.features.end(), d.features.begin(), d.features.end());
     game.features.push_back({"frame_data", kPage, "Frame data",
@@ -322,8 +376,12 @@ void Register(const Description &description) {
                              "(+: the attacker)."});
     if (d.moveStart) {
         game.features.push_back({"frame_log", kPage, "Frame data log",
-                                 "Writes every move's frame data to frame_data.csv, beside the settings file: the character, what was "
-                                 "held as it began, startup, active, recovery and the advantage after a hit or a guarded one."});
+                                 "Writes every move's frame data to frame_data.csv, in the game's own folder beside settings.ini "
+                                 "(~/Library/Application Support/<the game> on a Mac, ~/.local/share/<the game> on Linux and the Steam "
+                                 "Deck, %APPDATA%\\<the game> on Windows, user/ beside the launcher when it is portable): the character, "
+                                 "what was held as it began, startup, active, recovery and the advantage after a hit or a guarded one. "
+                                 "Nothing is shown in the fight but a note at the bottom of the screen, saying where, as each move is "
+                                 "written."});
     }
     game.features.push_back({"frame_meter", kPage, "Frame meter",
                              "A row of cells for each player, one for every step of the game: green before a move can hit, red while it "
