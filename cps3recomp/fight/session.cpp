@@ -341,7 +341,8 @@ void Register(const Description &description) {
     {
         game.features.push_back({"input_display", kPage, "Input display",
                                  "Shows what each player presses and for how many frames: the stick as a keypad number from the "
-                                 "player's side (6 forward, 4 back, 2 down), then the buttons."});
+                                 "player's side (6 forward, 4 back, 2 down), then the buttons; nothing for the stick left in the "
+                                 "middle."});
     }
     game.features.insert(game.features.end(), d.features.begin(), d.features.end());
     game.features.push_back({"frame_data", kPage, "Frame data",
