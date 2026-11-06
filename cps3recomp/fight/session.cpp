@@ -25,6 +25,10 @@ namespace {
     fight::Combos g_combos;
     fight::Dummy g_dummy;
     bool g_fighting = false;
+    // Each player has been free (fight::Doing::Free) at a step since the hit before: the next hit starts a new combo. (Not
+    // what the player is doing as the damage is taken: a game may take a hit's damage a step after its contact, when the
+    // player is reeling from that hit already, and then every hit read as part of a combo.)
+    bool g_freeSinceHit[2] = {true, true};
     // Getting to a session from switching on: coins while there are fewer than two credits (and no free play), then
     // both Start buttons until both players are choosing (the game runs unseen meanwhile)
     bool g_boot = false;
@@ -44,6 +48,7 @@ namespace {
         g_fighting = fighting;
         g_inputs.Clear();
         g_combos.Clear();
+        g_freeSinceHit[0] = g_freeSinceHit[1] = true;
         g_dummy.Afresh();
         g_frames.Reset();
     }
@@ -186,6 +191,9 @@ bool NoKnockOut() {
 
 void Step(int player, const fight::StepView &view) {
     g_frames.Step(player, view);
+    if (g_frames.Now(player) == fight::Doing::Free) {
+        g_freeSinceHit[player] = true;
+    }
     if (d.moveStart && FeatureOn("frame_log")) {
         g_log.Step(player, g_frames, d.moveStart);
     }
@@ -194,9 +202,9 @@ void Contact(int victim, bool guarded) {
     g_frames.Contact(victim, guarded);
 }
 void Hit(int player, unsigned damage, bool chip) {
-    // A combo goes on while the player has not got free since the last hit
-    const fight::Doing doing = g_frames.Now(player);
-    g_combos.Hit(player, damage, 0, !chip && (doing == fight::Doing::HitStun || doing == fight::Doing::Held));
+    // A combo goes on while the player has not got free since the last hit (a guarded hit's chip ends one)
+    g_combos.Hit(player, damage, 0, !chip && !g_freeSinceHit[player]);
+    g_freeSinceHit[player] = chip;
 }
 fight::Doing Now(int player) {
     return g_frames.Now(player);
@@ -287,6 +295,7 @@ void State(Archive &ar) {
     ar.Mark(0x5452414E); // TRAN
     ar.Pod(g_fighting);
     ar.Pod(g_combos);
+    ar.Pod(g_freeSinceHit);
     ar.Pod(g_inputs);
     g_dummy.Serialize(ar);
     ar.Vec(g_roundStart);
