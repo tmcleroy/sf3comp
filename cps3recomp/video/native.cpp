@@ -100,6 +100,7 @@ void FlattenObjects(const std::vector<ListHead> &heads, const FrameRegisters &re
             o.words[2] = word(at + j + 2);
             o.words[3] = word(at + j + 3);
             o.group = static_cast<uint16_t>(h);
+            o.priority = l.priority;
             out.push_back(o);
         }
     }

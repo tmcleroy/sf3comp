@@ -48,9 +48,10 @@ namespace {
     constexpr int kBufferWidth = 1024, kBufferHeight = 448;
     constexpr uint32_t kTexturesSize = cps3recomp::native::Textures::kSize, kPage = 0x10000;
     constexpr uint32_t kPaletteSize = cps3recomp::native::Palette::kColours * 4, kTextSize = 0x8000;
-    // (the game's buffer's rows and a guest's; the palettes: the game's, a guest's, the blends' 48 scales)
-    constexpr int kRows = 2 * kBufferHeight;
-    constexpr uint32_t kPalettesSize = 2 * kPaletteSize + 64 * 4;
+    // (the game's buffer's rows and a guest's, then the guest's in front of the game's fighters and the game's in front of
+    // those: Frame::bands; the palettes: the game's, a guest's, the blends' 48 scales of each)
+    constexpr int kRows = 4 * kBufferHeight;
+    constexpr uint32_t kPalettesSize = 2 * kPaletteSize + 128 * 4;
 
     SDL_GPUComputePipeline *MakePass(SDL_GPUDevice *device, const unsigned char *spirv, size_t spirvSize, const char *msl, uint32_t buffers,
                                      uint32_t textures) {
@@ -186,10 +187,12 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
     using cps3recomp::native::Tile;
     m_width = f.width;
     m_height = f.height;
-    // The tiles by row: each row's tiles in the board's order (a guest's in the rows from kBufferHeight on: its buffer)
+    // The tiles by row: each row's tiles in the board's order (a guest's in the rows from kBufferHeight on: its buffer;
+    // with its pieces in front, those and the game's things in front of them in the next two)
     const cps3recomp::native::Video *guest = f.guest ? f.guestVideo : nullptr;
-    const uint32_t rows = guest ? static_cast<uint32_t>(kBufferHeight + f.guestBufferHeight) : static_cast<uint32_t>(f.bufferHeight);
-    const auto rowOf = [](const Tile &t, int y) { return t.producer ? kBufferHeight + y : y; };
+    const bool bands = guest && f.bands;
+    const uint32_t rows = bands ? static_cast<uint32_t>(kRows) : guest ? static_cast<uint32_t>(kBufferHeight + f.guestBufferHeight) : static_cast<uint32_t>(f.bufferHeight);
+    const auto rowOf = [](const Tile &t, int y) { return (t.producer & 3) * kBufferHeight + y; };
     m_rowStartsData.assign(kRows + 1, 0);
     for (const Tile &t : f.tiles) {
         for (int y = t.sy; y < t.ey && y < kBufferHeight; y++) {
@@ -238,6 +241,7 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
     if (guestColours) {
         m_guestPaletteSent = guest->palette.Version();
         toRgb(guest->palette.Colours(), m_guestRgb);
+        cps3recomp::native::BlendScales(guest->palette.Colours(), m_guestScales); // (its blends over the game's: Frame::bands)
     }
     const bool scales = guest && (!m_texturesSent || v.palette.Version() != m_scalesFrom);
     if (scales) {
@@ -289,7 +293,7 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
     const uint32_t fx = (f.screen.zoomX << 16) / 0x40, fy = (f.screen.zoomY << 16) / 0x40;
     const uint32_t gfx = guest ? (f.guestScreen.zoomX << 16) / 0x40 : 0, gfy = guest ? (f.guestScreen.zoomY << 16) / 0x40 : 0;
     const int32_t resolveParams[12] = {f.width, f.height, static_cast<int32_t>(fx), static_cast<int32_t>(fy), f.margin, f.textScrollY,
-                                       static_cast<int32_t>(f.textPalette), guest ? 1 : 0, static_cast<int32_t>(gfx), static_cast<int32_t>(gfy), 0, 0};
+                                       static_cast<int32_t>(f.textPalette), guest ? 1 : 0, static_cast<int32_t>(gfx), static_cast<int32_t>(gfy), bands ? 1 : 0, 0};
     // One upload of everything
     // (the overlay: sent when it changed)
     // (one column and one row past it are written too: NativeGpu::Overlay)
@@ -304,7 +308,7 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
     const uint32_t composeParams[8] = {static_cast<uint32_t>(shownWidth), static_cast<uint32_t>(shownHeight), static_cast<uint32_t>(f.width),
                                        static_cast<uint32_t>(f.height), rawAbove ? 1u : 0u, over ? 1u : 0u, 0, 0};
     const uint32_t total = 32 + overlayBytes + 32 + 48 + tileBytes + (kRows + 1) * 4 + rowTileBytes + static_cast<uint32_t>(pages.size()) * kPage +
-                           (colours ? kPaletteSize : 0) + (guestColours ? kPaletteSize : 0) + (scales ? 48 * 4 : 0) + kTextSize;
+                           (colours ? kPaletteSize : 0) + (guestColours ? kPaletteSize + 48 * 4 : 0) + (scales ? 48 * 4 : 0) + kTextSize;
     if (!m_upload || m_uploadCapacity < total) {
         if (m_upload) {
             SDL_ReleaseGPUTransferBuffer(m_device, m_upload);
@@ -358,6 +362,7 @@ SDL_GPUCommandBuffer *NativeGpu::Draw(SDL_GPUCommandBuffer *cmd, const cps3recom
     }
     if (guestColours) {
         put(m_palette, m_guestRgb.data(), kPaletteSize, kPaletteSize);
+        put(m_palette, m_guestScales, 48 * 4, 2 * kPaletteSize + 48 * 4);
     }
     if (scales) {
         put(m_palette, m_scales, 48 * 4, 2 * kPaletteSize);

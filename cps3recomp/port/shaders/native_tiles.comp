@@ -6,8 +6,10 @@
 // frame's tiles that cover its row, in the board's order (later over earlier; a blend sets bits of what is under it).
 // Integer steps exactly as the CPU's rasteriser takes them. With a guest producer's layers in the frame (a stage from
 // another game: raster.h, Frame::guest) its tiles make a buffer of their own, rows 448 on of the same texture, from its
-// textures (the second 8 MB). (SDL_GPU's compute layout: read-only buffers in set 0, read-write textures in set 1; no
-// uniforms, so the bindings are the Metal indices too.)
+// textures (the second 8 MB); and with its pieces in front of the game's fighters (Frame::bands) those another, rows 896
+// on, and the game's things in front of them another, rows 1344 on (by the tile's producer: 0, 1, 2, 3). (SDL_GPU's
+// compute layout: read-only buffers in set 0, read-write textures in set 1; no uniforms, so the bindings are the Metal
+// indices too.)
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(std430, set = 0, binding = 0) readonly buffer Params {
@@ -18,7 +20,7 @@ layout(std430, set = 0, binding = 1) readonly buffer Tiles {
     int tiles[]; // 12 a tile: sx, sy, ex, ey, xBase, yIndex, dx, dy, source, base, mode, producer
 };
 layout(std430, set = 0, binding = 2) readonly buffer RowStarts {
-    uint rowStarts[]; // a row's first in rowTiles (the game's 448 rows, then the guest's 448); and one past the last row's
+    uint rowStarts[]; // a row's first in rowTiles (the game's 448 rows, the guest's 448, its in front, the game's in front); and one past the last row's
 };
 layout(std430, set = 0, binding = 3) readonly buffer RowTiles {
     uint rowTiles[];
@@ -30,14 +32,16 @@ layout(set = 1, binding = 0, r32ui) uniform writeonly uimage2D colours;
 
 void main() {
     const ivec2 p = ivec2(gl_GlobalInvocationID.xy);
-    // (the buffer's row: the game's, or (from 448 on) the guest's)
-    const bool guest = p.y >= 448;
-    const int y = guest ? p.y - 448 : p.y;
-    if (p.x >= int(params.width) || p.x >= 1024 || p.y >= 896 || y >= int(guest ? params.guestHeight : params.height)) {
+    // (the buffer's row: the game's, or (from 448 on) the guest's, (from 896) the guest's in front, (from 1344) the game's
+    // in front)
+    const int band = p.y / 448;
+    const bool guest = band == 1 || band == 2;
+    const int y = p.y - band * 448;
+    if (p.x >= int(params.width) || p.x >= 1024 || p.y >= 1792 || y >= int(guest ? params.guestHeight : params.height)) {
         return;
     }
     uint v = 0u;
-    // (every index kept inside its buffer: rowStarts has 897 entries, rowTiles rowTileCount, tiles tileCount of 12, the
+    // (every index kept inside its buffer: rowStarts has 1793 entries, rowTiles rowTileCount, tiles tileCount of 12, the
     // textures 16 MB)
     const uint last = min(rowStarts[p.y + 1], params.rowTileCount);
     for (uint k = rowStarts[p.y]; k < last; k++) {
@@ -55,7 +59,7 @@ void main() {
         if (inTextures >= 0x800000u) {
             continue;
         }
-        const uint at = inTextures + (tiles[i + 11] != 0 ? 0x800000u : 0u);
+        const uint at = inTextures + (tiles[i + 11] == 1 || tiles[i + 11] == 2 ? 0x800000u : 0u);
         const uint c = (texels[at >> 2] >> ((at & 3u) * 8u)) & 0xFFu;
         if (c == 0u) {
             continue;

@@ -31,14 +31,15 @@ namespace {
     constexpr uint32_t kHeads = 0x24000000;      // sprite RAM's first 8 KB: the heads, 16 bytes each (the last long unused)
     constexpr uint32_t kMostHeads = 0x1FF, kObjectsAll = 0x15E;
 
-    // A head written (its six words) and kept for the interface
-    void PutHead(Guest &g, uint32_t &at, std::vector<native::ListHead> &heads, const uint16_t (&w)[6]) {
+    // A head written (its six words) and kept for the interface, with the priority it was written for (none: an empty
+    // head)
+    void PutHead(Guest &g, uint32_t &at, std::vector<native::ListHead> &heads, const uint16_t (&w)[6], uint8_t priority = native::kNoPriority) {
         for (int k = 0; k < 6; k++) {
             g.Write16(at + 2 * k, w[k]);
         }
         at += 16;
         heads.push_back({(static_cast<uint32_t>(w[0]) << 16) | w[1], (static_cast<uint32_t>(w[2]) << 16) | w[3],
-                         (static_cast<uint32_t>(w[4]) << 16) | w[5]});
+                         (static_cast<uint32_t>(w[4]) << 16) | w[5], priority});
     }
     // An empty head at the screen's place (`place`: the game's words for it: the block word, the first head's
     // position, the pads')
@@ -79,7 +80,7 @@ template <const VideoPlaces &P> bool ListHeads(Guest &g) {
             objects += static_cast<int16_t>(g.Read16(node)) & 0x1FF;
             const uint16_t w[6] = {g.Read16(node), g.Read16(node + 2), g.Read16(node + 4), g.Read16(node + 6), g.Read16(node + 8),
                                    g.Read16(node + 10)};
-            PutHead(g, at, heads, w);
+            PutHead(g, at, heads, w, static_cast<uint8_t>(priority));
             node = g.Read32(node + 12);
             cycles += 50;
             if (++count >= kMostHeads) {

@@ -183,6 +183,11 @@ public:
     bool (*nativeStageObject)(const native::Object &object) = nullptr;
     bool (*nativeOwnStageObject)(const native::Object &object) = nullptr;
     bool (*composeNow)() = nullptr; // (none: whenever there is a stage board)
+    // The frontmost priority of this board's fighters (native::ListHead::priority: lower is drawn later; 0, none): the
+    // stage board's stage objects of a lower priority are drawn over this board's layers but those of a lower priority
+    // again (its stage's pieces in front of the fighters, as its own game draws them: native::Frame::front), in every
+    // composition but the modes' stages fading or scrolling in (none: the stage all under)
+    int (*frontPriority)(const machine::Machine &own) = nullptr;
     // The stage board's sound mixed into this board's (its music, in the definitive version's stages): set by the
     // game's sources when it is wanted
     bool stageSound = false;
@@ -224,6 +229,12 @@ private:
     void DrawLayers(bool native, Renderer &r, const machine::Machine &m, std::vector<uint32_t> &pixels, int &width, int &height);
     int Compose(bool native, std::vector<uint32_t> &pixels, int &width, int &height);
     bool SingleFrameWithStage() const;
+    // (this frame's front, frontPriority's: 0 when the composition is not the plain one)
+    int FrontNow();
+    // (whether an object of a board, by its number in its object list, is in front: its native object's priority)
+    static bool ObjectInFront(const machine::Machine &m, uint32_t object, int front);
+    int m_front = 0; // (the front of the composition being drawn)
+    bool m_bands = false; // (... and whether the stage board's stage has pieces in front)
     void DrawWithStage(std::vector<uint32_t> &pixels, int &width, int &height);
     void DrawStageOnly(bool native, std::vector<uint32_t> &pixels);
     // (the pixel check: the native picture composed again against the board's, CPS3RECOMP_NATIVE_CHECK)

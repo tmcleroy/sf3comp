@@ -427,6 +427,25 @@ namespace {
     bool StageObject(const machine::Machine &m, uint32_t object) {
         return StageWords(m.SpriteList()[object * 4], m.SpriteList()[object * 4 + 2]);
     }
+    // A fighter's object: 6 bits a pixel, a palette below 0x40 (3rd Strike's 0x08 and 0x10, New Generation's the same,
+    // 2nd Impact's 0x00 and 0x18), not blending (not its shadow), not the stage's
+    bool FighterWords(uint32_t v1, uint32_t v3) {
+        return (v3 & 3) != 0 && ((v1 >> 9) & 1) && (v1 & 0x1FF) < 0x40 && !((v1 >> 10) & 1);
+    }
+    // The frontmost priority of a board's fighters (their objects' heads' priorities, native::Object::priority: lower is
+    // drawn later); 0 none. The stage's pieces in front of the fighters, as the stage's own game draws them, are those of a
+    // lower priority (SFIII3_PRIORITY_STATS, in 3rd Strike's fights on Akuma's stage and 2nd Impact's own match on its Hugo
+    // stage: the fighters at 26-54, now and then 67; the pieces in front, Akuma's stage's roots and the market's, at 10
+    // and 19-20; the stages' layers behind at 69 and up; the fighters' shadows at 68; the round's banners at 10).
+    int FrontOf(const machine::Machine &m) {
+        int front = 0x100;
+        for (const native::Object &o : m.native.objects) {
+            if (o.priority != native::kNoPriority && FighterWords(o.words[0], o.words[2])) {
+                front = std::min<int>(front, o.priority);
+            }
+        }
+        return front < 0x100 ? front : 0;
+    }
 
     std::unique_ptr<RomSet> LoadSet(const StageGame &game) {
         if (&game == &kThirdStrike) {
@@ -1822,15 +1841,32 @@ namespace {
         r.backdrop = 0x0100FF00;
         r.Draw(board->native, board->SpriteRamBytes(), board->SsRam(), b, w, h);
         r.backdrop = 0;
-        // (one frame of two producers, as the picture is drawn with a stage)
+        // (one frame of two producers, as the picture is drawn with a stage: the stage's pieces in front of the fighters,
+        // as the frontmost of them has it, over them, by the picture's rule, Machine::frontPriority)
+        static int s_front;
+        s_front = machine.frontPriority ? machine.frontPriority(*board) : 0;
+        r.front = s_front;
         r.keep = rest;
         r.DrawWithGuest(&board->native, board->SpriteRamBytes(), stage, nullptr, board->native, board->SpriteRamBytes(), board->SsRam(), one, w, h);
-        // (two pictures: the stage's, then the rest over it)
-        r.keep = stage;
+        r.front = 0;
+        // (two pictures, as Machine::Compose draws them: the stage's, then the rest over it; with pieces in front of the
+        // fighters, those over that, then the rest's in front of them)
+        static bool s_bands;
+        s_bands = false;
+        for (const native::Object &o : board->native.objects) {
+            s_bands |= s_rule(o.words[0], o.words[2]) && native::InFront(o.priority, s_front);
+        }
+        r.keep = [](const void *, const native::Object &o, uint32_t) { return s_rule(o.words[0], o.words[2]) && !(s_bands && native::InFront(o.priority, s_front)); };
         r.Draw(board->native, board->SpriteRamBytes(), board->SsRam(), two, w, h);
-        r.keep = rest;
         r.overlay = true;
+        r.keep = [](const void *, const native::Object &o, uint32_t) { return !s_rule(o.words[0], o.words[2]) && !(s_bands && native::InFront(o.priority, s_front)); };
         r.Draw(board->native, board->SpriteRamBytes(), board->SsRam(), two, w, h);
+        if (s_bands) {
+            r.keep = [](const void *, const native::Object &o, uint32_t) { return s_rule(o.words[0], o.words[2]) && native::InFront(o.priority, s_front); };
+            r.Draw(board->native, board->SpriteRamBytes(), board->SsRam(), two, w, h);
+            r.keep = [](const void *, const native::Object &o, uint32_t) { return !s_rule(o.words[0], o.words[2]) && native::InFront(o.priority, s_front); };
+            r.Draw(board->native, board->SpriteRamBytes(), board->SsRam(), two, w, h);
+        }
         r.overlay = false;
         r.keep = nullptr;
         const size_t n = static_cast<size_t>(w) * h;
@@ -1864,12 +1900,6 @@ namespace {
                 WritePng((at + "-own.png").c_str(), truth.data(), static_cast<uint32_t>(w), static_cast<uint32_t>(h));
                 WritePng((at + "-composed.png").c_str(), one.data(), static_cast<uint32_t>(w), static_cast<uint32_t>(h));
             }
-            // (debugging aid, SFIII3_LAYER_SHOTS=PREFIX: the board's own picture and the one frame composed, as reported)
-            if (const char *shots = getenv("SFIII3_LAYER_SHOTS")) {
-                const std::string at = std::string(shots) + std::to_string(machine.frame);
-                WritePng((at + "-own.png").c_str(), truth.data(), static_cast<uint32_t>(w), static_cast<uint32_t>(h));
-                WritePng((at + "-composed.png").c_str(), one.data(), static_cast<uint32_t>(w), static_cast<uint32_t>(h));
-            }
             fprintf(stderr, "stages: the layer check, frame %llu: a fighter's pixels covered by the stage %llu; composed otherwise than the board's own picture: "
                             "%llu (one frame; the first at %d,%d), %llu (two pictures)\n",
                     static_cast<unsigned long long>(machine.frame), static_cast<unsigned long long>(covered), static_cast<unsigned long long>(oneOff),
@@ -1881,6 +1911,87 @@ namespace {
 // After the frame's other sources (the modes' too): the checks that drive the fight or watch it (SFIII3_JITTER_CHECK,
 // SFIII3_SESSION_STAGES, SFIII3_LAYER_CHECK)
 void StageChecksBeforeFrame(Machine &machine) {
+    // (debugging aid, SFIII3_PRIORITY_STATS=1: over the run, the priorities of each kind of object, on each board: the
+    // fighters (6 bits a pixel, palettes below 0x40, not blending), their shadows and the rest of what is not the stage,
+    // and the stage's; and the frames with a stage object in front of the frontmost fighter)
+    static const bool stats = getenv("SFIII3_PRIORITY_STATS") != nullptr;
+    if (stats) {
+        struct Stats {
+            uint64_t kinds[2][3][256] = {};
+            uint64_t frontFrames[2] = {}, frames[2] = {};
+            ~Stats() {
+                static const char *const kKinds[3] = {"fighters", "the rest", "the stage"};
+                for (int b = 0; b < 2; b++) {
+                    fprintf(stderr, "priority stats, %s (%llu frames, a stage object in front of the frontmost fighter in %llu):\n", b ? "the stage board" : "3rd Strike's board",
+                            static_cast<unsigned long long>(frames[b]), static_cast<unsigned long long>(frontFrames[b]));
+                    for (int k = 0; k < 3; k++) {
+                        fprintf(stderr, "  %s:", kKinds[k]);
+                        for (int p = 0; p < 256; p++) {
+                            if (kinds[b][k][p]) {
+                                fprintf(stderr, " %d(%llu)", p, static_cast<unsigned long long>(kinds[b][k][p]));
+                            }
+                        }
+                        fprintf(stderr, "\n");
+                    }
+                }
+            }
+        };
+        static Stats st;
+        for (machine::Machine *m : {&machine.board, machine.StageBoard()}) {
+            if (!m || !OnStage()) {
+                continue;
+            }
+            const int b = m == &machine.board ? 0 : 1;
+            st.frames[b]++;
+            int front = 256, stageFront = 256;
+            for (const native::Object &o : m->native.objects) {
+                const bool isStage = b == 0 ? OwnStageWords(o.words[0], o.words[2]) : GuestStageWords(o.words[0], o.words[2]);
+                const uint32_t palette = o.words[0] & 0x1FF;
+                const bool fighter = !isStage && ((o.words[0] >> 9) & 1) && palette < 0x40 && !((o.words[0] >> 10) & 1);
+                st.kinds[b][isStage ? 2 : fighter ? 0 : 1][o.priority]++;
+                if (fighter) {
+                    front = std::min<int>(front, o.priority);
+                }
+                if (isStage && o.priority != native::kNoPriority) {
+                    stageFront = std::min<int>(stageFront, o.priority);
+                }
+            }
+            st.frontFrames[b] += stageFront < front;
+        }
+    }
+    // (debugging aid, SFIII3_PRIORITIES=EVERY: every so many frames, each board's objects by their heads' priorities: how
+    // many, how many are its stage's, their palettes)
+    static const long long every = getenv("SFIII3_PRIORITIES") ? atoll(getenv("SFIII3_PRIORITIES")) : 0;
+    if (every > 0 && machine.frame % static_cast<uint64_t>(every) == 0) {
+        for (machine::Machine *m : {&machine.board, machine.StageBoard()}) {
+            if (!m) {
+                continue;
+            }
+            const bool own = m == &machine.board;
+            fprintf(stderr, "priorities, frame %llu, %s:", static_cast<unsigned long long>(machine.frame), own ? "3rd Strike's board" : "the stage board");
+            int last = -1, count = 0, stage = 0, lo = 0x200, hi = -1;
+            const auto flush = [&] {
+                if (count) {
+                    fprintf(stderr, " [%d: %d objects, %d stage, palettes %03X-%03X]", last, count, stage, lo, hi);
+                }
+            };
+            for (const native::Object &o : m->native.objects) {
+                if (o.priority != last) {
+                    flush();
+                    last = o.priority;
+                    count = stage = 0;
+                    lo = 0x200;
+                    hi = -1;
+                }
+                count++;
+                stage += own ? OwnStageWords(o.words[0], o.words[2]) : GuestStageWords(o.words[0], o.words[2]);
+                lo = std::min<int>(lo, static_cast<int>(o.words[0] & 0x1FF));
+                hi = std::max<int>(hi, static_cast<int>(o.words[0] & 0x1FF));
+            }
+            flush();
+            fprintf(stderr, "\n");
+        }
+    }
     if (JitterChecking()) {
         JitterFrame(machine);
     }
@@ -2301,6 +2412,7 @@ void RegisterStages(Game &game) {
         // the stage shown has been crossed even at the fastest scroll)
         machine->secondStageFramesNow = [] { return g_make.on && g_make.second && !g_make.ready ? 8 : 1; };
         // (composed while 3rd Strike's round is on and the board is in its fight: for the opponent's, on a stage it has)
+        machine->frontPriority = FrontOf;
         machine->composeNow = [] { return !g_pre.on && OnStage() && g.fought && (kChoices[g.loaded].game != &kThirdStrike || g.inFight > kBannersFor) && (kChoices[g.loaded].stage != kOpponents || g.stage >= 0); };
         // (on its way to its fight: eight frames a frame; in it one, its own pace (its animations and music))
         machine->stageFramesNow = [] { return g_booting ? kBootFrames : g.fought || Comparing() ? 1 : 8; }; // (the check: one, the two boards in step)
