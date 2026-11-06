@@ -380,6 +380,9 @@ namespace {
     void StartEndless(Machine &machine) {
         Begin(machine, kEndless);
         b.stage = Scrolling() ? 0 : static_cast<uint8_t>(Next() % kCharacterCount);
+        if (const char *given = getenv("SFIII3_BATTLE_STAGE")) {
+            b.stage = static_cast<uint8_t>(std::clamp(atoi(given), 0, kCharacterCount - 1)); // (the checks: the stage behind chosen)
+        }
         b.nextStage = b.stage; // (none to come yet)
         if (Behind()) {
             StageBehind(b.stage);

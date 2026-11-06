@@ -11,6 +11,7 @@
 #include "sfiii3.h"
 #include "system.h"
 #include "png_write.h"
+#include "session.h"
 
 #include <algorithm>
 #include <array>
@@ -1544,6 +1545,331 @@ namespace {
         }
     }
 } // namespace
+
+namespace {
+    // The jitter check (SFIII3_JITTER_CHECK=1: checkjitter.sh), in a fight with its fighters standing still (a training
+    // session, player 1 and the dummy idle; in the modes, both made players' with no controls): every kJitterHold frames
+    // both fighters are put somewhere else on the stage (kJitterPlaces places across it, from one end to the other, close
+    // together, apart and far apart by turns), and once the camera has had kJitterSettle frames to get there, each frame
+    // the stage as shown (its layers drawn alone, as the picture has them: the stage board's stage, or 3rd Strike's own)
+    // is lined up with the frame before's, a few columns and lines either way: with nothing moving it must stay put. The
+    // play-test's jitter (2026-11-06: "some stages jitter left and right by like 2 pixels rapidly when chars standing in
+    // certain spots") is a picture moved one way and back. Judged by the picture's pixels, not the camera's words: what a
+    // camera word says and what is drawn from it went apart before (DEFINITIVE.md). Reported at the end.
+    bool JitterChecking() {
+        static const bool on = getenv("SFIII3_JITTER_CHECK") != nullptr;
+        return on;
+    }
+    constexpr uint32_t kJitterHold = 130, kJitterSettle = 80;
+    constexpr int kJitterPlaces = 7;
+    struct Jitter {
+        uint32_t heldFor = 0;
+        int place = 0;
+        std::vector<uint32_t> last;
+        int width = 0, height = 0;
+        uint64_t places = 0, still = 0, moved = 0, backAndForth = 0;
+        int most = 0, lastSign = 0;
+        uint64_t lastAt = 0;
+        unsigned reports = 8;
+        ~Jitter() {
+            if (JitterChecking()) {
+                fprintf(stderr, "stages: the jitter check: %llu places held, %llu frames of the fighters standing still compared, the stage's picture moved "
+                                "in %llu (back and forth in %llu, %d columns or lines at most)\n",
+                        static_cast<unsigned long long>(places), static_cast<unsigned long long>(still), static_cast<unsigned long long>(moved),
+                        static_cast<unsigned long long>(backAndForth), most);
+            }
+        }
+    } g_jitter;
+
+    // How far the picture `now` moved from `was` (the same size): the shift, columns across (dx) and lines down (dy), that
+    // lines up the most pixels, (0, 0) unless another lines up clearly more (the stage's own moving things, its people
+    // and water, are a small part of it)
+    void PictureShift(const std::vector<uint32_t> &was, const std::vector<uint32_t> &now, int width, int height, int &dx, int &dy) {
+        constexpr int kAcross = 8, kDown = 3;
+        int64_t best = -1, still = 0;
+        dx = dy = 0;
+        for (int sy = -kDown; sy <= kDown; sy++) {
+            for (int sx = -kAcross; sx <= kAcross; sx++) {
+                int64_t same = 0;
+                for (int y = std::max(0, sy) + kDown; y < height - kDown && y - sy < height; y += 2) {
+                    const uint32_t *a = &now[static_cast<size_t>(y) * width], *b = &was[static_cast<size_t>(y - sy) * width];
+                    for (int x = kAcross; x < width - kAcross; x++) {
+                        same += a[x] == b[x - sx];
+                    }
+                }
+                if (sx == 0 && sy == 0) {
+                    still = same;
+                }
+                if (same > best) {
+                    best = same;
+                    dx = sx;
+                    dy = sy;
+                }
+            }
+        }
+        const int64_t compared = static_cast<int64_t>((height - 2 * kDown) / 2) * (width - 2 * kAcross);
+        if (best <= still + compared / 200) {
+            dx = dy = 0;
+        }
+    }
+
+    void JitterFrame(Machine &machine) {
+        Jitter &j = g_jitter;
+        // (a stage chosen anew, or none: its places begun again)
+        const bool composedNow = machine.StageBoard() && machine.composeNow && machine.composeNow();
+        const int stageNow = composedNow ? g.loaded * 100 + StageNow() : -1 - Ram8(sfiii3::kStage);
+        static int s_stage = -1000;
+        if (!InMatch() || stageNow != s_stage) {
+            s_stage = stageNow;
+            j.heldFor = 0;
+            j.last.clear();
+            if (!InMatch()) {
+                return;
+            }
+        }
+        // (the fighters idle: the game's computer plays neither side, and nothing is pressed)
+        for (int p = 0; p < 2; p++) {
+            SetRam8(sfiii3::kPlayer[p] + 3, 1);
+            machine.players[p] = 0;
+        }
+        if (j.heldFor == 0) {
+            // (the next place: across the camera's span from end to end, the fighters close (60), apart (140) or far apart
+            // (220), within the walls, 164 past the camera's ends)
+            const int left = static_cast<int16_t>(Ram16(sfiii3::kCameraLeft[0])), right = static_cast<int16_t>(Ram16(sfiii3::kCameraRight[0]));
+            if (right - left < 64) {
+                return; // (not a fight's camera yet)
+            }
+            const int k = j.place % kJitterPlaces;
+            const int gap = (j.place % 3 == 0) ? 60 : (j.place % 3 == 1) ? 140 : 220;
+            const int middle = left - 120 + (right - left + 240) * k / (kJitterPlaces - 1);
+            const int lo = left - 150, hi = right + 150;
+            const int one = std::clamp(middle - gap / 2, lo, hi - gap), two = one + gap;
+            SetRam16(sfiii3::kPlayer[0] + sfiii3::kX, static_cast<uint16_t>(one));
+            SetRam16(sfiii3::kPlayer[1] + sfiii3::kX, static_cast<uint16_t>(two));
+            j.place++;
+            j.places++;
+        }
+        j.heldFor = (j.heldFor + 1) % kJitterHold;
+        // The stage as it is shown: the stage board's stage when it is composed, else 3rd Strike's own
+        static native::Rasteriser r;
+        static std::vector<uint32_t> now;
+        int w = 0, h = 0;
+        r.margin = machine.WideMargin();
+        r.text = false;
+        const bool composed = machine.StageBoard() && machine.composeNow && machine.composeNow();
+        if (composed) {
+            r.keep = [](const void *, const native::Object &o, uint32_t) { return StageWords(o.words[0], o.words[2]); };
+            r.Draw(machine.StageBoard()->native, machine.StageBoard()->SpriteRamBytes(), machine.StageBoard()->SsRam(), now, w, h);
+        } else {
+            r.keep = [](const void *, const native::Object &o, uint32_t) { return OwnStageWords(o.words[0], o.words[2]); };
+            r.Draw(machine.board.native, machine.board.SpriteRamBytes(), machine.board.SsRam(), now, w, h);
+        }
+        const bool measured = j.heldFor > kJitterSettle && j.width == w && j.height == h && j.last.size() == now.size();
+        if (measured) {
+            int dx = 0, dy = 0;
+            PictureShift(j.last, now, w, h, dx, dy);
+            j.still++;
+            if (dx || dy) {
+                j.moved++;
+                const int sign = dx ? (dx > 0 ? 1 : -1) : (dy > 0 ? 2 : -2);
+                if (j.lastSign == -sign && machine.frame - j.lastAt <= 3) {
+                    j.backAndForth++;
+                }
+                j.lastSign = sign;
+                j.lastAt = machine.frame;
+                j.most = std::max({j.most, std::abs(dx), std::abs(dy)});
+                if (j.reports) {
+                    j.reports--;
+                    const uint8_t *ram = composed ? machine.StageBoard()->mainRam : nullptr;
+                    fprintf(stderr, "stages: the jitter check, frame %llu (place %d, the fighters at %d and %d): the stage's picture moved %d across, %d down; "
+                                    "3rd Strike's camera %d,%d%s",
+                            static_cast<unsigned long long>(machine.frame), j.place - 1, static_cast<int16_t>(Ram16(sfiii3::kPlayer[0] + sfiii3::kX)),
+                            static_cast<int16_t>(Ram16(sfiii3::kPlayer[1] + sfiii3::kX)), dx, dy, static_cast<int16_t>(Ram16(sfiii3::kCameraX)),
+                            static_cast<int16_t>(Ram16(sfiii3::kCameraY)), composed ? "" : "\n");
+                    if (ram) {
+                        fprintf(stderr, ", the stage board's %d (given %d)\n", static_cast<int16_t>(Word(ram, kChoices[g.loaded].game->camera[1])), g.given);
+                    }
+                }
+            }
+        }
+        std::swap(j.last, now);
+        j.width = w;
+        j.height = h;
+    }
+} // namespace
+
+namespace {
+    // The training sessions' stages check (SFIII3_SESSION_STAGES=1: checkguests.sh): each frame of a session's fight,
+    // which stage is shown, another game's (its set and number, its stage board in its fight and composed) or 3rd
+    // Strike's own; reported at the end, the frames on each. A stage chosen on the session's Stage row must be the one
+    // shown (the play-test of 2026-11-06: "can't select stages from other games in training mode menu").
+    bool SessionStagesChecking() {
+        static const bool on = getenv("SFIII3_SESSION_STAGES") != nullptr;
+        return on;
+    }
+    struct SessionStages {
+        std::vector<std::pair<std::string, uint64_t>> shown;
+        ~SessionStages() {
+            if (!SessionStagesChecking()) {
+                return;
+            }
+            fprintf(stderr, "stages: training sessions' stages shown:");
+            for (const auto &[what, frames] : shown) {
+                fprintf(stderr, " %s %llu frames;", what.c_str(), static_cast<unsigned long long>(frames));
+            }
+            fprintf(stderr, "\n");
+        }
+    } g_sessionStages;
+    void SessionStagesFrame(Machine &machine) {
+        if (!session::InSession() || !InMatch()) {
+            return;
+        }
+        const bool composed = machine.StageBoard() && machine.composeNow && machine.composeNow() && g.loaded && kChoices[g.loaded].game != &kThirdStrike;
+        const std::string what = composed ? std::string(kChoices[g.loaded].game->set) + ":" + std::to_string(StageNow())
+                                          : std::string("own:") + std::to_string(Ram8(sfiii3::kStage));
+        auto &shown = g_sessionStages.shown;
+        if (shown.empty() || shown.back().first != what) {
+            shown.push_back({what, 0});
+        }
+        shown.back().second++;
+    }
+} // namespace
+
+namespace {
+    // The layer check (SFIII3_LAYER_CHECK=1: checkguests.sh, checkstages.sh), against ground truth: a board drawing its own
+    // fight, its stage and its fighters in its own order (stage pieces in front of the fighters drawn over them). The
+    // stage's layers and the rest (the fighters, their shadows and effects) of that same board are composed as the
+    // picture composes a stage from one board with the fighters of another, both ways the port does it: one frame of two
+    // producers (Rasteriser::DrawWithGuest: a guest stage, and the modes' 3rd Strike stages from the stage board) and two
+    // pictures, the stage's then the rest over it (the modes' stages fading or scrolling in, the board model's
+    // composition). At each pixel a fighter is drawn at (its opaque objects: not shadows, which a composition of two
+    // boards' colours makes otherwise), the composed picture must be the board's own. The ground truth: on a stage game's
+    // stage, that game's own match on it (SFIII3_STAGE_COMPARE=play: the stage board plays it); on 3rd Strike's own
+    // stages, 3rd Strike's fight. Reported at the end, with the frames in which the stage covered some of a fighter (the
+    // stage has pieces in front, and they were met).
+    bool LayerChecking() {
+        static const bool on = getenv("SFIII3_LAYER_CHECK") != nullptr;
+        return on;
+    }
+    struct LayerCheck {
+        uint64_t frames = 0, covered = 0, oneFrame = 0, twoPictures = 0, coveredPixels = 0;
+        unsigned reports = 6;
+        ~LayerCheck() {
+            if (LayerChecking()) {
+                fprintf(stderr, "stages: the layer check: %llu frames, the stage in front of a fighter in %llu (%llu pixels); at the fighters' pixels the one "
+                                "frame of two producers different from the board's own picture in %llu, the two pictures in %llu\n",
+                        static_cast<unsigned long long>(frames), static_cast<unsigned long long>(covered), static_cast<unsigned long long>(coveredPixels),
+                        static_cast<unsigned long long>(oneFrame), static_cast<unsigned long long>(twoPictures));
+            }
+        }
+    } g_layers;
+    using StageRule = bool (*)(uint32_t v1, uint32_t v3);
+    bool GuestStageWords(uint32_t v1, uint32_t v3) {
+        const uint32_t palette = v1 & 0x1FF;
+        const bool sixBits = (v1 >> 9) & 1, blend = (v1 >> 10) & 1;
+        return (v3 & 3) == 0 || !((sixBits && palette < 0x40) || (blend && palette == 0));
+    }
+    void LayerFrame(Machine &machine) {
+        // (which board, and its stage's rule)
+        machine::Machine *board = nullptr;
+        StageRule rule = nullptr;
+        if (ComparingPlay() && g_cmp.on && machine.StageBoard() && g.fought && OnStage()) {
+            board = machine.StageBoard(); // (the stage game's own match on the stage)
+            rule = GuestStageWords;
+        } else if (!g.loaded && InMatch() && !machine.onlyStage) {
+            board = &machine.board; // (3rd Strike's own fight on its own stage)
+            rule = OwnStageWords;
+        }
+        if (!board || !board->NativeForPicture()) {
+            return;
+        }
+        static StageRule s_rule;
+        s_rule = rule;
+        const native::KeepObject stage = [](const void *, const native::Object &o, uint32_t) { return s_rule(o.words[0], o.words[2]); };
+        const native::KeepObject rest = [](const void *, const native::Object &o, uint32_t) { return !s_rule(o.words[0], o.words[2]); };
+        const native::KeepObject fighters = [](const void *, const native::Object &o, uint32_t) {
+            return !s_rule(o.words[0], o.words[2]) && !((o.words[0] >> 10) & 1);
+        };
+        static native::Rasteriser r;
+        static std::vector<uint32_t> truth, one, two, a, b;
+        int w = 0, h = 0;
+        r.margin = machine.WideMargin();
+        r.text = false;
+        r.overlay = false;
+        // (the board's own picture)
+        r.keep = nullptr;
+        r.backdrop = 0;
+        r.Draw(board->native, board->SpriteRamBytes(), board->SsRam(), truth, w, h);
+        // (its fighters' pixels: drawn on two backdrops, the same on both)
+        r.keep = fighters;
+        r.backdrop = 0x01FF00FF;
+        r.Draw(board->native, board->SpriteRamBytes(), board->SsRam(), a, w, h);
+        r.backdrop = 0x0100FF00;
+        r.Draw(board->native, board->SpriteRamBytes(), board->SsRam(), b, w, h);
+        r.backdrop = 0;
+        // (one frame of two producers, as the picture is drawn with a stage)
+        r.keep = rest;
+        r.DrawWithGuest(&board->native, board->SpriteRamBytes(), stage, nullptr, board->native, board->SpriteRamBytes(), board->SsRam(), one, w, h);
+        // (two pictures: the stage's, then the rest over it)
+        r.keep = stage;
+        r.Draw(board->native, board->SpriteRamBytes(), board->SsRam(), two, w, h);
+        r.keep = rest;
+        r.overlay = true;
+        r.Draw(board->native, board->SpriteRamBytes(), board->SsRam(), two, w, h);
+        r.overlay = false;
+        r.keep = nullptr;
+        const size_t n = static_cast<size_t>(w) * h;
+        if (truth.size() < n || a.size() < n || b.size() < n || one.size() < n || two.size() < n) {
+            return;
+        }
+        uint64_t covered = 0, oneOff = 0, twoOff = 0;
+        int firstX = -1, firstY = -1;
+        for (size_t i = 0; i < n; i++) {
+            if (a[i] != b[i]) {
+                continue; // (no fighter here)
+            }
+            covered += truth[i] != a[i];
+            if (one[i] != truth[i] && firstX < 0) {
+                firstX = static_cast<int>(i % w);
+                firstY = static_cast<int>(i / w);
+            }
+            oneOff += one[i] != truth[i];
+            twoOff += two[i] != truth[i];
+        }
+        g_layers.frames++;
+        g_layers.covered += covered > 0;
+        g_layers.coveredPixels += covered;
+        g_layers.oneFrame += oneOff > 0;
+        g_layers.twoPictures += twoOff > 0;
+        if ((oneOff || twoOff) && g_layers.reports) {
+            g_layers.reports--;
+            // (debugging aid, SFIII3_LAYER_SHOTS=PREFIX: the board's own picture and the one frame composed, as reported)
+            if (const char *shots = getenv("SFIII3_LAYER_SHOTS")) {
+                const std::string at = std::string(shots) + std::to_string(machine.frame);
+                WritePng((at + "-own.png").c_str(), truth.data(), static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+                WritePng((at + "-composed.png").c_str(), one.data(), static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+            }
+            fprintf(stderr, "stages: the layer check, frame %llu: a fighter's pixels covered by the stage %llu; composed otherwise than the board's own picture: "
+                            "%llu (one frame; the first at %d,%d), %llu (two pictures)\n",
+                    static_cast<unsigned long long>(machine.frame), static_cast<unsigned long long>(covered), static_cast<unsigned long long>(oneOff),
+                    firstX, firstY, static_cast<unsigned long long>(twoOff));
+        }
+    }
+} // namespace
+
+// After the frame's other sources (the modes' too): the checks that drive the fight or watch it (SFIII3_JITTER_CHECK,
+// SFIII3_SESSION_STAGES, SFIII3_LAYER_CHECK)
+void StageChecksBeforeFrame(Machine &machine) {
+    if (JitterChecking()) {
+        JitterFrame(machine);
+    }
+    if (LayerChecking()) {
+        LayerFrame(machine);
+    }
+    if (SessionStagesChecking()) {
+        SessionStagesFrame(machine);
+    }
+}
 
 void StagesBeforeFrame(Machine &machine) {
     if (Comparing()) {
