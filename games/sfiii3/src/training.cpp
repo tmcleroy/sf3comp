@@ -114,6 +114,22 @@ namespace {
             }
         }
     }
+
+    // The computer player's levels: its play time (Control_Time, a word of seconds fought), and the board difficulty's set
+    // of level tables (kRank); the level of eight's table (Level_08_Data: for each kRank three rows of seven play times, at
+    // which levels 1-7 end; computer_entry.cpp's LevelByPlayTime, row 0)
+    constexpr uint32_t kPlayTime = 0x02011372, kRank = 0x0201584C, kLevels8 = 0x061753E6;
+    // The play time at which level `level` (0-7) begins, as the game reads the tables (the set's offset cut to a signed
+    // byte, as its code has it)
+    int PlayTimeOfLevel(int level) {
+        if (level <= 0) {
+            return 0;
+        }
+        const int32_t set = static_cast<int8_t>(static_cast<int8_t>(Ram8(kRank)) * 42);
+        const uint32_t times = kLevels8 + static_cast<uint32_t>(set);
+        return static_cast<int16_t>(Peek16(times + static_cast<uint32_t>(std::min(level, 7) - 1) * 2)) + 1;
+    }
+
     constexpr uint16_t kDizzy = 25; // (a record's reaction, routine_no[2], while stunned: seen through every stun)
 
     int16_t Signed16(uint32_t address) {
@@ -488,6 +504,12 @@ void TrainingBeforeFrame(Machine &m) {
                 SetRam8(Player(p) + 3, 1);
             }
         }
+        // The computer's level (Dummy: "Computer's level"): its play time held where the level begins (the game's levels
+        // go by it: Control_Time against the board difficulty's row of level tables)
+        const int level = FeatureValue("dummy_level");
+        if (level > 0 && (watch || FeatureOn("dummy_computer"))) {
+            SetRam16(kPlayTime, static_cast<uint16_t>(PlayTimeOfLevel(level - 1)));
+        }
     }
     // (only the stage drawn: the Alternative modes' stage viewer's, which BattleBeforeFrame sets after this; the training
     // menu's own stage viewer is gone, the mode is the stage viewer)
@@ -625,7 +647,12 @@ void RegisterTraining(Game &game) {
          "In a training session, both players are the game's computer player: a fight to watch, as long as it is on (health "
          "comes back below a quarter, as in any session)."},
         {"dummy_computer", "Dummy", "Played by the game",
-         "Player 2 is the game's own computer player, as in a one-player game (at the board's difficulty setting).", kFeatureExclusive},
+         "Player 2 is the game's own computer player, as in a one-player game (at the board's difficulty setting, and the level chosen below).", kFeatureExclusive},
+        {"dummy_level", "Dummy", "Computer's level",
+         "With \"Played by the game\" (or \"Watch the game play itself\"): how well the computer plays, by the arcade's own levels "
+         "(it plays better the longer a one-player game has gone on: its play time is held where the level chosen begins). "
+         "\"As the game goes\": the arcade's way, the play time counting up as the fight goes on.",
+         0, {"As the game goes", "1 (weakest)", "2", "3", "4", "5", "6", "7", "8 (strongest)"}},
         {"dummy_stun_mash", "Dummy", "Mashes out of stun",
          "Stunned, the dummy works the stick and the buttons as fast as it can, as a player does to get out sooner."},
         {"dummy_parry", "Dummy", "Parries",
@@ -663,7 +690,7 @@ void RegisterTraining(Game &game) {
         start.id = Ram16(base + sfiii3::kAnimation + 2);
         return start;
     };
-    d.ownAids = {"hit_boxes", "dummy_parry", "dummy_stun_mash", "dummy_computer", "training_watch", "stage_viewer", "parry_readout", "stun_readout", "gauge_refill"};
+    d.ownAids = {"hit_boxes", "dummy_parry", "dummy_stun_mash", "dummy_computer", "dummy_level", "training_watch", "parry_readout", "stun_readout", "gauge_refill"};
     // The dummy's guard: player 1's move starting or able to hit, near enough (280 across: the distance a move can hit
     // from is not known; nearer missed more, farther no fewer); standing against an attack from the air (made-up play,
     // three seeds: 25 hits taken to 43 with the toolkit's own, which crouches always)
