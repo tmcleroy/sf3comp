@@ -18,12 +18,27 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <vector>
 
 namespace cps3recomp {
 
 int WorldShift(); // widescreen.cpp
+void StageForSession(int choice);                    // stages.cpp
+std::vector<const char *> GuestStageNames(); // stages.cpp
 
 namespace {
+    // The Stage row: the game's choice, 3rd Strike's 21 stages, then New Generation's and 2nd Impact's (stages.cpp's
+    // choices, by whose stage each is)
+    constexpr int kOwnStages = 21;
+    std::vector<const char *> TrainingStageNames() {
+        std::vector<const char *> names = {"The game's choice", "Gill's", "Alex's", "Ryu's", "Yun's", "Dudley's", "Necro's", "Hugo's", "Ibuki's",
+                                           "Elena's", "Oro's", "Yang's", "Ken's", "Sean's", "Urien's", "Akuma's", "Akuma's (red)", "Chun-Li's",
+                                           "Makoto's", "Q's", "Twelve's", "Remy's"};
+        for (const char *name : GuestStageNames()) {
+            names.push_back(name);
+        }
+        return names;
+    }
     struct State {
         uint16_t moveAnim[2] = {};  // (the frame data log: each move's animation, from its first step)
         uint32_t loggedAt[2] = {};
@@ -420,12 +435,15 @@ void TrainingBeforeFrame(Machine &m) {
             SetRam8(sfiii3::kClock, 99);
         }
     }
-    // (a session's stage: set while no round is on, so the next fight's is the one chosen)
-    if (session::InSession() && !InMatch()) {
-        const int stage = FeatureValue("training_stage");
-        if (stage > 0) {
+    // (a session's stage: 3rd Strike's set while no round is on, so the next fight's is the one chosen; another game's
+    // (the Stage row's choices after 3rd Strike's 21) put on by the guest stages as the Display page's Stages choice
+    // would, for the session only: stages.cpp)
+    {
+        const int stage = session::InSession() ? FeatureValue("training_stage") : 0;
+        if (stage > 0 && stage <= kOwnStages && !InMatch()) {
             SetRam8(sfiii3::kStage, static_cast<uint8_t>(stage - 1));
         }
+        StageForSession(stage > kOwnStages ? stage - kOwnStages : 0);
     }
     session::BeforeFrame(m);
     // Played by the game: player 2's record says the computer works it (byte 3: 0 the computer, 1 a player; seen in
@@ -570,9 +588,10 @@ void RegisterTraining(Game &game) {
         {"hit_boxes", session::kPage, "Hit boxes",
          "Each fighter's boxes over the picture: blue where it can be hit, red where it hits, yellow its throw, pink where it can be "
          "thrown, green the body that pushes."},
-        {"training_stage", session::kPage, "Stage", "The stage a training session is fought on.", kFeatureMenuChoices,
-         {"The game's choice", "Gill's", "Alex's", "Ryu's", "Yun's", "Dudley's", "Necro's", "Hugo's", "Ibuki's", "Elena's", "Oro's",
-          "Yang's", "Ken's", "Sean's", "Urien's", "Akuma's", "Akuma's (red)", "Chun-Li's", "Makoto's", "Q's", "Twelve's", "Remy's"}},
+        {"training_stage", session::kPage, "Stage",
+         "The stage a training session is fought on: one of 3rd Strike's, or one of New Generation's or 2nd Impact's (their "
+         "sets beside this one's, sfiiin.zip and sfiii2n.zip, as for the Display page's Stages).",
+         kFeatureMenuChoices, TrainingStageNames()},
         {"stage_viewer", session::kPage, "Stage viewer",
          "In a training session: only the stage is drawn (no fighters, no panel), and the stick moves along it. With the Stages "
          "option, another game's stage and its music."},

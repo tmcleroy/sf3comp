@@ -25,6 +25,7 @@ void RegisterSoundProbe();
 void RegisterBoard(Game &game);
 void BoardBeforeFrame(Machine &m);
 void StagesBeforeFrame(Machine &machine);
+void StageChecksBeforeFrame(Machine &machine);
 void MusicBeforeFrame(Machine &machine);
 void RingOutBeforeFrame(Machine &machine);
 void BattleBeforeFrame(Machine &machine);
@@ -92,6 +93,7 @@ namespace {
         BonusBeforeFrame(m);
         ModelBeforeFrame(m);
         AttractBeforeFrame(m);
+        StageChecksBeforeFrame(m);
     }
 } // namespace
 

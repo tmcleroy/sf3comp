@@ -20,8 +20,10 @@
 # session, and two games on a guest stage (New Generation's in the one-player game, 2nd Impact's in the versus game with widescreen):
 # there the stage board's hand-offs (its game's rewrites run dry on it, src/video_games.cpp) are compared with its chips
 # as the game board's are, and the one frame of its stage's layers under 3rd Strike's (the CPU's) with the two board
-# models' composed picture, and the GPU's picture of the same frame with the CPU's (New Generation's stage made from its
-# stage code alone, src/stages.cpp's StageAlone; 2nd Impact's with its match played behind it). Then the same rewrites against the game's own
+# models' composed picture, and the GPU's picture of the same frame with the CPU's (both stages made from their stage code
+# alone, src/stages.cpp's StageAlone; 2nd Impact's market has pieces in front of the fighters, drawn over
+# 3rd Strike's fighters: the one frame's four buffers, native::Frame::bands, and the board models' four pictures,
+# Machine::Compose). Then the same rewrites against the game's own
 # code (CPS3RECOMP_LIFT_CHECK, with only them registered) over attract mode and the one-player game. Exit 0 when all
 # the same.
 #
@@ -51,9 +53,9 @@ OUT=$(mktemp -d)
 REWRITES="AskPalette,StartNextDma,TextColours,ObjectScrolls,TilemapRegisters,ScreenRegisters,PictureZoom,TextPalette,ListHeads,ClearListArea"
 NAMES=(attract cpu7 versus training stage-ng stage-2i)
 # (the guest stages: the stage games' sets beside ROM, sfiiin.zip and sfiii2n.zip; src/stages.cpp's choices 12, New
-# Generation's Ken's, and 25, 2nd Impact's Ken's)
+# Generation's Ken's, and 20, 2nd Impact's Hugo's: its market has pieces in front of the fighters)
 ARGS=("" "--auto 7:300:1" "--auto 31:300:2 --features widescreen,widescreen_walls" "--keys 30:ctraining_start --auto 3:300:1"
-    "--auto 7:300:1 --features stages=12" "--auto 31:300:2 --features stages=25,widescreen,widescreen_walls")
+    "--auto 7:300:1 --features stages=12" "--auto 31:300:2 --features stages=20,widescreen,widescreen_walls")
 status=0
 JOBS=${CHECKNATIVE_JOBS:-6}
 run() { # name kind args...

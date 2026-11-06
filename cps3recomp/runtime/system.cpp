@@ -204,6 +204,19 @@ void Machine::DrawLayers(bool native, Renderer &r, const machine::Machine &m, st
     n.Draw(m.native, m.SpriteRamBytes(), m.SsRam(), pixels, width, height);
 }
 
+// The frontmost priority of this board's fighters, for the plain composition of a stage board's stage under this
+// board's layers (the stage's pieces in front of them drawn over them: native::Frame::front); 0 for the others (a second
+// stage fading or scrolling in, the stage darkened or alone: the stage all under, as before)
+int Machine::FrontNow() {
+    if (!frontPriority || onlyStage || stageDarken > 0 || (m_stage2 && (stageBlend > 0 || stageSlide > 0))) {
+        return 0;
+    }
+    return frontPriority(board);
+}
+bool Machine::ObjectInFront(const machine::Machine &m, uint32_t object, int front) {
+    return object < m.native.objects.size() && native::InFront(m.native.objects[object].priority, front);
+}
+
 // Whether a frame with the stage board's stage is drawn as one frame of the two producers (DrawWithStage): the plain
 // composition, the stage under this board's layers (not a second stage sliding or fading in, nor the stage darkened or
 // alone: those are the modes' own stages', drawn as two pictures)
@@ -218,6 +231,7 @@ bool Machine::SingleFrameWithStage() const {
 // stage")
 void Machine::DrawWithStage(std::vector<uint32_t> &pixels, int &width, int &height) {
     native::Rasteriser &n = m_shownRaster;
+    n.front = FrontNow();
     n.margin = m_renderer.margin;
     n.shift = m_renderer.shift;
     n.shiftY = 0;
@@ -576,12 +590,27 @@ int Machine::Compose(bool native, std::vector<uint32_t> &pixels, int &width, int
             DrawWithStage(pixels, width, height);
             return 2;
         }
+        // (two pictures: the stage board's stage, then this board's layers over it; in the plain composition, the stage's
+        // pieces in front of this board's fighters left out of the first and drawn over the second, and this board's
+        // things in front of those over them: as the one frame draws its four buffers, Rasteriser::Resolve)
+        m_front = FrontNow();
+        m_bands = false;
+        if (m_front) {
+            // (any of its stage's objects, on the picture or not: as the one frame asks, native::AddGuest)
+            m_frontPiece = 0x100;
+            for (const native::Object &o : m_stage->native.objects) {
+                if (nativeStageObject && nativeStageObject(o) && native::InFront(o.priority, m_front)) {
+                    m_bands = true;
+                    m_frontPiece = std::min<int>(m_frontPiece, o.priority);
+                }
+            }
+        }
         m_stageRenderer.margin = m_renderer.margin;
         m_stageRenderer.text = false;
         m_stageRenderer.drawGroupContext = this;
         m_stageRenderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
             const Machine &me = *static_cast<Machine *>(self);
-            return me.stageObject(*me.m_stage, object);
+            return me.stageObject(*me.m_stage, object) && !(me.m_bands && ObjectInFront(*me.m_stage, object, me.m_front));
         };
         DrawLayers(native, m_stageRenderer, *m_stage, pixels, width, height);
         if (m_stage2 && stageBlend > 0) {
@@ -632,11 +661,30 @@ int Machine::Compose(bool native, std::vector<uint32_t> &pixels, int &width, int
         m_renderer.drawGroupContext = this;
         m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
             const Machine &me = *static_cast<Machine *>(self);
-            return !me.ownStageObject(me.board, object);
+            return !me.ownStageObject(me.board, object) && !(me.m_bands && ObjectInFront(me.board, object, me.m_frontPiece));
         };
+        const bool text = m_renderer.text;
         if (!onlyStage) {
+            m_renderer.text = text && !m_bands;
             DrawLayers(native, m_renderer, board, pixels, width, height);
         }
+        if (m_bands) {
+            // (the stage's pieces in front, then this board's things in front of them, and its text layer)
+            m_stageRenderer.overlay = true;
+            m_stageRenderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
+                const Machine &me = *static_cast<Machine *>(self);
+                return me.stageObject(*me.m_stage, object) && ObjectInFront(*me.m_stage, object, me.m_front);
+            };
+            DrawLayers(native, m_stageRenderer, *m_stage, pixels, width, height);
+            m_stageRenderer.overlay = false;
+            m_renderer.text = text;
+            m_renderer.drawGroup = [](void *self, uint16_t, uint32_t object) {
+                const Machine &me = *static_cast<Machine *>(self);
+                return !me.ownStageObject(me.board, object) && ObjectInFront(me.board, object, me.m_frontPiece);
+            };
+            DrawLayers(native, m_renderer, board, pixels, width, height);
+        }
+        m_renderer.text = text;
         m_renderer.overlay = false;
         m_renderer.drawGroup = nullptr;
         // (the plain composition: no second stage, fade or stage alone)
@@ -764,7 +812,8 @@ void Machine::RunFrame() {
         if (stageFrame) {
             KeepGpuGuest();
             native::BuildFrame(board.native, board.SpriteRamBytes(), m_renderer.margin, m_renderer.shift, m_gpuFrame,
-                               [](const void *self, const native::Object &o, uint32_t) { return !static_cast<const Machine *>(self)->nativeOwnStageObject(o); }, this);
+                               [](const void *self, const native::Object &o, uint32_t) { return !static_cast<const Machine *>(self)->nativeOwnStageObject(o); }, this,
+                               0, FrontNow());
             native::AddGuest(m_gpuGuestVideo, m_stage->SpriteRamBytes(), m_gpuFrame,
                              [](const void *self, const native::Object &o, uint32_t) { return static_cast<const Machine *>(self)->nativeStageObject(o); }, this);
         } else {

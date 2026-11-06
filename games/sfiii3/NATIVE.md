@@ -208,6 +208,13 @@ games' music); the GPU's picture as a window draws it against the CPU's over all
 The earlier check (SFIII3_STAGE_COMPARE=1) compared the stage alone with the match's stage handed all the match hands
 it: the camera's own words among them, so it could not find what the stage alone made of a fight's camera.
 
+**The second play-test (2026-11-06; DEFINITIVE.md).** The list heads now carry the priority each was written for
+(ListHeads hands it over: native::ListHead::priority, the objects' from theirs), so that a stage's pieces in front of the
+fighters are drawn over 3rd Strike's fighters (native::Frame::bands: four buffers, the GPU's too). Checked against
+ground truth, a board's own fight composed the same way (SFIII3_LAYER_CHECK); the still picture with still fighters
+(SFIII3_JITTER_CHECK: New Generation's camera code takes its whole step, unlike 3rd Strike's and 2nd Impact's 80 in
+100); the training session's guest stages (SFIII3_SESSION_STAGES). checkguests.sh, checkpictures.sh (by checkstages.sh).
+
 ## What stays plain memory
 
 Sprite RAM's object words and tilemaps (04002000 on), SS RAM (the text map and characters), the voices' registers
@@ -229,7 +236,7 @@ text layer's registers, the status word and the two interrupts (as a timer).
 | SDL_GPU renderer | the toolkit (port/native_gpu.cpp): two compute passes from BuildFrame's tiles, the palette, the textures by page, the text layer; shown by the presenter (Presenter::ShowNative), the window's default picture (2026-11-05; off by default for a few hours that day while offscreen runs' unwaited frames starved the Mac's WindowServer, back on with each offscreen frame waited for: cps3recomp/docs/NATIVE.md); a third pass puts the HUD, status lines, online names, zoom and menu over it | done for the plain picture and what the port puts over it | (b) all the same: the GPU's picture as the presenter shows it (render pass, 1:1) against the rasteriser's, every frame; 15 runs of 3000 frames with 0 different |
 | DMA timer | the toolkit: status bits and level 10 without the chips | small | gates: state hashes the same with and without the chip functions |
 | Sound events | 0x0613B3CC (every voice write and key site of the driver's step), 0x06139316 (set-up), 0x0613A334 (all off) (sound_driver.cpp; 0x0613A272, resume, written but left unregistered: nothing reaches it); the native mixer (sound/native_sound.cpp) | done | (c) all the same: samples against pcm.cpp, voice by voice, every frame (checksound.sh) |
-| Guest stages | New Generation's and 2nd Impact's same hand-offs (the shared engine: the same rewrites on each game's places, src/video_games.cpp, run dry on the stage board); their stages from their stage code alone (src/stages.cpp, StageAlone); one frame of the two producers (video/raster.cpp AddGuest, DrawWithGuest; port/native_gpu.cpp) | done | (a) per producer, all the same; (b) the one frame against the composed board models, all the same (CPU), the GPU's against the CPU's; the stage alone against the match's (SFIII3_STAGE_COMPARE=1: DEFINITIVE.md) |
+| Guest stages | New Generation's and 2nd Impact's same hand-offs (the shared engine: the same rewrites on each game's places, src/video_games.cpp, run dry on the stage board); their stages from their stage code alone (src/stages.cpp, StageAlone); one frame of the two producers (video/raster.cpp AddGuest, DrawWithGuest; port/native_gpu.cpp), the stage's pieces in front of the fighters over them (the heads' priorities, Frame::bands) | done | (a) per producer, all the same; (b) the one frame against the composed board models, all the same (CPU), the GPU's against the CPU's; the stage alone against the match's (SFIII3_STAGE_COMPARE=1: DEFINITIVE.md) |
 | Board model out of the default build | the picture from the interface by the CPU's rasteriser (system.cpp: Compose, DrawLayers), the board's video memories from the interface (machine.cpp: NativeMakes, TakeFromNative); renderer.cpp and the DMAs' model behind `--board` and in the checks | done for the video (CPU) | every gate; default against `--board` the same (state hashes, saved states) |
 
 Order: (done: the palette, the frame registers, the textures, the lists' heads, the objects: the whole frame's

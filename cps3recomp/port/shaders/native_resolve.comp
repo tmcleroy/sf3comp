@@ -9,17 +9,20 @@
 // its place (its buffer from row 448, its own zoom) through its palette (the second 0x20000 colours) is what is under the
 // game's: where the game drew nothing the guest's shows, and a blend of the game's over nothing of its own scales the
 // guest's colour as that blend does the game's colours (the scales of the game's palette's 16 banks, after the two
-// palettes: raster.h, BlendScales). (SDL_GPU's compute layout: read-only buffers in set 0, read-write textures in set 1.)
+// palettes: raster.h, BlendScales). With the guest's pieces in front of the game's fighters (`bands`: Frame::bands), its
+// buffer of those (rows 896 on, its zoom) over that by the same rule (its own palette's scales, after the game's), then the
+// game's things in front of them (rows 1344 on). (SDL_GPU's compute layout: read-only buffers in set 0, read-write
+// textures in set 1.)
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 layout(std430, set = 0, binding = 0) readonly buffer Params {
     uint width, height, fx, fy;
     int margin, textScrollY;
     uint textPalette, guest;
-    uint guestFx, guestFy, pad0, pad1;
+    uint guestFx, guestFy, bands, pad1;
 } params;
 layout(std430, set = 0, binding = 1) readonly buffer Palette {
-    uint rgb[]; // 0x20000 colours, 0x00BBGGRR; a guest's 0x20000 after them; then 48 blend scales
+    uint rgb[]; // 0x20000 colours, 0x00BBGGRR; a guest's 0x20000 after them; then 48 blend scales, the game's; then 48, the guest's
 };
 layout(std430, set = 0, binding = 2) readonly buffer Text {
     uint ss[]; // SS RAM's 32 KB, four bytes a word, the first in the low byte
@@ -29,6 +32,24 @@ layout(set = 1, binding = 1, rgba8) uniform writeonly image2D picture;
 
 uint SsByte(uint at) {
     return (ss[at >> 2] >> ((at & 3u) * 8u)) & 0xFFu;
+}
+
+// A buffer's colour number over a colour (one picture over another): its colour through `palette` (0, or the guest's
+// 0x20000) where it drew, the colour scaled by its blend's bank (the scales at `scales`) where only a blend did
+uint Over(uint under, uint c, uint palette, uint scales) {
+    if ((c & 0x1FFFu) != 0u) {
+        return rgb[palette + (c & 0x1FFFFu)];
+    }
+    if (c == 0u) {
+        return under;
+    }
+    const uint bank = (c >> 13) & 0xFu;
+    uint colour = 0u;
+    for (uint k = 0u; k < 3u; k++) {
+        const uint scale = rgb[scales + bank * 3u + k];
+        colour |= min((((under >> (8u * k)) & 0xFFu) * scale) >> 8, 255u) << (8u * k);
+    }
+    return colour;
 }
 
 void main() {
@@ -54,6 +75,12 @@ void main() {
             }
         } else {
             colour = under;
+        }
+        if (params.bands != 0u) {
+            const uint front = imageLoad(colours, ivec2(int(min(gx >> 16, 1023u)), 896 + int(min(gy >> 16, 447u)))).r;
+            colour = Over(colour, front, 0x20000u, 0x40000u + 48u);
+            const uint mine = imageLoad(colours, ivec2(int(min(sx >> 16, 1023u)), 1344 + int(min(sy >> 16, 447u)))).r;
+            colour = Over(colour, mine, 0u, 0x40000u);
         }
     } else {
         colour = rgb[c & 0x1FFFFu];

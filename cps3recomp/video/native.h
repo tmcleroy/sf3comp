@@ -123,8 +123,16 @@ struct ListHead {
     uint32_t position = 0; // x in bits 16-25, y in 0-9
     uint32_t settings = 0; // bit 30: the list's bits a pixel for all, 29 its palette, 28/27 flips, 26 blend, 25 bits a
                            // pixel, 16-24 the palette
-    bool operator==(const ListHead &) const = default;
+    // The game's priority the head was written for (it writes them from its highest number, 127, to 0: the board draws
+    // a later head's objects over an earlier's, so a lower number is nearer the front); kNoPriority where the game's
+    // code said none (an empty head, the pads) or it is not known (heads made again from sprite RAM, which does not
+    // keep it). Not the board's: not compared with the board's heads
+    uint8_t priority = 0xFF;
+    bool operator==(const ListHead &o) const {
+        return head == o.head && position == o.position && settings == o.settings;
+    }
 };
+constexpr uint8_t kNoPriority = 0xFF;
 
 // An object of the frame, its list's settings applied (what the board's object DMA makes of the heads and sprite RAM's
 // object words, and what a GPU makes quads of: a tile, or lines of a tilemap when it has no width): the tile and its
@@ -133,7 +141,11 @@ struct ListHead {
 struct Object {
     uint32_t words[4] = {};
     uint16_t group = 0;
-    bool operator==(const Object &) const = default;
+    // (its head's priority, ListHead::priority: not the board's, not compared)
+    uint8_t priority = kNoPriority;
+    bool operator==(const Object &o) const {
+        return words[0] == o.words[0] && words[1] == o.words[1] && words[2] == o.words[2] && words[3] == o.words[3] && group == o.group;
+    }
 };
 // The frame's objects from the lists' heads, the frame's registers (the global scrolls) and sprite RAM's object words
 // (512 KB, big-endian: the game's own memory, read as it stands at the vertical blank), as the board's DMA has them

@@ -27,7 +27,22 @@
 #    frame, within the ends its game keeps: within the limits, stages.cpp's kAcrossOff and kUpOff); its picture's zoom whole
 #    when its own frame is; no music of 3rd Strike's heard with the stage's (two soundtracks at once); no sound of the
 #    stage board's playing when a stage is built there; none heard with no stage chosen: all 0.
-# On main before 2026-11-06 (638cb12) every run of both parts failed.
+# 3. The second play-test's (2026-11-06, the Steam Machine), each of which the two parts above could not see:
+#    - jitter (SFIII3_JITTER_CHECK=1): training sessions with the fighters standing still, put at 7 places across the stage
+#      in turn (close together, apart, far apart), every guest stage chosen in turn, 4:3 and widescreen; once the camera
+#      has had its time to get there, the stage as shown (its layers drawn) must not move from one frame to the next. Part 2
+#      allowed its camera a column or two off where it was sent, on average and in a frame, and judged camera words: New
+#      Generation's camera going a column past and back every frame (2 pixels each way) was within both;
+#    - layers (SFIII3_LAYER_CHECK=1, in part 1's runs): the stage game's own match on its stage is the ground truth; its
+#      stage and its fighters composed as the picture composes a stage with another board's fighters (one frame of two
+#      producers, and two pictures) must give its own picture at every pixel a fighter is drawn at: a stage piece in front
+#      of a fighter covers it. Part 1 compared the stage's layers alone, and the composed picture with 3rd Strike's
+#      fighters over each of two stages composed the same way: nothing there compared a fighter with a stage piece in
+#      front of it;
+#    - the training session's Stage row (SFIII3_SESSION_STAGES=1): every guest stage chosen there, a session started on
+#      it, the stage shown is that one. No check started a session on a guest stage from that row (it had none).
+# On main before 2026-11-06 (638cb12) every run of parts 1 and 2 failed; on ea48e7b every run of part 3 but some of the
+# jitter's (2nd Impact's: see DEFINITIVE.md).
 #
 #   games/sfiii3/checkguests.sh ROM [BUILD] [FRAMES]     (BUILD: build/sfiii3; FRAMES: 12000 a run in play)
 #
@@ -62,7 +77,7 @@ for wide in "" wide; do
     for choice in $(seq 1 28); do
         name="play-$choice${wide:+-wide}"
         PLAYS+=("$name")
-        run "$name" SFIII3_STAGE_COMPARE=play "$PLAY_FRAMES" --features "stages=$choice$features"
+        run "$name" "SFIII3_STAGE_COMPARE=play SFIII3_LAYER_CHECK=1" "$PLAY_FRAMES" --features "stages=$choice$features"
     done
 done
 # (each stage chosen again every 550 frames from 2000: the game's every stage, then the other game's first, none, and
@@ -82,8 +97,41 @@ run real-ng-wide SFIII3_STAGE_CHECK=1 "$FRAMES" --auto 23:300:1 --features stage
 run real-2i-wide SFIII3_STAGE_CHECK=1 "$FRAMES" --auto 31:300:1 --features stages=14,widescreen,widescreen_walls --keys "$(switches 14 28 1)"
 run real-opp-ng SFIII3_STAGE_CHECK=1 "$FRAMES" --auto 7:300:1 --features stages=29
 run real-opp-2i SFIII3_STAGE_CHECK=1 "$FRAMES" --auto 13:300:1 --features stages=30,widescreen,widescreen_walls
+# (3: the jitter: a training session from frame 30, its fight from about 300; each game's stages chosen in turn, a stage
+# every 1000 frames, its 7 places held 130 frames each)
+inturn() { # first last
+    local keys="" f=300 c
+    for c in $(seq "$1" "$2"); do
+        keys+="$f:fstages=$c,"
+        f=$((f + 1000))
+    done
+    echo "${keys%,}"
+}
+JITTERS=(jitter-ng jitter-2i jitter-ng-wide jitter-2i-wide)
+run jitter-ng SFIII3_JITTER_CHECK=1 14000 --keys "30:ctraining_start,$(inturn 1 13)" --auto 3:300:1
+run jitter-2i SFIII3_JITTER_CHECK=1 16000 --keys "30:ctraining_start,$(inturn 14 28)" --auto 3:300:1
+run jitter-ng-wide SFIII3_JITTER_CHECK=1 14000 --keys "30:ctraining_start,$(inturn 1 13)" --auto 3:300:1 --features widescreen,widescreen_walls
+run jitter-2i-wide SFIII3_JITTER_CHECK=1 16000 --keys "30:ctraining_start,$(inturn 14 28)" --auto 3:300:1 --features widescreen,widescreen_walls
+# (3: the training session's Stage row: training_stage 22-34 New Generation's stages 0-12, 35-49 2nd Impact's 0-14; a
+# session started on each in turn, every 1000 frames of the keys' count, seven a run: each fought for some 450 frames
+# before the next; a run's frames count the session's way to its fight, run fast, too: twice as many)
+sessions() { # first last
+    local keys="" f=30 c
+    for c in $(seq "$1" "$2"); do
+        keys+="$f:ftraining_stage=$c,$f:ctraining_start,"
+        f=$((f + 1000))
+    done
+    echo "${keys%,}"
+}
+SESSIONS=(sessions-22 sessions-29 sessions-35 sessions-42)
+for first in 22 29 35 42; do
+    last=$((first + 6))
+    [ $first = 29 ] && last=34
+    [ $first = 42 ] && last=49
+    run "sessions-$first" SFIII3_SESSION_STAGES=1 $(((last - first + 1) * 2000 + 500)) --keys "$(sessions $first $last)" --auto 3:300:1
+done
 wait
-for name in "${PLAYS[@]}" "${REALS[@]}"; do
+for name in "${PLAYS[@]}" "${REALS[@]}" "${JITTERS[@]}" "${SESSIONS[@]}"; do
     if [ "$(cat "$OUT/$name.status" 2>/dev/null)" != 0 ]; then
         echo "$name: the run failed"
         tail -3 "$OUT/$name.log"
@@ -116,6 +164,47 @@ for name in "${PLAYS[@]}"; do
     if [ -z "$line" ] || [ "${frames:-0}" -lt 1000 ] || [ "${layers:-99999}" -gt "$(allowed "$choice")" ] ||
         [ "${composed:-99999}" -gt "$(allowed "$choice")" ] || ! echo "$line" | grep -q "its zoom 0 different"; then
         grep "^stages: the check" "$OUT/$name.log" | head -3
+        status=1
+    fi
+    # (the layers: at the fighters' pixels, the stage and its fighters composed both ways as the board drew them. One known
+    # gap: 2nd Impact's Yang stage (24), its match's own entrance, a fighter drawn behind the stage's far layers (priority
+    # 110), in about 90 frames: one rule of what is in front, the fighters' frontmost, cannot put a fighter behind the
+    # stage's layers too; 3rd Strike's fighters on a guest stage are never there)
+    line=$(grep "stages: the layer check:" "$OUT/$name.log")
+    echo "$name: ${line#stages: }"
+    one=$(echo "$line" | sed -n "s/.*different from the board's own picture in \([0-9]*\), the two pictures in \([0-9]*\)$/\1/p")
+    two=$(echo "$line" | sed -n "s/.*different from the board's own picture in \([0-9]*\), the two pictures in \([0-9]*\)$/\2/p")
+    most=0
+    [ "$choice" = 24 ] && most=100
+    if [ -z "$line" ] || [ "${one:-99999}" -gt $most ] || [ "${two:-99999}" -gt $most ] || echo "$line" | grep -q "check: 0 frames"; then
+        grep "^stages: the layer check, frame" "$OUT/$name.log" | head -2
+        status=1
+    fi
+done
+for name in "${JITTERS[@]}"; do
+    line=$(grep "stages: the jitter check:" "$OUT/$name.log")
+    echo "$name: ${line#stages: }"
+    if [ -z "$line" ] || ! echo "$line" | grep -q "the stage's picture moved in 0 " || echo "$line" | grep -q "check: [0-9]* places held, 0 frames"; then
+        grep "^stages: the jitter check, frame" "$OUT/$name.log" | head -4
+        status=1
+    fi
+done
+# (each session on the stage chosen for it, from its fight's first frame: that game's stage of that number, 150 frames or
+# more, in the order chosen, and nothing else shown)
+for name in "${SESSIONS[@]}"; do
+    line=$(grep "stages: training sessions' stages shown:" "$OUT/$name.log")
+    echo "$name: ${line#stages: }"
+    first=${name#sessions-}
+    last=$((first + 6))
+    [ $first = 29 ] && last=34
+    [ $first = 42 ] && last=49
+    want=""
+    for c in $(seq "$first" "$last"); do
+        if [ "$c" -le 34 ]; then want+="sfiiin:$((c - 22)) "; else want+="sfiii2n:$((c - 35)) "; fi
+    done
+    got=$(echo "${line#*shown:}" | tr ';' '\n' | sed -n 's/^ *\([a-z0-9]*:[0-9]*\) \([0-9]*\) frames$/\1 \2/p' | awk '$2 >= 150 || /^own/ {print $1}' | tr '\n' ' ')
+    if [ "$got" != "$want" ]; then
+        echo "  wanted: $want"
         status=1
     fi
 done

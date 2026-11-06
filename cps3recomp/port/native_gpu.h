@@ -97,6 +97,7 @@ private:
     int m_width = 0, m_height = 0;
     std::vector<uint32_t> m_rowStartsData, m_rowTilesData, m_rgb, m_guestRgb;
     uint32_t m_scales[16][3] = {};
+    uint32_t m_guestScales[16][3] = {};
     bool Grow(SDL_GPUBuffer *&buffer, uint32_t &capacity, uint32_t bytes);
 };
 
