@@ -17,6 +17,7 @@
 #               the round's start included (each frame took 6-20 ms more while the next tags' fights were made)
 #   survival    survival, the opponent's health held low: player 1's super art gauge the same as each next opponent
 #               comes on (it was empty)
+#   ringout_gauge  ring out: the same, the gauge kept from one opponent rung out to the next (it was emptied)
 #   ringout     ring out: the computer's play time (its level, as the arcade's by its wins) put up by a win's as each
 #               next opponent comes on (it was not: the same opponent each time)
 #   ball        Parry the ball straight from the menu: the most stun set, nobody stunned at the first hit
@@ -49,6 +50,8 @@ wait
 SFIII3_BATTLE_SEED=7 SFIII3_BATTLE_LOG=1 run survival 5500 --keys 30:csurvival_start --auto 7:300:1 --poke 20691A3=08 \
     --trace 20694C4-20695BF:"$D/survival/trace.bin" &
 SFIII3_BATTLE_SEED=7 SFIII3_BATTLE_LOG=1 run ringout 6500 --keys 30:cringout_start --auto 11:300:1 --trace 2011372-2011373:"$D/ringout/trace.bin" &
+SFIII3_BATTLE_SEED=7 SFIII3_BATTLE_LOG=1 run ringout_gauge 6500 --keys 30:cringout_start --auto 11:300:1 --poke 20691A3=08 \
+    --trace 20694C4-20695BF:"$D/ringout_gauge/trace.bin" &
 SFIII3_BONUS_LOG=1 run ball 2600 --keys 30:cbonus_ball --auto 7:300:1 --trace 20695F7-2069600:"$D/ball/trace.bin" &
 wait
 
@@ -73,6 +76,7 @@ judge teams teams "$D/teams.log"
 judge tag tagtimes "$D/tag.log"
 judge survival gauge "$D/survival/trace.bin" "$D/survival.log"
 judge ringout playtime "$D/ringout/trace.bin" "$D/ringout.log"
+judge ringout_gauge gauge "$D/ringout_gauge/trace.bin" "$D/ringout_gauge.log"
 judge ball stun "$D/ball/trace.bin" "$D/ball.log"
 [ $status = 0 ] && echo "checkmodes: all the same"
 rm -rf "$OUT"

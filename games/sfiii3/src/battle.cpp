@@ -511,6 +511,9 @@ namespace {
             }
             b.health[0] = 0;
             b.want[1] = RandomCharacter();
+            // (the super art gauge kept into the next, as survival keeps it)
+            b.meterCount = Ram8(sfiii3::kMeterCount[0]);
+            b.meterFill = Ram8(sfiii3::kGauge[0]);
             break;
         case kSurvival:
             if (loser == 0) {
@@ -575,7 +578,7 @@ namespace {
                     b.playTime, static_cast<int16_t>(Ram16(kPlayTime)), most);
         }
     }
-    // (survival) The player's gauge carried over, the frame after the next match is on: no more than its super art's
+    // (survival, ring out) The player's gauge carried over, the frame after the next match is on: no more than its super art's
     // bars, and the game told to draw it again
     void MeterFrame() {
         if (!b.meterAt || b.frames == b.meterAt) {
@@ -1413,6 +1416,9 @@ namespace {
                         if (b.won > FeatureValue("ringout_best") && !RunningAhead()) {
                             SetFeatureValue("ringout_best", std::min<int>(b.won, 99));
                         }
+                        // (the player's super art gauge as it is, kept into the next match: MeterFrame)
+                        b.meterCount = Ram8(sfiii3::kMeterCount[0]);
+                        b.meterFill = Ram8(sfiii3::kGauge[0]);
                     }
                     if (getenv("SFIII3_BATTLE_LOG")) {
                         fprintf(stderr, "battle: frame %u (machine %llu), side %d rung out over the %s end at %d\n", b.frames, static_cast<unsigned long long>(m.frame), p + 1, end < 0 ? "left" : "right", x);
@@ -1486,8 +1492,11 @@ namespace {
                 const int across = std::clamp(Word(winner + sfiii3::kX) - PictureEdge(-1), kDropInside, m.PictureWidth() - kDropInside);
                 m.DrawStageOnly(m.dropOld);
                 PlayTimeAfter();
+                b.meterCount = Ram8(sfiii3::kMeterCount[0]); // (the gauge as it is at the hand-over: it fills on the way)
+                b.meterFill = Ram8(sfiii3::kGauge[0]);
                 Promote(m, g_next);
                 SetRam16(kPlayTime, b.playTime); // (the next opponent as good as the ring outs so far make it)
+                b.meterAt = b.frames; // (and the player's super art gauge as it was, put back the next frame: MeterFrame)
                 b.handed = true;
                 b.apexX = static_cast<int16_t>(across);
                 b.handedY = static_cast<int16_t>(Word(winner + sfiii3::kY)); // (its own jump's top there)
@@ -1676,6 +1685,9 @@ void ModesFrame(Machine &m) {
     }
     // Ring out: no health lost; a fighter knocked about at an open end goes over it (WallLift), and once past the
     // picture's edge is out: flung over the end, falling (RingOutFrame)
+    if (b.mode == kSurvival || b.mode == kRingOut) {
+        MeterFrame(); // (before the ring out's own frame, which returns early on the way down to the next stage)
+    }
     if (b.mode == kRingOut && Locked()) {
         for (int p = 0; p < 2; p++) {
             const uint32_t base = sfiii3::kPlayer[p];
@@ -1689,9 +1701,6 @@ void ModesFrame(Machine &m) {
         if (RingOutFrame(m)) {
             return;
         }
-    }
-    if (b.mode == kSurvival) {
-        MeterFrame();
     }
     if (b.mode == kTeam && b.tagStyle && !b.decided) {
         TagFrame(m, raw);
@@ -1731,6 +1740,9 @@ void ModesFrame(Machine &m) {
             Promote(m, g_next);
             if (b.mode == kRingOut) {
                 SetRam16(kPlayTime, b.playTime);
+                if (b.won > 0) {
+                    b.meterAt = b.frames; // (the player's gauge kept, as survival keeps it: MeterFrame)
+                }
             }
             b.decided = false;
             MatchBegins();
