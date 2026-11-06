@@ -57,6 +57,20 @@
   no clock, the loser replaced, a side a person's while they touch it. Survival: the player's character kept with
   its health (and a tenth back), a new opponent each time. Team: the loser's next on fresh, the winner with its
   health. Seen in pictures and logs; not hand-played.
+- Play-test fixes (2026-11-06; `games/sfiii3/checkmodes.sh ROM BUILD`, headless, judged by modecheck.py, fails on the
+  code before and passes after): the stage viewer's camera taken from the first frame its stage is shown (it followed
+  the unseen fight's, held at the stage's middle and shuffling, until that fight's entrances were over: ~280 frames),
+  its music the stage's own or none (another stage's was silent), Infinite its first choice; survival keeps player 1's
+  super art gauge from one opponent to the next; ring out puts a win's 40 seconds on the computer's play time
+  (Control_Time, 0x02011372: its level, as the arcade's Update_Level_Control does for a person's win) as each next
+  opponent comes on; the modes' dice seeded from the time (the seed was the frame count of a machine just reset: 0,
+  the same teams every time); the tag style's fights made before the first fight is seen, one for each pair of
+  characters the teams can have on (both sides' next fights were made while the fight went on, three spare frames a
+  frame each, four 8 MB states kept and put back for each: 6-20 ms more a frame at the round's start and after every
+  tag; now 0 spare frames in a frame shown), and the spares' frames run several to a load (runtime/spare.h,
+  RunSpareFrames); Parry the ball from the menu sets up the stun gauges as a match's set-up would (0x061186F2's work:
+  the most stun was 0, so the first ball stunned); the model viewer and colour editor black until the round is on,
+  the versus fight's intro not shown.
 - Credits: byte 02007CE0 (free_play keeps it at 2). Round clock: byte 02011377 (seconds; infinite_time).
 - The DMA-done interrupt (level 10) drives the game's queue of character and palette DMAs (handler 060004D0 calls
   06138230: state word 0207603C, queues at 0207803C / 0207844C). Its timing matters: with the board's clock read
