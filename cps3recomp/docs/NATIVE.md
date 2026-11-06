@@ -287,6 +287,21 @@ replaced is the game task's modes (the title's and the game's, by its first step
 waits for things, so it is jumped to (`Guest::Jump`, its way back on the stack) rather than called; and the guest's
 picture is not composed with the game's but drawn in the game's frame.
 
+**The stage's pieces in front (2026-11-06)**: drawn under all of the game's layers, a stage's pieces that its own game
+draws over its fighters (Akuma's stage's roots in 3rd Strike, 2nd Impact's market's) were under them. The list heads
+carry the game's priority they were written for (`ListHead::priority`, handed over by the game's ListHeads rewrite; the
+board's own heads in sprite RAM do not keep it, so it is not compared), and the objects theirs (`Object::priority`): a
+lower priority is drawn later, over. `Frame::front` (the game's: `Machine::frontPriority`, the frontmost priority of the
+shown board's fighters) splits both producers: the guest's objects of a lower priority go into a buffer of their own
+(`Tile::producer` 2) and the game's of a lower priority into another (3), and the four are resolved each over the last
+(the guest's, the game's, the guest's in front by the overlay's rule with its own palette's scales, the game's in front);
+with no guest piece in front (`Frame::bands` off) the game's are all in its one buffer, as before. The GPU the same: the
+colour-number texture is 1024 x 1792 (the four buffers' rows), the resolve pass's `Over` puts the last two over, the
+guest's 48 blend scales after the game's. The board models' composition (`Machine::Compose`'s two pictures) does the same
+in four passes, so "native pixels with a stage" still compares like with like. Ground truth for the rule: a board's own
+fight (its stage and its fighters drawn in its own order) composed the same way, at its fighters' pixels
+(games/sfiii3's SFIII3_LAYER_CHECK). Not split: a second stage fading or scrolling in, a darkened or lone stage.
+
 ### Timing: what stays
 
 The game's slowdown is its CPU's: the main loop does a frame's work and waits for the vertical blank's count to move

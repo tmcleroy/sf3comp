@@ -71,6 +71,15 @@
   RunSpareFrames); Parry the ball from the menu sets up the stun gauges as a match's set-up would (0x061186F2's work:
   the most stun was 0, so the first ball stunned); the model viewer and colour editor black until the round is on,
   the versus fight's intro not shown.
+- Second play-test's fixes (2026-11-06, the Steam Machine; each check written first and failing on ea48e7b, DEFINITIVE.md
+  "The second play-test"): New Generation's stages jittered 2 pixels back and forth with the fighters standing still (its
+  camera code takes its whole step; the stage alone's step was made for the others' 80 in 100); the training session's
+  Stage row has New Generation's and 2nd Impact's stages (it never had: a choice past its list crashed the session); a
+  stage board's stage (the guest stages, the modes' 3rd Strike stages) is composed with its pieces in front of the
+  fighters over them (the list heads' priorities handed over; four buffers in the one frame, CPU and GPU, four passes in
+  the two pictures). Checks: checkguests.sh (the jitter, the layers against each stage game's own match, the sessions),
+  checkpictures.sh (3rd Strike's own stages: the jitter in training sessions and the endless battle's stage behind, the
+  layers against its own fights), both run by checkstages.sh.
 - The board's sound (test menu, system settings, SOUND): EEPROM byte 0x07, 1 JAMMA (mono, the default) or 0 EXTERNAL
   (stereo), read at start-up into the driver's stereo byte 0x02079C5B. The port sets EXTERNAL (board_sound: Stereo) since
   2026-11-06: in JAMMA the driver gives every voice both sides, so the knock-out's boom (voices 10 and 11, one sample

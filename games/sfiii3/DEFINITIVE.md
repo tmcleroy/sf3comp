@@ -63,12 +63,53 @@ the guest's buffer in rows 448 on, its textures the second 8 MB, its palette and
 Strike's), under 3rd Strike's layers by the rule the two pictures were composed by: where 3rd Strike drew nothing the
 stage shows, and 3rd Strike's shadows (a blend over nothing of its own) darken the stage's colour as they do 3rd Strike's.
 No picture is handed between the two boards; in a window the GPU draws frames with a stage too (Machine::DrawWithStage,
-KeepGpuGuest). The modes' own 3rd Strike stages behind their fighters (battle.cpp: a 3rd Strike stage board, a second
-one sliding or fading in, darkened) are still composed as two pictures.
+KeepGpuGuest). The stage's pieces in front of the fighters (2026-11-06) are over 3rd Strike's fighters: the stage's
+objects of a lower priority than the frontmost of 3rd Strike's fighters (the list heads' priorities, handed over with
+them: native::ListHead::priority; stages.cpp's FrontOf) are drawn over 3rd Strike's layers but its own things in front of
+them, by four buffers (native::Frame::bands; cps3recomp/docs/NATIVE.md). The modes' own 3rd Strike stages behind their
+fighters (battle.cpp: a 3rd Strike stage board) are drawn the same way, one frame of the two producers, while nothing
+else is going on; a second one sliding or fading in, or the stage darkened, still as two pictures (and then the stage all
+under the fighters), and their stage board still plays a hidden match on its stage (not a stage producer of 3rd Strike's
+own stage code yet: "To do", 11).
 
 **Before** (until 2026-11-05): the stage board played a hidden match on the chosen stage, coins, Start and a character on
 its way there (8 of its frames a frame), its clock and health held, its fighters made players' so that they stood. That
 way is kept behind SFIII3_STAGE_MATCH=1, for the check below.
+
+**The second play-test** (2026-11-06, the Steam Machine, widescreen off) and its checks, each written first and failing
+on the code before (ea48e7b):
+
+- "Some stages jitter left and right by like 2 pixels rapidly when chars standing in certain spots": New Generation's
+  stages, in every mode that shows them. Give puts the stage alone's fighters so that the step its camera code takes is the
+  step wanted, made for 3rd Strike's and 2nd Impact's camera code, which takes 80 in 100 of it (3rd Strike's 0x060B8620,
+  2nd Impact's 0x060A29A6); New Generation's takes the whole step (its moves, 0x0607C178 and 0x0607C1E4, have no cut), so
+  a column off became a step of two: its camera went a column past where it was sent and back, every frame the fighters
+  stood still (StageGame::cut now). 3rd Strike's own stages, on its board and on the modes' stage board, do not move (no
+  frame moved in any run on ea48e7b), nor 2nd Impact's. The check (SFIII3_JITTER_CHECK: checkguests.sh for the guest stages,
+  checkpictures.sh for 3rd Strike's in training sessions and the endless battle's stage behind; 4:3 and widescreen): the
+  fighters put at 7 places across each stage and left standing, and from 80 frames on the stage as shown (its layers
+  drawn) lined up with the frame before's must not move. On ea48e7b New Generation's stages moved in 1952 and 2690 of
+  4553 still frames, 2 columns back and forth. Missed before: the in-play check (SFIII3_STAGE_CHECK) allows the camera 2
+  columns off where it was sent and a column on average, and judges camera words: a column past and back is within both.
+- "Can't select stages from other games in training mode menu": never there. The session's Stage row (training_stage) had
+  3rd Strike's 21 stages since it was made; another game's stage came only from the Display page's Stages choice. The row
+  now goes on with the two games' stages (training.cpp, stages.cpp's StageForSession: the session's choice in place of the
+  Display page's while the session is on). The check (SFIII3_SESSION_STAGES, checkguests.sh): a session started on each
+  of the 28 from the row shows that stage from its fight's first frame. On ea48e7b such a choice ran the session on 3rd
+  Strike's stage byte 21 and up, and Guest::Call(060B71EA) did not come back. Missed before: no check started a session
+  on a guest stage (the earlier ones chose them from the Display page, mid-fight).
+- "Chars are in front of foreground elements": every composition of a stage board's stage, the guest stages and the
+  modes' 3rd Strike stages alike, drew the whole stage under all of 3rd Strike's layers. 3rd Strike's own fights on its
+  own board were right (one board draws in its own order). Fixed as above (the priorities, four buffers). The check
+  (SFIII3_LAYER_CHECK): ground truth is a board's own fight, 3rd Strike's on each of its stages (checkpictures.sh) and each
+  stage game's own match on each of its stages (checkguests.sh's runs against the match); its stage and its fighters
+  composed as the picture composes a stage board's stage with the shown board's fighters, one frame and two pictures,
+  must give its own picture at every pixel a fighter is drawn at. On ea48e7b 130, 670 and 1251 frames of 3rd Strike's
+  fights on its stages were different (Akuma's stage's roots over the fighters' feet, ...). Missed before: the stage
+  checks compared the stage's layers alone, or the composed picture with another composed the same way (the stage alone's
+  and the match's, both with 3rd Strike's fighters over the whole stage; "native pixels with a stage", the one frame
+  against the board models' two pictures, which put the stage under the same way): no check compared a composed picture
+  with a picture its own game drew of a fighter behind a stage piece.
 
 **The checks against ground truth** (2026-11-06, checkguests.sh, part of checkstages.sh): the check below compared the
 stage alone with the match's stage given everything the match hands it, the fighters' records whole among it, producer
@@ -261,3 +302,10 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
    2026-11-05, later: done. The stage from the stage games' stage code alone (no match), and drawn with 3rd Strike's
    layers as one frame by one renderer, the CPU's and the GPU's ("The way", above). Still the board's on the stage
    board: its sound (pcm.cpp), its frame's interrupts and DMA timing (the game's own code, as on 3rd Strike's board).
+11. The modes' 3rd Strike stages behind their fighters (battle.cpp's endless battle, shuffled or scrolling, and the stage
+   viewer) as a stage producer of 3rd Strike's own stage code, as the guest stages are ("The way"): their stage board
+   still plays a hidden match on the stage (kThirdStrike has no StageAlone: its game task's modes, the match's set-up
+   0x06095AA0 and frame 0x06095B24's stage parts to be found as they were for the other two), and a second board fading
+   or sliding in, or the stage darkening, is still drawn as two pictures, with the stage's pieces in front of the
+   fighters under them for those frames. In the plain frames (most of a fight) the stage is one frame of the two
+   producers, its pieces in front over the fighters (2026-11-06).
