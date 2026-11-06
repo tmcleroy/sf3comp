@@ -489,21 +489,9 @@ void TrainingBeforeFrame(Machine &m) {
             }
         }
     }
-    // The stage viewer: only the stage drawn (and with the Stages option another game's, its music playing), the stick
-    // moving both fighters across it together, so that the camera goes along; nothing else of the controls reaches the game
-    const bool viewer = session::InSession() && FeatureOn("stage_viewer");
-    m.onlyStage = viewer && InMatch();
-    if (m.onlyStage) {
-        const uint16_t stick = m.players[0];
-        const int step = (stick & kRight) ? 6 : (stick & kLeft) ? -6 : 0;
-        const int left = Signed16(sfiii3::kCameraLeft[0]) - 164, right = Signed16(sfiii3::kCameraRight[0]) + 164;
-        const int one = Signed16(Player(0) + sfiii3::kX), two = Signed16(Player(1) + sfiii3::kX);
-        if (step && std::min(one, two) + step >= left && std::max(one, two) + step <= right) {
-            SetRam16(Player(0) + sfiii3::kX, static_cast<uint16_t>(one + step));
-            SetRam16(Player(1) + sfiii3::kX, static_cast<uint16_t>(two + step));
-        }
-        m.players[0] = m.players[1] = 0;
-    }
+    // (only the stage drawn: the Alternative modes' stage viewer's, which BattleBeforeFrame sets after this; the training
+    // menu's own stage viewer is gone, the mode is the stage viewer)
+    m.onlyStage = false;
     // Stunned (the stun timer, two bytes on from the most it takes, counts down from 130 or so), the dummy mashes: the
     // stick round and the buttons, a different one each frame. Stunned is the record's reaction, the stun's (routine_no[1]
     // 1 hurt, [2] 25 dizzy): the timer is no guide to its end, mashing takes it below 0 and it is left there (254, 255),
@@ -633,9 +621,6 @@ void RegisterTraining(Game &game) {
         {"training_stage", session::kPage, "Stage", "The stage a training session is fought on.", kFeatureMenuChoices,
          {"The game's choice", "Gill's", "Alex's", "Ryu's", "Yun's", "Dudley's", "Necro's", "Hugo's", "Ibuki's", "Elena's", "Oro's",
           "Yang's", "Ken's", "Sean's", "Urien's", "Akuma's", "Akuma's (red)", "Chun-Li's", "Makoto's", "Q's", "Twelve's", "Remy's"}},
-        {"stage_viewer", session::kPage, "Stage viewer",
-         "In a training session: only the stage is drawn (no fighters, no panel), and the stick moves along it. With the Stages "
-         "option, another game's stage and its music."},
         {"training_watch", session::kPage, "Watch the game play itself",
          "In a training session, both players are the game's computer player: a fight to watch, as long as it is on (health "
          "comes back below a quarter, as in any session)."},
