@@ -136,6 +136,9 @@ a few lines of the old colours: not modelled, and not wanted).
   the mixer's frame against pcm.cpp's, each side's samples voice by voice, and the voices' settings and the keys
   against the chip's registers, every frame of the four runs (all the same: see PROGRESS.md for the numbers). The
   boot ROM's writes to the chip are passed on as the board has them (kVoice, kKeys), as the palette's are.
+  checkko.sh (run by checksound.sh): a knock-out's sound and slow motion, native against --board, against the game's
+  rules, unclipped and in stereo, and as the window's frontend plays it to a device's clock (CPS3RECOMP_AUDIO_SINK, 48
+  and 44.1 kHz). The board's sound is set to EXTERNAL (stereo) by default: PROGRESS.md, "Game facts".
 - Timing: a rewrite's writes all fall at the moment it runs (the time of the routines it calls passes between them),
   not spread over the routine as the game's code has them, so a register can change a sample or so earlier than on
   the board. The game is not affected (nothing reads the sound back but the driver), and the check compares the

@@ -7,8 +7,17 @@
 // rounds (high half between two players, low half against the computer: 0 one round, 1 three, 2 five); a second copy
 // of each 0x30 bytes on (0x51 on for these). The system settings page and the rest of the game settings page, found the same way (each
 // changed in the test menu and saved, the EEPROM compared): 0x02 continue (1 yes, 0 no), 0x05 demo sound (1 on, 0
-// off), 0x25 event (0 normal, 1 one match; the game then sets continue to no), 0x27 bonus games (1 on, 0 off). A blank EEPROM (the first start) gets the game's defaults at start-up, over these: they take
-// from the next start, once the EEPROM is kept.
+// off), 0x25 event (0 normal, 1 one match; the game then sets continue to no), 0x27 bonus games (1 on, 0 off), 0x07 the
+// sound (the system page's last row: 1 JAMMA, the board's default, 0 EXTERNAL; the driver's stereo byte 0x02079C5B
+// follows it). A blank EEPROM (the first start) gets the game's defaults at start-up, over these: they take from the
+// next start, once the EEPROM is kept.
+//
+// The sound is EXTERNAL (stereo) unless chosen otherwise, since the port's sound is stereo. JAMMA is the board's mono
+// output, and the game makes it by giving every voice both sides at full volume: an effect made as a stereo pair, one
+// voice on each side, then plays twice on both. The knock-out's boom is such a pair (two voices on the same sample,
+// started a sample or two apart): in JAMMA it is twice as loud on each side and flanged by that gap, and the mix clips
+// (checkko.sh's knock-out: 198 samples clipped in its first second, 4.6 dB over the two seconds before it; with
+// EXTERNAL none, 1.6 dB). The game's timing is the same either way.
 #include "game.h"
 #include "system.h"
 
@@ -29,10 +38,28 @@ namespace {
     uint8_t Byte(const Machine &m, uint32_t offset) {
         return static_cast<uint8_t>(m.eeprom.words[offset / 4] >> (static_cast<int>(offset % 4) * 8));
     }
+    // The sound (0 stereo, the default: EXTERNAL; 1 JAMMA; 2 as the EEPROM has it). The game reads it at start-up
+    // (frame 95) into its sound driver's stereo byte; from a blank EEPROM it takes its defaults instead (JAMMA), so the
+    // driver's byte is set as chosen once the game has read it (kSoundRead), and the EEPROM's through the start-up, over
+    // the defaults the game writes there (frames 91-95), so that it is kept for the next start
+    constexpr uint64_t kSoundRead = 120;
+    constexpr uint32_t kStereo = 0x79C5B; // (main RAM: 0x02079C5B)
+    void SetSound(Machine &m) {
+        const int v = FeatureValue("board_sound");
+        if (v >= 2) {
+            return;
+        }
+        if (m.frame < kSoundRead) {
+            SetByte(m, 0x07, v == 1 ? 1 : 0);
+        } else if (m.frame == kSoundRead) {
+            m.ram()[kStereo] = v == 1 ? 0 : 1;
+        }
+    }
 } // namespace
 
 // Before the board's first frame (after switching on or a reset): the settings chosen, written in
 void BoardBeforeFrame(Machine &m) {
+    SetSound(m); // (through the start-up)
     if (m.frame != 0) {
         return;
     }
@@ -88,6 +115,11 @@ void RegisterBoard(Game &game) {
                              0, {"As the board has it", "Yes", "No"}});
     game.features.push_back({"board_demo_sound", "Board", "Demo sound", "Whether the attract mode plays sound. Takes effect when the game is reset.",
                              0, {"As the board has it", "On", "Off"}});
+    game.features.push_back({"board_sound", "Board", "Sound",
+                             "Stereo: the board's EXTERNAL output, each effect on its side. Mono: its JAMMA output, as a cabinet with one "
+                             "speaker has it (an effect made for both sides, the knock-out's say, then sounds twice as loud). Takes effect "
+                             "when the game is reset.",
+                             0, {"Stereo", "Mono (JAMMA)", "As the board has it"}});
 }
 
 } // namespace cps3recomp
