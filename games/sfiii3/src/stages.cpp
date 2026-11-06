@@ -197,6 +197,7 @@ namespace {
         {&kThirdStrike, 18}, {&kThirdStrike, 19}, {&kThirdStrike, 20},
     };
     constexpr int kOwnFirst = 31;
+    constexpr int kOpponentsFirst = 29; // (the choices from 1 up to it: every stage of the two games, by number)
     // (by whose stage it is: both games number their stages as 3rd Strike numbers its characters; New Generation has no
     // Hugo, and its stage 6 is a beer festival)
     const char *const kNames[] = {
@@ -372,6 +373,7 @@ namespace {
     constexpr uint32_t kBannersFor = 200; // (3rd Strike's own board: its "ROUND 1" and "FIGHT!" drawn as its stage is, so it is
                                           // shown only after them)
     int g_choiceWanted = 0;
+    int g_sessionChoice = 0; // (a training session's Stage row's choice of another game's stage: StageForSession)
     bool g_onlyMusic = false; // (the stage viewer: nothing of 3rd Strike's own heard but music: StageBehindOnlyMusic)
     bool g_boardMusic = true; // (the modes' stage behind: its own music, or 3rd Strike's fight's: StageBehindMusic)
     int g_cameraWanted = kFollow;
@@ -2038,7 +2040,7 @@ void StagesBeforeFrame(Machine &machine) {
                 music ? "the stage's music" : "3rd Strike's own", silenced);
     }
     const int menu = std::clamp(FeatureValue("stages"), 0, static_cast<int>(std::size(kNames)) - 1);
-    const int choice = g_choiceWanted ? g_choiceWanted : menu;
+    const int choice = g_choiceWanted ? g_choiceWanted : g_sessionChoice ? g_sessionChoice : menu;
     MakeOn(machine);
     // (between fights; or in one on 3rd Strike's own stage, when the board is idle and may preload)
     const bool idle = !OnStage() || (g_pre.on ? g_pre.live.stage : g.stage) < 0;
@@ -2112,6 +2114,22 @@ void StagesBeforeFrame(Machine &machine) {
         g.stage = kChoices[choice].stage == kOpponents ? -1 : g.stage;
         TripFromStart(machine);
     }
+}
+
+// A training session's stage of another game (training.cpp, its Stage row): the choice's New Generation's stages from 1
+// (its 0-12), then 2nd Impact's (0-14), in place of the Display page's choice while the session is on (0: none, that
+// choice again). (Until 2026-11-06 the row had 3rd Strike's stages only: another game's stage in a session came only from
+// the Display page's choice.)
+void StageForSession(int choice) {
+    g_sessionChoice = std::clamp(choice, 0, kOpponentsFirst - 1);
+}
+// (the names of those choices, in order)
+std::vector<const char *> GuestStageNames() {
+    std::vector<const char *> names;
+    for (int c = 1; c < kOpponentsFirst; c++) {
+        names.push_back(kNames[c]);
+    }
+    return names;
 }
 
 // The modes' stage behind their fighters (battle.cpp): 3rd Strike's own stage `stage` drawn from the stage board (-1:
