@@ -151,6 +151,12 @@ own routine), and its stage layers are drawn with 3rd Strike's as one frame by o
 "The way"). Checked against the match's stage given the same inputs, frame for frame: New Generation's 13 stages all the
 same, 2nd Impact's 12 of 15 (Ryu's and Dudley's one frame each, Yang's far layer 2 columns off on 127 of 3644 frames;
 DEFINITIVE.md).
+2026-11-06, after the first play-test: that check handed the stage alone the match's own camera words, so it missed what
+the play-test found (black parts, far layers scrolling by themselves, no camera up, New Generation's Gill stage drawn
+small after a stage chosen mid-fight, 3rd Strike's music under the stage's). The stage alone's camera now goes as a
+match's does (its fighters' places for its camera code given, its camera held and shaken as 3rd Strike's, nothing given
+in its own entrance), 3rd Strike's music voices are told from its driver's channels, and checkguests.sh (in
+checkstages.sh) checks every stage against its own game's match in play and in play with stages chosen mid-fight.
 Sound, level (c), done: the driver's voice step, set-up, all-off and resume rewritten (src/sound_driver.cpp) to hand
 voice events (key on and off, the sample, looping, pitch, volume) to a native mixer (cps3recomp/sound/native_sound.h);
 checksound.sh compares the mixer's samples with pcm.cpp's, voice by voice, every frame of the same four runs (12000 frames each:

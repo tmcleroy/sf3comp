@@ -66,6 +66,7 @@ struct Options {
     unsigned soundTestEvery = 30;
     uint64_t autoFrom = 0;     // ... from this frame on
     int autoPlayers = 2;       // ... for this many players
+    uint64_t autoUntil = ~0ull; // ... until this frame (then no buttons held: the players idle)
     uint64_t testFrom = 0, testTo = 0; // --test-switch FROM:TO: the operator's test switch held over these frames
     bool autoPlay = false;
     bool headless = false, mute = false, unthrottled = false, fullscreen = false, stats = false;

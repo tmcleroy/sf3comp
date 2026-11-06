@@ -241,7 +241,9 @@ private:
     native::Video m_gpuGuestVideo;
     std::array<uint64_t, native::Textures::kPages> m_gpuGuestPages{};
     uint64_t m_gpuGuestColours = 0;
-    const void *m_gpuGuest = nullptr;
+    // (which stage board it was kept from: a number made afresh with each board made or swapped in, not its address,
+    // which a board made after another can have again, its pages' versions counted again from 0)
+    uint64_t m_gpuGuest = 0, m_stageMade = 0;
     void KeepGpuGuest();
     mutable bool m_pictureOwed = false;
     void MakePicture() const;

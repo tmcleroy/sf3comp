@@ -1629,6 +1629,9 @@ void Port::RunFrame() {
                     autoPad[p] = held;
                 }
             }
+            if (frame >= opt.autoUntil) {
+                std::fill(std::begin(autoPad), std::end(autoPad), 0); // (the players idle from then on)
+            }
             std::copy(std::begin(autoPad), std::end(autoPad), pad);
         }
     }
@@ -1841,7 +1844,8 @@ void Usage() {
                         "  --cpu-speed N          the 68000 N times as fast as the board's: the game is never short of time\n"
             "  --movie FILE           replay an input movie\n"
             "  --record FILE          record an input movie\n"
-            "  --auto SEED[:FROM[:N]] made-up input (from frame FROM; for N players, 2 unless said)\n"
+            "  --auto SEED[:FROM[:N[:UNTIL]]] made-up input (from frame FROM; for N players, 2 unless said;\n"
+            "                         none from frame UNTIL on: the players idle)\n"
             "  --rollback-test SEED   each frame run as online play's rollback would: the other players' controls late\n"
             "                         and guessed, and the frames guessed wrong run again (--hash-log must not change)\n"
             "  --host [PORT]          online play: wait for the other player (on UDP port PORT, 7845 unless said);\n"
@@ -1973,6 +1977,8 @@ bool ParseArgs(int argc, char **argv, port::Options &o) {
             o.autoFrom = colon == std::string::npos ? 0 : strtoull(v.c_str() + colon + 1, nullptr, 10);
             const size_t second = colon == std::string::npos ? colon : v.find(':', colon + 1);
             o.autoPlayers = second == std::string::npos ? 2 : atoi(v.c_str() + second + 1);
+            const size_t third = second == std::string::npos ? second : v.find(':', second + 1);
+            o.autoUntil = third == std::string::npos ? ~0ull : strtoull(v.c_str() + third + 1, nullptr, 10);
         } else if (a == "--rollback-test") {
             o.rollbackTest = strtoull(next(), nullptr, 10) | 1;
         } else if (a == "--host") {
@@ -2296,8 +2302,13 @@ int main(int argc, char **argv) {
                                 fprintf(stderr, "present compare, frame %llu: %llu pixels different, by at most %d\n", static_cast<unsigned long long>(p.frame),
                                         static_cast<unsigned long long>(pixels), most);
                             }
-                            WritePng((std::string(path) + ".png").c_str(), twinGpu.data(), twinWidth, twinHeight);
-                            WritePng((std::string(path) + "-cpu.png").c_str(), twinCpu.data(), twinWidth, twinHeight);
+                            // (CPS3RECOMP_PRESENT_COMPARE_SHOTS=different: only the frames that differ written; none: none)
+                            static const char *shots = getenv("CPS3RECOMP_PRESENT_COMPARE_SHOTS");
+                            const bool write = !shots || (std::string(shots) == "different" && pixels != 0);
+                            if (write) {
+                                WritePng((std::string(path) + ".png").c_str(), twinGpu.data(), twinWidth, twinHeight);
+                                WritePng((std::string(path) + "-cpu.png").c_str(), twinCpu.data(), twinWidth, twinHeight);
+                            }
                         }
                     }
                 }

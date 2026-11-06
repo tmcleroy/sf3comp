@@ -198,6 +198,13 @@ drawn as part of 3rd Strike's frame: a second producer's tiles (video/raster.h, 
 on the GPU; checknative.sh's stage runs compare that frame with the two board models' composed picture (CPU) and the
 GPU's with the CPU's.
 
+**Checked against ground truth (2026-11-06).** The stage alone against the stage game's own match in play, every stage
+of both games, 4:3 and widescreen (SFIII3_STAGE_COMPARE=play, checkguests.sh: DEFINITIVE.md, "The checks against ground
+truth"), and in play with stages chosen mid-fight (SFIII3_STAGE_CHECK=1: the camera across and up, the zoom, the two
+games' music); the GPU's picture as a window draws it against the CPU's over all 28 stages (checknative.sh's twin runs).
+The earlier check (SFIII3_STAGE_COMPARE=1) compared the stage alone with the match's stage handed all the match hands
+it: the camera's own words among them, so it could not find what the stage alone made of a fight's camera.
+
 ## What stays plain memory
 
 Sprite RAM's object words and tilemaps (04002000 on), SS RAM (the text map and characters), the voices' registers
