@@ -304,7 +304,16 @@ uint32_t Rasteriser::Blended(const uint16_t *colours, uint32_t bank, uint32_t pi
 bool AddGuest(const Video &guest, const uint8_t *guestSpriteRam, Frame &f, KeepObject keep, const void *keepContext) {
     static thread_local Frame g;
     BuildFrame(guest, guestSpriteRam, f.margin, 0, g, keep, keepContext, 0, f.front);
+    // (the game's things in front of the fighters back in its one buffer, unless the guest has pieces in front of them)
+    const auto oneBuffer = [&f] {
+        for (Tile &t : f.tiles) {
+            if (t.producer == 3) {
+                t.producer = 0;
+            }
+        }
+    };
     if (g.width != f.width || g.height != f.height) {
+        oneBuffer();
         return false;
     }
     // (its pieces in front of the game's fighters, if any: then the game's things in front of those go in a buffer of
@@ -316,11 +325,7 @@ bool AddGuest(const Video &guest, const uint8_t *guestSpriteRam, Frame &f, KeepO
         f.tiles.push_back(t);
     }
     if (!bands) {
-        for (Tile &t : f.tiles) {
-            if (t.producer == 3) {
-                t.producer = 0;
-            }
-        }
+        oneBuffer();
     }
     f.bands = bands;
     f.guest = true;
@@ -384,6 +389,9 @@ void Rasteriser::Rasterise(const Frame &f, const uint8_t *ownTextures, const uin
     for (const Tile &t : f.tiles) {
         const bool guests = t.producer == 1 || t.producer == 2;
         const uint8_t *textures = guests ? guestTextures : ownTextures;
+        if (buffers[t.producer & 3]->empty()) {
+            continue; // (a buffer this frame does not have: none of its tiles are made, AddGuest)
+        }
         uint32_t *buffer = buffers[t.producer & 3]->data();
         int yIndex = t.yIndex;
         // (each row's texels: stepped by dx, or (a tile drawn at its size, as every tilemap's is) one by one)
