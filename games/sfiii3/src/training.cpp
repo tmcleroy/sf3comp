@@ -198,6 +198,26 @@ namespace {
         }
     }
 
+    // A parry just made by player p, as the game made it (fight_judge.cpp's Parried): its reaction (routine_no[2]) 31 or 32
+    // forward, or anti-air when the attack was a jump's (the attacker's jump_att_flag: the game parried it with the
+    // anti-air window), 33 down, 34 or 35 in the air (0-3, kParryWindow's order; -1 not a parry's reaction)
+    int ParryKind(int p) {
+        const uint32_t base = Player(p);
+        const uint16_t how = Ram16(base + 0x28);
+        if (how == 33) {
+            return 1;
+        }
+        if (how == 34 || how == 35) {
+            return 2;
+        }
+        if (how != 31 && how != 32) {
+            return -1;
+        }
+        const uint32_t by = Ram32(base + 0x14) & 0x0FFFFFFF; // (the record that hit it, dmg_adrs)
+        const uint32_t attacker = by >= 0x02000000 && by < 0x02080000 ? by : Player(1 - p);
+        return Ram8(attacker + 0x304) != 0 ? 3 : 0; // (jump_att_flag)
+    }
+
     // The parry readout. A parry in a window says which of its frames it came on; a hit or guard arriving while a window
     // is open but not parried, the wrong window; a hit within 20 frames after a window closed, too early by so many; a
     // window opened within 20 frames after a hit, too late by so many.
@@ -220,10 +240,12 @@ namespace {
                     fprintf(stderr, "parry: player %d %s %s, %d frames\n", p + 1, kKinds[parry.kind], kResults[result], frames);
                 }
             };
-            bool open = false;
+            bool open = false, opened = false;
             for (int k = 0; k < 4; k++) {
                 const uint8_t now = Ram8(sfiii3::kParryWindow[k] + p * sfiii3::kParryWindowPlayer2);
-                if (parry.window[k] == 0 && now != 0) {
+                // (a tap forward on the floor opens the forward window and the anti-air one together: named the first)
+                if (parry.window[k] == 0 && now != 0 && !opened) {
+                    opened = true;
                     parry.kind = static_cast<int8_t>(k);
                     parry.opened = g.frame;
                     parry.armed = true;
@@ -238,6 +260,12 @@ namespace {
                 parry.lastHit = g.frame;
             }
             if (parried && parry.kind >= 0) {
+                // (which parry it was, as the game made it: the defender's reaction, 31 high or 32 high against an
+                // attack low on it (forward; against a jump's attack, the anti-air window), 33 low, 34 and 35 in the air)
+                const int kind = ParryKind(p);
+                if (kind >= 0) {
+                    parry.kind = static_cast<int8_t>(kind);
+                }
                 say(1, static_cast<int>(g.frame - parry.opened));
                 parry.closed = 0;
                 continue;
