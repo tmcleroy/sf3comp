@@ -80,8 +80,9 @@ namespace {
     }
     void SetPhase(Phase phase) {
         if (getenv("SFIII3_BONUS_LOG")) { // (debugging aid)
-            fprintf(stderr, "bonus: phase %d -> %d after %u frames (steps %u %u, beaten %u, bonus %u, done %02x %02x)\n", g.phase, phase,
-                    g.frames, Ram16(0x02015438), Ram16(0x0201543A), Ram16(kBeaten), Ram8(kBonusType), Ram8(kBonusDone), Ram8(kBonusDone + 1));
+            Machine *machine = TheMachine();
+            fprintf(stderr, "bonus: phase %d -> %d after %u frames, at frame %llu (steps %u %u, beaten %u, bonus %u, done %02x %02x)\n", g.phase, phase,
+                    g.frames, static_cast<unsigned long long>(machine ? machine->frame : 0), Ram16(0x02015438), Ram16(0x0201543A), Ram16(kBeaten), Ram8(kBonusType), Ram8(kBonusDone), Ram8(kBonusDone + 1));
         }
         g.phase = phase;
         g.frames = 0;
@@ -123,6 +124,22 @@ namespace {
     constexpr uint32_t kSetupId = 0x060A0712;     // which side is the player's, which the computer's (Setup_ID)
     constexpr uint32_t kBonusType_ = 0x060A2EE8;  // (Check_Bonus_Type, below)
     constexpr int kLastOpponents = 9;             // (opponents beaten from which the last ones come)
+    // The stun gauges, each player's (the most stun it can take a word at +2: sfiii3.h's kStunMost its low byte)
+    constexpr uint32_t kStunGauges = 0x020695F4; // (20 bytes a player)
+    constexpr uint32_t kStunMostOf = 0x065EADBC, kStunRateOf = 0x065EADEC; // (a word, and a long, a character)
+    constexpr uint32_t kChosenCharacter = 0x02011387; // (a byte a player)
+
+    // 061186F2 (the stun gauge's set-up, player r4), as the one-player game's set-up of a match (0x06095758) calls it
+    // for each player before every match: none taken, and the most its character can take
+    void StunSetUp(Guest &guest, uint32_t player) {
+        const uint32_t at = kStunGauges + player * 20, character = guest.Read8(kChosenCharacter + player);
+        guest.Write8(at, 0);
+        guest.Write16(at + 2, guest.Read16(kStunMostOf + character * 2));
+        guest.Write16(at + 4, 0);
+        guest.Write32(at + 8, 0);
+        guest.Write32(at + 12, guest.Read32(kStunRateOf + character * 4));
+        guest.Write16(at + 16, 0);
+    }
 
     // The routine's own frame on the stack (what it pushes), so that what it calls finds the stack pointer where the
     // game's code has it
@@ -149,9 +166,14 @@ namespace {
     // opponents beaten, r4 0, r5 EM_Rank's place, T the last ones.
     //
     // With a bonus game on: no opponent; the one-player game goes on to its step after a won match (Game05, from its
-    // start), whose bonus check chooses the bonus game's stage (below).
+    // start), whose bonus check chooses the bonus game's stage (below). The players' stun gauges are set up as the set-up
+    // of a match before it would have (StunSetUp): with none, the most stun was 0, and the first ball that hit stunned at
+    // once (the stage's own set-up does not do it: in the arcade the one-player game's matches before it have).
     bool ExitThird(Guest &guest) {
         if (g.phase == kChoose) {
+            for (uint32_t player = 0; player < 2; player++) {
+                StunSetUp(guest, player);
+            }
             guest.Write16(kGameStep, kAfterAWin);
             guest.Write16(kGameSubStep, 0);
             SetPhase(kToStage);
