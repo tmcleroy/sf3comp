@@ -33,7 +33,9 @@
 #include "system.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <iterator>
 #include <string>
@@ -51,7 +53,6 @@ bool StageBehindShown();
 void StageBehindNext(int stage);
 bool StageBehindNextReady();
 void StageBehindSwitch(Machine &machine);
-void StageBehindMusic(bool on);
 void StageBehindOnlyMusic(bool on);
 void StageBehindNextBeside(Machine &machine, int stage);
 void StageBehindNextCamera(int x);
@@ -78,6 +79,12 @@ namespace {
     constexpr int kScrollSpeeds[] = {64, 128, 256};     // (endless, scrolling) 256ths of a pixel a frame
     constexpr int32_t kViewerStick = 384;               // (the stage viewer) ... with the stick held
     enum { kStageScroll, kStageShuffle };               // (endless_stage's first two choices; then the stages)
+    enum { kTuneOwn, kTuneNone };                       // (viewer_music's: the stage's own, or none)
+    // The computer's level in the one-player game goes by its play time (Control_Time, a word of seconds: fight_round.cpp,
+    // computer_entry.cpp), which a person's win puts 40 seconds on (Update_Level_Control, fight_match.cpp) as far as its
+    // limit (Limit_Time)
+    constexpr uint32_t kPlayTime = 0x02011372, kMostPlayTime = 0x02016AD4;
+    constexpr int kPlayTimeAWin = 40;
     constexpr uint32_t kKnockedFor = 50;  // (ring out) frames after a hit that a fighter counts as knocked about
     // The ring out (cps2recomp's fight/battle.cpp and Alpha 2's player.cpp: the same numbers)
     constexpr int kFallFor = 56;          // frames the one out is seen flung out and falling
@@ -118,6 +125,7 @@ namespace {
         int8_t direction = 1;
         bool infinite = false;
         int8_t viewed = -1;
+        uint8_t tune = 0;           // (the viewer's music: kTuneOwn or kTuneNone)
         int fade = 0;               // the fade between two stages: 0 none, 1-kFadeFor out, then in
         int32_t scroll = 0;         // (scrolling) the camera's middle, in 256ths of a pixel
         bool scrolled = false;      // ... across to its right end
@@ -132,6 +140,14 @@ namespace {
         int8_t winner = -1;
         uint32_t overAt = 0;
         uint16_t won = 0; // (survival, ring out) opponents beaten
+        // (survival) the player's super art gauge carried into the next match (its full bars and the next one's fill), put
+        // back the frame after the match is on (as a tag's is: PanelFrame); and that frame (0: none to put back)
+        uint8_t meterCount = 0, meterFill = 0;
+        uint32_t meterAt = 0;
+        // (ring out) the computer's play time (the one-player game's Control_Time, by which its level goes) for the next
+        // match, as the next opponent comes on: as the arcade's, 40 seconds more for each opponent beaten, and the
+        // seconds fought (the next match's machine, made from character select, had only those)
+        uint16_t playTime = 0;
         // (ring out) the hits each side has taken at the last frame, the frame it was last hit, rung out this match
         uint16_t hits[2] = {};
         uint32_t hitAt[2] = {};
@@ -162,11 +178,11 @@ namespace {
         // (team battle, the tag style) each fighter's health while it rests (0: down), the stage fought on, when each side
         // may tag again, the characters each side's tag spare was made for, and the computer's last look
         bool tagStyle = false;
+        bool preparing = false;     // (the tag style: the tags' fights being made before the first fight: PrepareTags)
         uint8_t kept[2][kMost] = {};
         uint8_t stageNow = 0;
         uint32_t tagCool[2] = {};
         uint32_t taggedAt = 0;      // (the frame of the last tag)
-        int8_t madeFor[2][2] = {{-1, -1}, {-1, -1}};
         uint16_t rest = 0;
         bool startWas[4] = {};
         // (the tag's movements: the one on jumps back and off the picture, the next jumps in from that end)
@@ -185,7 +201,17 @@ namespace {
         bool attacked[2] = {};      // (coming) its jump attack made
         int16_t lastY[2] = {};      // (coming) its height at the last frame
     } b;
-    Spare g_tag[2]; // (the tag style) each side's next fighter's fight, made ready
+    // (the tag style) the fights a tag can put on, made ready: one for each pair of characters the teams can have on at
+    // once (side 1's, side 2's), on the stage fought on, its round on. Made before the first fight is shown, unseen
+    // (PrepareTags), so that no frame of the fight has a spare's work in it: made while the fight went on, both sides'
+    // next fights at three frames a frame each, frames took 6-20 ms of it at the round's start and after every tag.
+    // Kept by the pair, not in the mode's save states (what is missing is made again, as it is needed: MakeTagSpares)
+    struct Pair {
+        uint8_t one = 0, two = 0, stage = 0xFF;
+        Spare spare;
+    };
+    std::vector<Pair> g_pairs;
+    constexpr int kPrepareFrames = 120; // (the pairs' fights' frames a frame while they are made, unseen)
     std::vector<uint8_t> g_atChoice; // the machine at character select, both players in: where each match begins
     Spare g_next;
 
@@ -245,9 +271,8 @@ namespace {
             return -1;
         }
         if (b.viewer) {
-            // (the unseen fight's: the stage whose tune is chosen, or the one shown)
-            const int music = FeatureValue("viewer_music");
-            return music > 0 ? music - 1 : b.infinite ? 0 : b.stage;
+            // (the unseen fight's: the one shown)
+            return b.infinite ? 0 : b.stage;
         }
         const int choice = FeatureValue("endless_stage");
         return choice <= kStageShuffle ? -1 : choice - 2;
@@ -273,7 +298,7 @@ namespace {
         if (StageWanted() >= 0) {
             SetRam8(sfiii3::kStage, static_cast<uint8_t>(StageWanted()));
         }
-        if (b.mode == kTeam && b.tagStyle && b.started) {
+        if (b.mode == kTeam && b.tagStyle) {
             SetRam8(sfiii3::kStage, b.stageNow); // (a tag's fight: on the stage fought on)
         }
         for (int p = 0; p < 2; p++) {
@@ -306,16 +331,28 @@ namespace {
         return Fought();
     }
 
+    // The modes' dice's seed: the time (the machine's own frame count is no use: the board is reset as a mode starts, so
+    // it was 0 every time, and Random chose the same characters every time). SFIII3_BATTLE_SEED gives one (the checks)
+    uint32_t Seed(uint64_t frame) {
+        if (const char *given = getenv("SFIII3_BATTLE_SEED")) {
+            return static_cast<uint32_t>(strtoul(given, nullptr, 0)) | 1u;
+        }
+        const uint64_t now = static_cast<uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count()) ^
+                             static_cast<uint64_t>(std::chrono::system_clock::now().time_since_epoch().count());
+        uint64_t mixed = (now ^ (frame << 32) ^ session::Starts()) * 0x9E3779B97F4A7C15ull;
+        mixed ^= mixed >> 29;
+        return static_cast<uint32_t>(mixed ^ (mixed >> 32)) | 1u;
+    }
     void Begin(Machine &machine, Mode mode) {
+        const uint64_t frame = machine.frame; // (before the reset)
         session::StartSession(machine); // (the board reset, the way to character select for two players)
         SetFeature("training_mode", false);
         b = {};
         b.mode = mode;
-        b.random ^= static_cast<uint32_t>(machine.frame * 2654435761u) | 1u;
+        b.random = Seed(frame);
         g_atChoice.clear();
         g_next.Clear();
-        g_tag[0].Clear();
-        g_tag[1].Clear();
+        g_pairs.clear();
         StageBehind(-1);
     }
     // The stage viewer: an endless battle of the game's fighters, unseen, with the chosen stage behind it on the stage
@@ -324,11 +361,11 @@ namespace {
         Begin(machine, kEndless);
         b.viewer = true;
         b.viewed = static_cast<int8_t>(FeatureValue("viewer_stage"));
-        b.infinite = b.viewed >= kCharacterCount;
-        b.stage = b.infinite ? 0 : static_cast<uint8_t>(b.viewed);
+        b.infinite = b.viewed <= 0 || b.viewed > kCharacterCount; // (Infinite the first choice, then the stages)
+        b.stage = b.infinite ? 0 : static_cast<uint8_t>(b.viewed - 1);
         b.nextStage = b.stage;
+        b.tune = static_cast<uint8_t>(std::clamp(FeatureValue("viewer_music"), 0, 1)); // (taken as the viewer starts)
         StageBehind(b.stage);
-        StageBehindMusic(FeatureValue("viewer_music") == 0);
         b.want[0] = RandomCharacter();
         b.want[1] = RandomCharacter();
     }
@@ -367,6 +404,16 @@ namespace {
             }
         }
         b.tagStyle = FeatureValue("team_style") == 0; // (the tag style first: what a team battle is unless chosen)
+        if (b.tagStyle) {
+            // (the stage of every fight, the first's too, known now: the tags' fights are made on it before the first)
+            const int chosen = FeatureValue("team_stage");
+            b.stageNow = static_cast<uint8_t>(chosen > 0 ? chosen - 1 : Next() % kCharacterCount);
+            b.preparing = !getenv("SFIII3_TAG_NO_PREPARE"); // (debugging aid: the fights made only as they are needed)
+        }
+        if (getenv("SFIII3_BATTLE_LOG")) { // (debugging aid; checkmodes.sh reads it)
+            fprintf(stderr, "battle: teams %s %s %s against %s %s %s\n", kCharacters[b.member[0][0]], kCharacters[b.member[0][1]],
+                    kCharacters[b.member[0][2]], kCharacters[b.member[1][0]], kCharacters[b.member[1][1]], kCharacters[b.member[1][2]]);
+        }
     }
 
     // (the tag style) a side's next fighter still standing, after the one on (-1: none)
@@ -380,6 +427,7 @@ namespace {
         return -1;
     }
 
+    void PlayTimeAfter();
     // The match on decided: who goes on, and the next match begun on the spare
     void Decided(int winner) {
         const int loser = 1 - winner;
@@ -465,6 +513,10 @@ namespace {
             }
             b.health[0] = static_cast<uint8_t>(std::min<int>(sfiii3::kFullLife, (b.health[0] ? b.health[0] : sfiii3::kFullLife) + sfiii3::kFullLife / 10));
             b.want[1] = RandomCharacter();
+            // (and the super art gauge as it is, kept into the next: each match is begun from character select, where
+            // it is empty)
+            b.meterCount = Ram8(sfiii3::kMeterCount[0]);
+            b.meterFill = Ram8(sfiii3::kGauge[0]);
             break;
         default: break;
         }
@@ -484,6 +536,9 @@ namespace {
             b.wins[p] = Ram8(sfiii3::kRoundsWon[p]);
         }
         b.stageNow = Ram8(sfiii3::kStage);
+        if (b.mode == kSurvival && b.started && b.won > 0) {
+            b.meterAt = b.frames; // (the gauge put back the next frame: MeterFrame)
+        }
         if (b.mode == kRingOut) {
             // (the next match made ready while this one is fought: the player's character against someone new, on another
             // stage)
@@ -494,6 +549,35 @@ namespace {
             b.dropStage = static_cast<int8_t>(AnotherStage(b.stageNow));
             g_next.Clear();
             g_next.state = g_atChoice;
+        }
+    }
+
+    // (ring out) The play time for the next match, an opponent rung out, as it comes on: what it is now and a win's (the
+    // arcade's Update_Level_Control), no more than its limit
+    void PlayTimeAfter() {
+        const int most = static_cast<int16_t>(Ram16(kMostPlayTime));
+        const int now = static_cast<int16_t>(Ram16(kPlayTime)) + kPlayTimeAWin;
+        b.playTime = static_cast<uint16_t>(std::max(0, most > 0 ? std::min(now, most) : now));
+        if (getenv("SFIII3_BATTLE_LOG")) { // (checkmodes.sh reads it)
+            fprintf(stderr, "battle: frame %u, ring outs %u: the computer's play time %d next (now %d, at most %d)\n", b.frames, b.won,
+                    b.playTime, static_cast<int16_t>(Ram16(kPlayTime)), most);
+        }
+    }
+    // (survival) The player's gauge carried over, the frame after the next match is on: no more than its super art's
+    // bars, and the game told to draw it again
+    void MeterFrame() {
+        if (!b.meterAt || b.frames == b.meterAt) {
+            return;
+        }
+        b.meterAt = 0;
+        const uint8_t most = Ram8(sfiii3::kMaxMeterCount[0]);
+        const uint8_t count = std::min(b.meterCount, most);
+        SetRam8(sfiii3::kMeterCount[0], count);
+        SetRam8(sfiii3::kGauge[0], count < most ? std::min(b.meterFill, Ram8(sfiii3::kMaxGauge[0])) : 0);
+        SetRam8(sfiii3::kMeterUpdate[0], 1);
+        if (getenv("SFIII3_BATTLE_LOG")) { // (checkmodes.sh reads it)
+            fprintf(stderr, "battle: frame %u, gauge carried over: %u bars and %u (kept %u and %u)\n", b.frames, Ram8(sfiii3::kMeterCount[0]),
+                    Ram8(sfiii3::kGauge[0]), b.meterCount, b.meterFill);
         }
     }
 
@@ -755,30 +839,59 @@ namespace {
         return (Ram16(base + sfiii3::kBusy) & 0xFF) == 0 && Ram8(base + sfiii3::kFreeze) == 0 && Ram8(base + sfiii3::kAttacking) == 0 &&
                static_cast<int16_t>(Ram16(base + sfiii3::kY)) <= 0 && Ram8(base + sfiii3::kThrown) == 0;
     }
+    // The fight of side 1's `one` against side 2's `two` on the stage fought on (made ready or not)
+    Pair &PairFor(uint8_t one, uint8_t two) {
+        for (Pair &pair : g_pairs) {
+            if (pair.one == one && pair.two == two && pair.stage == b.stageNow) {
+                return pair;
+            }
+        }
+        Pair &pair = g_pairs.emplace_back();
+        pair.one = one;
+        pair.two = two;
+        pair.stage = b.stageNow;
+        pair.spare.state = g_atChoice;
+        return pair;
+    }
+    // ... the fight a side's tag puts on: its next one against the other side's on now
+    Pair &TagPair(int side, int next) {
+        return side == 0 ? PairFor(b.member[0][next], b.want[1]) : PairFor(b.want[0], b.member[1][next]);
+    }
+    // ... made `frames` frames further on its way (the spare loaded once for them)
+    void MakePair(Machine &m, Pair &pair, int frames) {
+        if (pair.spare.ready || g_atChoice.empty()) {
+            return;
+        }
+        const uint8_t was[2] = {b.want[0], b.want[1]};
+        b.want[0] = pair.one;
+        b.want[1] = pair.two;
+        Spare &spare = pair.spare;
+        RunSpareFrames(m, spare, frames, [&spare](Machine &machine) {
+            spare.ready = ToRound(machine, static_cast<uint32_t>(spare.frames), true);
+        });
+        b.want[0] = was[0];
+        b.want[1] = was[1];
+    }
+    // Before the first fight: every pair's fight made, unseen and at speed (true while some are still to be made)
+    bool PrepareTags(Machine &m) {
+        for (int one = 0; one < b.size; one++) {
+            for (int two = 0; two < b.size; two++) {
+                Pair &pair = PairFor(b.member[0][one], b.member[1][two]);
+                if (!pair.spare.ready) {
+                    MakePair(m, pair, kPrepareFrames);
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    // Each frame of the fight: the fights the next tags would put on, should one not be made yet (a save state put
+    // back, say)
     void MakeTagSpares(Machine &m) {
         for (int side = 0; side < 2; side++) {
             const int next = NextUp(side);
-            if (next < 0) {
-                g_tag[side].Clear();
-                continue;
-            }
-            const int8_t mine = static_cast<int8_t>(b.member[side][next]), theirs = static_cast<int8_t>(b.want[1 - side]);
-            if (b.madeFor[side][side] != mine || b.madeFor[side][1 - side] != theirs || g_tag[side].state.empty()) {
-                g_tag[side].Clear();
-                g_tag[side].state = g_atChoice;
-                b.madeFor[side][side] = mine;
-                b.madeFor[side][1 - side] = theirs;
-            }
-            for (int n = 0; n < kTagSpareFrames && !g_tag[side].ready; n++) {
-                const uint8_t was[2] = {b.want[0], b.want[1]};
-                b.want[side] = static_cast<uint8_t>(mine);
-                b.want[1 - side] = static_cast<uint8_t>(theirs);
-                Spare &spare = g_tag[side];
-                RunSpare(m, spare, [&spare](Machine &machine) {
-                    spare.ready = ToRound(machine, static_cast<uint32_t>(spare.frames), true);
-                });
-                b.want[0] = was[0];
-                b.want[1] = was[1];
+            if (next >= 0) {
+                MakePair(m, TagPair(side, next), kTagSpareFrames);
             }
         }
     }
@@ -813,7 +926,7 @@ namespace {
     }
     void Tag(Machine &m, int side) {
         const int next = NextUp(side);
-        if (next < 0 || !g_tag[side].ready) {
+        if (next < 0 || !TagPair(side, next).spare.ready) {
             return;
         }
         const int other = 1 - side;
@@ -840,7 +953,12 @@ namespace {
         b.teamCount = Ram8(sfiii3::kMeterCount[side]);
         b.teamFill = Ram8(sfiii3::kGauge[side]);
         b.panelFor = static_cast<int8_t>(side);
-        Promote(m, g_tag[side]);
+        {
+            // (a copy of the pair's fight put on: the pair kept for the next time)
+            Spare spare;
+            spare.state = TagPair(side, next).spare.state;
+            Promote(m, spare);
+        }
         // (but for its bytes at +0x240 to +0x24F, the machine's own: copied from another machine some of them hang the
         // game, its main loop stopped, as tags in 2 vs 2 showed)
         for (uint32_t n = 0; n < kRecordSize; n++) {
@@ -1253,8 +1371,8 @@ namespace {
 
     bool RingOutFrame(Machine &m) {
         // (the next match: two frames a frame while this one is fought, four while one falls)
-        for (int n = 0; n < (b.ring == 1 ? 4 : 2) && !g_next.ready && !g_next.state.empty(); n++) {
-            RunSpare(m, g_next, [](Machine &spare) {
+        if (!g_next.ready && !g_next.state.empty()) {
+            RunSpareFrames(m, g_next, b.ring == 1 ? 4 : 2, [](Machine &spare) {
                 SetRam8(sfiii3::kStage, static_cast<uint8_t>(b.dropStage));
                 g_next.ready = ToRound(spare, static_cast<uint32_t>(g_next.frames), true);
             });
@@ -1355,7 +1473,9 @@ namespace {
                 // (the top of its jump: handed to the next match, where it is in the picture, a picture's height up)
                 const int across = std::clamp(Word(winner + sfiii3::kX) - PictureEdge(-1), kDropInside, m.PictureWidth() - kDropInside);
                 m.DrawStageOnly(m.dropOld);
+                PlayTimeAfter();
                 Promote(m, g_next);
+                SetRam16(kPlayTime, b.playTime); // (the next opponent as good as the ring outs so far make it)
                 b.handed = true;
                 b.apexX = static_cast<int16_t>(across);
                 b.handedY = static_cast<int16_t>(Word(winner + sfiii3::kY)); // (its own jump's top there)
@@ -1404,7 +1524,18 @@ namespace {
     }
 } // namespace
 
-void BattleBeforeFrame(Machine &m) {
+namespace {
+// (at speed while the tags' fights are made; and no longer once that is over, however it ends)
+void PreparingFast() {
+    static bool fast = false;
+    const bool want = b.mode == kTeam && b.preparing && !session::Booting();
+    if (want != fast) {
+        fast = want;
+        SetFastForward(want);
+    }
+}
+void ModesFrame(Machine &m) {
+    PreparingFast();
     m.hidePanel = false;
     {
         // (the team battle's CPU difficulty, the board's again once the mode is over)
@@ -1439,7 +1570,11 @@ void BattleBeforeFrame(Machine &m) {
             StartViewer(m); // (another stage chosen in the menu: the viewer goes there)
             return;
         }
-        StageBehindMusic(FeatureValue("viewer_music") == 0);
+        if (b.tune == kTuneNone) {
+            // (no music: nothing heard, the stage board's nor this board's; after StagesBeforeFrame's choice of voices)
+            m.stageSound = false;
+            m.board.silenced.fill(true);
+        }
     }
     {
         // (the viewer on its way to its stage: run unseen, at speed)
@@ -1453,7 +1588,9 @@ void BattleBeforeFrame(Machine &m) {
     if ((b.mode == kEndless || b.mode == kRingOut) && Ram8(sfiii3::kClock) > 0 && Ram8(sfiii3::kClock) < 99) {
         SetRam8(sfiii3::kClock, 99); // (no clock: a round is ended by a knock-out, or a ring out)
     }
-    if (Behind() && b.started) {
+    // (the viewer's from the first frame its stage is shown: the stage board's fight is on before the unseen one's
+    // entrances are over, and until then its camera followed theirs, held at the stage's middle, and could not be moved)
+    if (Behind() && (b.started || b.viewer)) {
         StageBehindFrame(m);
     }
     if (b.over) {
@@ -1466,6 +1603,21 @@ void BattleBeforeFrame(Machine &m) {
             AskMenu();
         }
         return;
+    }
+    // (the tag style: the tags' fights made, from the machine at character select, before the first fight is seen: at
+    // speed and unseen, the machine going on to it meanwhile)
+    {
+        if (b.mode == kTeam && b.preparing && !g_atChoice.empty()) {
+            const auto at = std::chrono::steady_clock::now();
+            b.preparing = PrepareTags(m);
+            static double spent = 0;
+            spent += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - at).count();
+            if (!b.preparing && getenv("SFIII3_BATTLE_LOG")) {
+                fprintf(stderr, "battle: frame %u, the tags' %zu fights made (%.0f ms)\n", b.frames, g_pairs.size(), spent);
+                spent = 0;
+            }
+        }
+        PreparingFast();
     }
     // The first match: the machine at character select kept (where every later match begins), the choice made
     if (!b.started) {
@@ -1526,6 +1678,9 @@ void BattleBeforeFrame(Machine &m) {
             return;
         }
     }
+    if (b.mode == kSurvival) {
+        MeterFrame();
+    }
     if (b.mode == kTeam && b.tagStyle && !b.decided) {
         TagFrame(m, raw);
         // (the picture before the tag kept over its first frames, whose sprites the new machine has not yet made)
@@ -1548,8 +1703,8 @@ void BattleBeforeFrame(Machine &m) {
     // The next match made ready on the spare, a few frames a frame, and put in this one's place when its knock-out
     // has played
     if (b.decided && !b.over) {
-        for (int n = 0; n < kSpareFramesAFrame && !g_next.ready; n++) {
-            RunSpare(m, g_next, [](Machine &spare) {
+        if (!g_next.ready) {
+            RunSpareFrames(m, g_next, kSpareFramesAFrame, [](Machine &spare) {
                 g_next.ready = ToRound(spare, static_cast<uint32_t>(g_next.frames), true);
             });
         }
@@ -1558,10 +1713,66 @@ void BattleBeforeFrame(Machine &m) {
             if (getenv("SFIII3_BATTLE_LOG")) {
                 fprintf(stderr, "battle: frame %u, the next match on (its machine run %d frames), %d %d\n", b.frames, g_next.frames, b.want[0], b.want[1]);
             }
+            if (b.mode == kRingOut) {
+                PlayTimeAfter();
+            }
             Promote(m, g_next);
+            if (b.mode == kRingOut) {
+                SetRam16(kPlayTime, b.playTime);
+            }
             b.decided = false;
             MatchBegins();
         }
+    }
+}
+
+} // namespace
+
+void BattleBeforeFrame(Machine &m) {
+    // (SFIII3_BATTLE_TIMES=1: the time the modes' own work takes each frame, the spares' frames among it, every frame
+    // over 2 ms told, and a summary at each 600th: checkmodes.sh reads it)
+    static const bool timed = getenv("SFIII3_BATTLE_TIMES") != nullptr;
+    if (!timed) {
+        ModesFrame(m);
+        return;
+    }
+    static double most = 0, total = 0, mostFrame = 0;
+    static uint32_t counted = 0, over = 0;
+    static std::chrono::steady_clock::time_point last{};
+    const auto at = std::chrono::steady_clock::now();
+    // (and the whole frame before this one, the machine's own and the port's: from the last call to this, unthrottled
+    // headless, not counted while at speed)
+    const double frame = last.time_since_epoch().count() ? std::chrono::duration<double, std::milli>(at - last).count() : 0;
+    const bool fastBefore = FastForward();
+    const uint64_t sparesBefore = SpareFramesRun();
+    static uint64_t sparesShown = 0;
+    ModesFrame(m);
+    const auto end = std::chrono::steady_clock::now();
+    last = end;
+    const double ms = std::chrono::duration<double, std::milli>(end - at).count();
+    if (b.mode == kNone || session::Booting() || fastBefore || FastForward()) {
+        return;
+    }
+    mostFrame = std::max(mostFrame, frame);
+    sparesShown += SpareFramesRun() - sparesBefore; // (spares' frames run in a frame shown)
+    if (frame > 12.0) {
+        fprintf(stderr, "battle frame time: frame %u, %.2f ms\n", b.frames, frame);
+    }
+    most = std::max(most, ms);
+    total += ms;
+    counted++;
+    if (ms > 2.0) {
+        over++;
+        int made = 0;
+        for (const Pair &pair : g_pairs) {
+            made += pair.spare.ready;
+        }
+        fprintf(stderr, "battle time: frame %u, %.2f ms (tag fights made %d of %zu, next %d)\n", b.frames, ms, made, g_pairs.size(),
+                !g_next.state.empty() && !g_next.ready);
+    }
+    if (counted % 600 == 0) {
+        fprintf(stderr, "battle times: %u frames, %.3f ms on average, %.2f the most, %u over 2 ms; whole frames %.2f ms at most; %llu spare frames in them\n",
+                counted, total / counted, most, over, mostFrame, static_cast<unsigned long long>(sparesShown));
     }
 }
 
@@ -1634,11 +1845,6 @@ void BattleState(Archive &ar) {
     ar.Vec(g_next.state);
     ar.Pod(g_next.ready);
     ar.Pod(g_next.frames);
-    for (Spare &spare : g_tag) {
-        ar.Vec(spare.state);
-        ar.Pod(spare.ready);
-        ar.Pod(spare.frames);
-    }
 }
 
 void RegisterBattle(Game &game) {
@@ -1709,23 +1915,21 @@ void RegisterBattle(Game &game) {
                              StartViewer});
     {
         static std::vector<const char *> viewerStages;
-        viewerStages.assign(stages.begin() + 2, stages.end());
-        viewerStages.push_back("Infinite");
+        viewerStages.assign(1, "Infinite");
+        viewerStages.insert(viewerStages.end(), stages.begin() + 2, stages.end());
         game.features.push_back({"viewer_stage", "Stage viewer", "Stage",
-                                 "The stage the viewer shows, or Infinite: every stage in turn, each scrolling to its end and fading "
-                                 "into the next, with its own tune. Changing it while viewing goes to the new one.",
+                                 "Infinite: every stage in turn, each scrolling to its end and fading into the next, with its own "
+                                 "tune. Or one stage. Changing it while viewing goes to the new one.",
                                  kFeatureMenuChoices, viewerStages});
         game.features.push_back({"viewer_scroll", "Stage viewer", "Scrolling",
                                  "How the viewer moves across the stage: with the stick, or by itself from one end to the other and "
                                  "back (Infinite: always onwards).",
                                  0, {"With the stick", "Slow", "Medium", "Fast"}});
-        static std::vector<const char *> tunes;
-        tunes.assign(1, "The stage's own");
-        tunes.insert(tunes.end(), stages.begin() + 2, stages.end());
+        // (another stage's tune is not offered: the stage board's own music is what is heard, and the unseen fight's
+        // played on another stage was silent, its music's voices not told from its effects')
         game.features.push_back({"viewer_music", "Stage viewer", "Music",
-                                 "The tune that plays in the viewer: the stage's own, or another stage's. (Infinite with the stage's own "
-                                 "plays each stage's.) Another takes effect when the viewer is started.",
-                                 kFeatureMenuChoices, tunes});
+                                 "The stage's own tune (Infinite: each stage's), or none. Taken when the viewer is started.", 0,
+                                 {"The stage's own", "None"}});
     }
     game.commands.push_back({"team_start", kTeamPage, "Start",
                              "Each side's fighters come on one at a time, in the order below. The one knocked down is out, and "

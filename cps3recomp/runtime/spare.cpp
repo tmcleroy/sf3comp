@@ -16,7 +16,12 @@ namespace cps3recomp {
 namespace {
     std::vector<uint8_t> g_mine; // the port's machine, while a spare runs in it
     bool g_spareRan = false;
+    uint64_t g_spareFrames = 0;
 } // namespace
+
+uint64_t SpareFramesRun() {
+    return g_spareFrames;
+}
 
 bool SpareRan() {
     return g_spareRan;
@@ -39,6 +44,10 @@ bool InSpare() {
 }
 
 void RunSpare(Machine &machine, Spare &spare, const std::function<void(Machine &)> &before) {
+    RunSpareFrames(machine, spare, 1, before);
+}
+
+void RunSpareFrames(Machine &machine, Spare &spare, int frames, const std::function<void(Machine &)> &before) {
     g_spareRan = true;
     // What a save state does not hold is kept by hand: the picture, the controls, the sound made so far, drawing
     uint16_t held[Machine::kMaxPlayers];
@@ -55,13 +64,16 @@ void RunSpare(Machine &machine, Spare &spare, const std::function<void(Machine &
         machine.Serialize(ar);
     }
     StateLoaded();
-    memset(machine.players, 0, sizeof(machine.players));
     machine.drawing = false;
-    before(machine);
-    g_inSpare = true;
-    machine.RunFrame();
-    g_inSpare = false;
-    spare.frames++;
+    for (int n = 0; n < frames && (n == 0 || !spare.ready); n++) {
+        memset(machine.players, 0, sizeof(machine.players));
+        before(machine);
+        g_inSpare = true;
+        machine.RunFrame();
+        g_inSpare = false;
+        spare.frames++;
+        g_spareFrames++;
+    }
     machine.audio.resize(sound);
     KeepMachine(machine, spare.state);
     {

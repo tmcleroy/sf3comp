@@ -32,6 +32,11 @@ void KeepMachine(Machine &machine, std::vector<uint8_t> &state);
 // Runs the spare for a frame in the port's machine, which is left as it was (its picture, sound, controls and
 // switches too). `before` is called with the spare loaded, before its frame. Not drawn.
 void RunSpare(Machine &machine, Spare &spare, const std::function<void(Machine &)> &before);
+// ... up to `frames` frames, the spare loaded and put away once for them all (a state is the machine's 8 MB of character
+// RAM and more: kept and put back four times a frame, that was most of a spare's cost), stopping once it is ready
+void RunSpareFrames(Machine &machine, Spare &spare, int frames, const std::function<void(Machine &)> &before);
+// Frames run on spares since the program started (a count, for the checks)
+uint64_t SpareFramesRun();
 // Whether a spare's frame is running now (the game's sources' hooks run in it too)
 bool InSpare();
 // Whether a spare has run since this was last cleared (a frame with a spare in it is not run ahead)
