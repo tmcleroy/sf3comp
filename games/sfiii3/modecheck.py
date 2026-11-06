@@ -124,6 +124,11 @@ def teams(log):
         fail("fewer than two team battles started (or none told)")
     if len(set(found)) < len(found):
         fail("Random chose the same teams again")
+    for line in found:
+        for side in line.split(" against "):
+            members = side.split(", ")
+            if len(set(members)) < len(members):
+                fail("Random put someone on a team twice: %s" % side)
     print("ok")
 
 

@@ -396,7 +396,19 @@ namespace {
         for (int side = 0; side < 2; side++) {
             for (int n = 0; n < kMost; n++) {
                 const int chosen = Choice(kNames[side][n]);
-                b.member[side][n] = chosen >= 0 ? static_cast<uint8_t>(chosen) : RandomCharacter();
+                if (chosen >= 0) {
+                    b.member[side][n] = static_cast<uint8_t>(chosen);
+                    continue;
+                }
+                // (someone at random: not one already on this side; one chosen twice by name is the player's choice)
+                uint8_t pick;
+                bool taken;
+                do {
+                    pick = RandomCharacter();
+                    taken = false;
+                    for (int k = 0; k < n; k++) taken = taken || b.member[side][k] == pick;
+                } while (taken);
+                b.member[side][n] = pick;
             }
             b.want[side] = b.member[side][0];
             for (int n = 0; n < kMost; n++) {
@@ -411,7 +423,7 @@ namespace {
             b.preparing = !getenv("SFIII3_TAG_NO_PREPARE"); // (debugging aid: the fights made only as they are needed)
         }
         if (getenv("SFIII3_BATTLE_LOG")) { // (debugging aid; checkmodes.sh reads it)
-            fprintf(stderr, "battle: teams %s %s %s against %s %s %s\n", kCharacters[b.member[0][0]], kCharacters[b.member[0][1]],
+            fprintf(stderr, "battle: teams %s, %s, %s against %s, %s, %s\n", kCharacters[b.member[0][0]], kCharacters[b.member[0][1]],
                     kCharacters[b.member[0][2]], kCharacters[b.member[1][0]], kCharacters[b.member[1][1]], kCharacters[b.member[1][2]]);
         }
     }
