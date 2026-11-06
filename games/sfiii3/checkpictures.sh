@@ -42,13 +42,13 @@ run() { # name env frames args...
         echo $? > "$OUT/$name.status"
     ) &
 }
-# (training sessions started again every 1100 frames, each on the next stage: training_stage, 3rd Strike's stage numbers
-# plus one; its fight from about 250 frames after its start)
-sessions() { # first last
+# (training sessions started again every EVERY frames, each on the next stage: training_stage, 3rd Strike's stage
+# numbers plus one; its fight from about 600 frames after its start)
+sessions() { # first last every
     local keys="" f=30 s
     for s in $(seq "$1" "$2"); do
         keys+="$f:ftraining_stage=$s,$f:ctraining_start,"
-        f=$((f + 1100))
+        f=$((f + $3))
     done
     echo "${keys%,}"
 }
@@ -60,11 +60,11 @@ for wide in "" wide; do
         name="jitter-$first${wide:+-wide}"
         JITTERS+=("$name")
         # shellcheck disable=SC2086
-        run "$name" SFIII3_JITTER_CHECK=1 7800 --keys "$(sessions $first $((first + 6)))" --auto 3:300:1 $features
+        run "$name" SFIII3_JITTER_CHECK=1 11300 --keys "$(sessions $first $((first + 6)) 1600)" --auto 3:300:1 $features
         name="layers-$first${wide:+-wide}"
         LAYERS+=("$name")
         # shellcheck disable=SC2086
-        run "$name" SFIII3_LAYER_CHECK=1 7800 --keys "$(sessions $first $((first + 6)))" --auto 5:300:1 $features
+        run "$name" SFIII3_LAYER_CHECK=1 7800 --keys "$(sessions $first $((first + 6)) 1100)" --auto 5:300:1 $features
     done
     # (the endless battle's stage behind, shuffled, on each stage: SFIII3_BATTLE_STAGE, from 0)
     for stage in $(seq 0 20); do
@@ -86,7 +86,9 @@ done
 for name in "${JITTERS[@]}"; do
     line=$(grep "stages: the jitter check:" "$OUT/$name.log")
     echo "$name: ${line#stages: }"
-    if [ -z "$line" ] || ! echo "$line" | grep -q "the stage's picture moved in 0 " || echo "$line" | grep -q "check: [0-9]* places held, 0 frames"; then
+    # (the endless battle's: its stage behind, the stage board's, measured)
+    if [ -z "$line" ] || ! echo "$line" | grep -q "the stage's picture moved in 0 " || echo "$line" | grep -q "check: [0-9]* places held, 0 frames" ||
+        { [ "${name#behind}" != "$name" ] && echo "$line" | grep -q "(0 of them"; }; then
         grep "^stages: the jitter check, frame" "$OUT/$name.log" | head -4
         status=1
     fi

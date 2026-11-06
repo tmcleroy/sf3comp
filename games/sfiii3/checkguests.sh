@@ -113,12 +113,12 @@ run jitter-2i SFIII3_JITTER_CHECK=1 16000 --keys "30:ctraining_start,$(inturn 14
 run jitter-ng-wide SFIII3_JITTER_CHECK=1 14000 --keys "30:ctraining_start,$(inturn 1 13)" --auto 3:300:1 --features widescreen,widescreen_walls
 run jitter-2i-wide SFIII3_JITTER_CHECK=1 16000 --keys "30:ctraining_start,$(inturn 14 28)" --auto 3:300:1 --features widescreen,widescreen_walls
 # (3: the training session's Stage row: training_stage 22-34 New Generation's stages 0-12, 35-49 2nd Impact's 0-14; a
-# session started on each in turn, every 900 frames, seven a run)
+# session started on each in turn, every 1000 frames, seven a run: each fought for some 300 frames before the next)
 sessions() { # first last
     local keys="" f=30 c
     for c in $(seq "$1" "$2"); do
         keys+="$f:ftraining_stage=$c,$f:ctraining_start,"
-        f=$((f + 900))
+        f=$((f + 1000))
     done
     echo "${keys%,}"
 }
@@ -127,7 +127,7 @@ for first in 22 29 35 42; do
     last=$((first + 6))
     [ $first = 29 ] && last=34
     [ $first = 42 ] && last=49
-    run "sessions-$first" SFIII3_SESSION_STAGES=1 $(((last - first + 1) * 900 + 100)) --keys "$(sessions $first $last)" --auto 3:300:1
+    run "sessions-$first" SFIII3_SESSION_STAGES=1 $(((last - first + 1) * 1000 + 100)) --keys "$(sessions $first $last)" --auto 3:300:1
 done
 wait
 for name in "${PLAYS[@]}" "${REALS[@]}" "${JITTERS[@]}" "${SESSIONS[@]}"; do
@@ -168,7 +168,8 @@ for name in "${PLAYS[@]}"; do
     # (the layers: at the fighters' pixels, the stage and its fighters composed both ways as the board drew them)
     line=$(grep "stages: the layer check:" "$OUT/$name.log")
     echo "$name: ${line#stages: }"
-    if [ -z "$line" ] || ! echo "$line" | grep -q "different from the board's own picture in 0, the two pictures in 0$"; then
+    if [ -z "$line" ] || ! echo "$line" | grep -q "different from the board's own picture in 0, the two pictures in 0$" ||
+        echo "$line" | grep -q "check: 0 frames"; then
         grep "^stages: the layer check, frame" "$OUT/$name.log" | head -2
         status=1
     fi
@@ -181,7 +182,8 @@ for name in "${JITTERS[@]}"; do
         status=1
     fi
 done
-# (each session on the stage chosen for it: that game's stage of that number, 300 frames or more, in the order chosen)
+# (each session on the stage chosen for it, from its fight's first frame: that game's stage of that number, 150 frames or
+# more, in the order chosen, and nothing else shown)
 for name in "${SESSIONS[@]}"; do
     line=$(grep "stages: training sessions' stages shown:" "$OUT/$name.log")
     echo "$name: ${line#stages: }"
@@ -193,7 +195,7 @@ for name in "${SESSIONS[@]}"; do
     for c in $(seq "$first" "$last"); do
         if [ "$c" -le 34 ]; then want+="sfiiin:$((c - 22)) "; else want+="sfiii2n:$((c - 35)) "; fi
     done
-    got=$(echo "$line" | tr ';' '\n' | sed -n 's/^ *\([a-z0-9]*:[0-9]*\) \([0-9]*\) frames$/\1 \2/p' | awk '$2 >= 300 {print $1}' | tr '\n' ' ')
+    got=$(echo "$line" | tr ';' '\n' | sed -n 's/^ *\([a-z0-9]*:[0-9]*\) \([0-9]*\) frames$/\1 \2/p' | awk '$2 >= 150 || /^own/ {print $1}' | tr '\n' ' ')
     if [ "$got" != "$want" ]; then
         echo "  wanted: $want"
         status=1

@@ -1567,16 +1567,16 @@ namespace {
         int place = 0;
         std::vector<uint32_t> last;
         int width = 0, height = 0;
-        uint64_t places = 0, still = 0, moved = 0, backAndForth = 0;
+        uint64_t places = 0, still = 0, stageBoard = 0, moved = 0, backAndForth = 0;
         int most = 0, lastSign = 0;
         uint64_t lastAt = 0;
         unsigned reports = 8;
         ~Jitter() {
             if (JitterChecking()) {
-                fprintf(stderr, "stages: the jitter check: %llu places held, %llu frames of the fighters standing still compared, the stage's picture moved "
-                                "in %llu (back and forth in %llu, %d columns or lines at most)\n",
-                        static_cast<unsigned long long>(places), static_cast<unsigned long long>(still), static_cast<unsigned long long>(moved),
-                        static_cast<unsigned long long>(backAndForth), most);
+                fprintf(stderr, "stages: the jitter check: %llu places held, %llu frames of the fighters standing still compared (%llu of them a stage "
+                                "board's stage), the stage's picture moved in %llu (back and forth in %llu, %d columns or lines at most)\n",
+                        static_cast<unsigned long long>(places), static_cast<unsigned long long>(still), static_cast<unsigned long long>(stageBoard),
+                        static_cast<unsigned long long>(moved), static_cast<unsigned long long>(backAndForth), most);
             }
         }
     } g_jitter;
@@ -1669,6 +1669,7 @@ namespace {
             int dx = 0, dy = 0;
             PictureShift(j.last, now, w, h, dx, dy);
             j.still++;
+            j.stageBoard += composed;
             if (dx || dy) {
                 j.moved++;
                 const int sign = dx ? (dx > 0 ? 1 : -1) : (dy > 0 ? 2 : -2);
@@ -1729,6 +1730,9 @@ namespace {
                                           : std::string("own:") + std::to_string(Ram8(sfiii3::kStage));
         auto &shown = g_sessionStages.shown;
         if (shown.empty() || shown.back().first != what) {
+            if (getenv("SFIII3_SESSION_STAGES_DEBUG")) {
+                fprintf(stderr, "session stage: frame %llu: %s\n", static_cast<unsigned long long>(machine.frame), what.c_str());
+            }
             shown.push_back({what, 0});
         }
         shown.back().second++;
@@ -1773,7 +1777,7 @@ namespace {
         // (which board, and its stage's rule)
         machine::Machine *board = nullptr;
         StageRule rule = nullptr;
-        if (ComparingPlay() && g_cmp.on && machine.StageBoard() && g.fought && OnStage()) {
+        if (ComparingPlay() && g_cmp.on && machine.StageBoard() && g.fought && g.offsetKnown) {
             board = machine.StageBoard(); // (the stage game's own match on the stage)
             rule = GuestStageWords;
         } else if (!g.loaded && InMatch() && !machine.onlyStage) {
@@ -1843,6 +1847,12 @@ namespace {
         g_layers.twoPictures += twoOff > 0;
         if ((oneOff || twoOff) && g_layers.reports) {
             g_layers.reports--;
+            // (debugging aid, SFIII3_LAYER_SHOTS=PREFIX: the board's own picture and the one frame composed, as reported)
+            if (const char *shots = getenv("SFIII3_LAYER_SHOTS")) {
+                const std::string at = std::string(shots) + std::to_string(machine.frame);
+                WritePng((at + "-own.png").c_str(), truth.data(), static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+                WritePng((at + "-composed.png").c_str(), one.data(), static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+            }
             // (debugging aid, SFIII3_LAYER_SHOTS=PREFIX: the board's own picture and the one frame composed, as reported)
             if (const char *shots = getenv("SFIII3_LAYER_SHOTS")) {
                 const std::string at = std::string(shots) + std::to_string(machine.frame);
