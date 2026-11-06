@@ -9,6 +9,7 @@
 #include <utility>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 
 namespace cps3recomp::session {
 
@@ -16,6 +17,7 @@ namespace {
     Description d;
 
     constexpr int kRefillAfter = 90; // frames without a hit after which health comes back
+    constexpr int kLogNoteFor = 150; // frames the frame data log's note stays up after it writes
     constexpr uint16_t kSticks = kLeft | kRight | kUp | kDown;
     constexpr uint16_t kAllButtons = kPunch1 | kPunch2 | kPunch3 | kKick1 | kKick2 | kKick3;
 
@@ -55,6 +57,28 @@ namespace {
 
     bool Fighting() {
         return d.fighting && d.fighting();
+    }
+
+    // The frame data log's note, for a few seconds after each move it writes: where the file is (the log shows nothing
+    // else on the screen)
+    void LogNote(const Machine &machine, std::vector<HudLine> &lines) {
+        static uint32_t seen = 0;
+        static uint64_t until = 0;
+        if (g_log.Written() != seen) {
+            seen = g_log.Written();
+            until = machine.frame + kLogNoteFor;
+        }
+        if (!FeatureOn("frame_log") || g_log.Path().empty() || machine.frame >= until) {
+            return;
+        }
+        std::string path = g_log.Path();
+        const char *home = getenv("HOME");
+        if (home && *home && path.compare(0, strlen(home), home) == 0) {
+            path = "~" + path.substr(strlen(home));
+        }
+        char count[32];
+        snprintf(count, sizeof(count), " (%u moves)", seen);
+        lines.push_back({0.5f, 0.95f, 0, "frame data saved to " + path + count, 150, 255, 150});
     }
 
     // (debugging aid, CPS3RECOMP_HUD_LOG=1: the HUD's lines each time they change, for the checks to read)
@@ -285,6 +309,7 @@ void Frame(Machine &machine) {
         }
     }
     g_frames.Hud(FeatureOn("frame_data"), FeatureOn("frame_meter"), lines, boxes, d.framesY, d.framesTop, machine.PictureWidth(), 0);
+    LogNote(machine, lines);
     if (d.hud) {
         d.hud(machine, lines, boxes);
     }
@@ -351,8 +376,12 @@ void Register(const Description &description) {
                              "(+: the attacker)."});
     if (d.moveStart) {
         game.features.push_back({"frame_log", kPage, "Frame data log",
-                                 "Writes every move's frame data to frame_data.csv, beside the settings file: the character, what was "
-                                 "held as it began, startup, active, recovery and the advantage after a hit or a guarded one."});
+                                 "Writes every move's frame data to frame_data.csv, in the game's own folder beside settings.ini "
+                                 "(~/Library/Application Support/<the game> on a Mac, ~/.local/share/<the game> on Linux and the Steam "
+                                 "Deck, %APPDATA%\\<the game> on Windows, user/ beside the launcher when it is portable): the character, "
+                                 "what was held as it began, startup, active, recovery and the advantage after a hit or a guarded one. "
+                                 "Nothing is shown in the fight but a note at the bottom of the screen, saying where, as each move is "
+                                 "written."});
     }
     game.features.push_back({"frame_meter", kPage, "Frame meter",
                              "A row of cells for each player, one for every step of the game: green before a move can hit, red while it "

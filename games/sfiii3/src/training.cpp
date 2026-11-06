@@ -30,6 +30,9 @@ namespace {
         uint16_t hits[2] = {}, marker[2] = {};
         uint8_t health[2] = {}, blocking[2] = {}, freeze[2] = {};
         bool reeling[2] = {}, guarding[2] = {};
+        // (frame data: the animation frame each player's move met the other on, this move: active as long as it lasts)
+        uint16_t contactAnim[2] = {}, contactCell[2] = {};
+        bool contacted[2] = {}, metFlag[2] = {};
         uint32_t guardedAt = 0; // (the dummy) the frame it last began to guard ("While guarding": the red parry)
         // (the parry readout: each player's last window opened, and what came of it)
         struct Parry {
@@ -346,7 +349,8 @@ namespace {
                     g.guardedAt = g.frame;
                 }
             }
-            landed[1 - p] = hit || guardStarted;
+            // (by the attacker's own record, not a projectile of its: the record that hit, dmg_adrs)
+            landed[1 - p] = (hit || guardStarted) && (Ram32(base + 0x14) & 0x0FFFFFFF) == Player(1 - p);
             wasHit[p] = hit;
             wasGuarded[p] = guardStarted;
             g.guarding[p] = Guarding(p);
@@ -377,8 +381,24 @@ namespace {
             view.frozen = Ram8(base + sfiii3::kFreeze) != 0;
             view.attacking = Ram8(base + sfiii3::kAttacking) != 0;
             view.jumping = Signed16(base + sfiii3::kY) > 0;
-            view.attackOut = AnyBox(p, sfiii3::kAttackBoxes, 4);
-            (void)landed;
+            // The attack out: its boxes, or the move having met the other this step, and on through the animation frame
+            // it met it on. A hit or a guard takes the attack's boxes away, often in the step they came out (never seen
+            // here) and for the rest of that frame of the animation, so a move's active steps were counted only up to its
+            // contact (and none when that was its first): the same move gave different numbers hit, guarded and missed.
+            // The animation frame with the attack (its box set's attack, cg_ja.atix) is active whatever it met.
+            const uint16_t animNow = Ram16(base + sfiii3::kAnimation + 2), cellNow = Ram16(base + sfiii3::kAnimationFrame);
+            // (met: the other hit or guarding by this player's record, or its attack's "met" flag set (meoshi_hit_flag, the
+            // attack's own: a guard is seen a step after its contact))
+            const bool met = Ram8(base + sfiii3::kCancelHit) != 0;
+            landed[p] = landed[p] || (met && !g.metFlag[p]);
+            g.metFlag[p] = met;
+            if (landed[p]) {
+                g.contacted[p] = true;
+                g.contactAnim[p] = animNow;
+                g.contactCell[p] = cellNow;
+            }
+            view.attackOut = AnyBox(p, sfiii3::kAttackBoxes, 4) || landed[p] ||
+                             (g.contacted[p] && animNow == g.contactAnim[p] && cellNow == g.contactCell[p]);
             // (debugging aid, SFIII3_STEPS=1: what is read of each player, each frame)
             static const bool printSteps = getenv("SFIII3_STEPS") != nullptr;
             static const int stepsOf = printSteps ? atoi(getenv("SFIII3_STEPS")) - 1 : 0; // (1: player 1's, 2: player 2's)
@@ -388,6 +408,9 @@ namespace {
             }
             const fight::Doing before = session::Now(p);
             session::Step(p, view);
+            if (session::Now(p) == fight::Doing::Free || view.control != fight::StepView::Own) {
+                g.contacted[p] = false;
+            }
             // Each move's animation as it starts, and its startup once measured (the dummy's parry learns them; and a
             // debugging aid, SFIII3_MOVES=1, prints each move's character, animation, startup, active and recovery as
             // measured, for tools/framecheck.py to compare with the training script's recorded animations)

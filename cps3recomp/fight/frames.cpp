@@ -210,6 +210,7 @@ void MoveLog::Write(int player, const Frames::Advantage *advantage) {
                 std::fprintf(m_file, "character,input,air,move,startup,active,recovery,advantage,on\n");
             }
             std::fprintf(stderr, "frame data log: %s\n", path.c_str());
+            m_path = path;
         }
     }
     if (m_file && p.move.startup) {
@@ -221,6 +222,7 @@ void MoveLog::Write(int player, const Frames::Advantage *advantage) {
             std::fprintf(m_file, ",\n");
         }
         std::fflush(m_file);
+        m_written++;
     }
     p = Pending();
 }
@@ -245,6 +247,10 @@ void MoveLog::Step(int player, const Frames &frames, StartFn start) {
         p.finished = true;
         p.move = move;
         p.waited = 0;
+    } else if (p.open && !inMove) {
+        // (a move over with no numbers: hit out of, or one that never could hit, a dash say. It was left open, and
+        // every later move of the player's was then never written: three lines in a session)
+        p.open = false;
     }
     const Frames::Advantage advantage = frames.LastAdvantage();
     if (advantage.at != m_advantageAt) {

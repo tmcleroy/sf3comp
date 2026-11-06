@@ -140,6 +140,13 @@ public:
     // Each player once a step, after Frames::Step
     void Step(int player, const Frames &frames, StartFn start);
     ~MoveLog();
+    // Lines written so far (it goes up with every move written), and the file's path (empty: not opened yet)
+    uint32_t Written() const {
+        return m_written;
+    }
+    const std::string &Path() const {
+        return m_path;
+    }
 
 private:
     struct Pending {
@@ -153,6 +160,8 @@ private:
     uint32_t m_advantageAt = 0;
     std::FILE *m_file = nullptr;
     bool m_tried = false;
+    uint32_t m_written = 0;
+    std::string m_path;
 };
 
 // --- what the players hold ---
