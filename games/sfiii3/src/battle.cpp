@@ -364,7 +364,7 @@ namespace {
         b.infinite = b.viewed <= 0 || b.viewed > kCharacterCount; // (Infinite the first choice, then the stages)
         b.stage = b.infinite ? 0 : static_cast<uint8_t>(b.viewed - 1);
         b.nextStage = b.stage;
-        b.tune = static_cast<uint8_t>(std::clamp(FeatureValue("viewer_music"), 0, 1)); // (taken as the viewer starts)
+        b.tune = FeatureValue("viewer_music") == kTuneNone ? kTuneNone : kTuneOwn; // (taken as the viewer starts; a tune of the old list: its own)
         StageBehind(b.stage);
         b.want[0] = RandomCharacter();
         b.want[1] = RandomCharacter();
