@@ -105,7 +105,10 @@ on the code before (ea48e7b):
   stage game's own match on each of its stages (checkguests.sh's runs against the match); its stage and its fighters
   composed as the picture composes a stage board's stage with the shown board's fighters, one frame and two pictures,
   must give its own picture at every pixel a fighter is drawn at. On ea48e7b 130, 670 and 1251 frames of 3rd Strike's
-  fights on its stages were different (Akuma's stage's roots over the fighters' feet, ...). Missed before: the stage
+  fights on its stages (three runs of seven stages each) were different (Akuma's stage's roots over the fighters' feet,
+  ...), and 13 of the 28 guest stages have pieces in front of their fighters, different in every frame one covered a
+  fighter (New Generation's Alex, Ryu, Dudley, Necro, beer festival, Ibuki, Elena, Yang and Sean stages, 2nd Impact's
+  Necro, Hugo, Elena and Yang stages: 314-3465 frames of each match's 3466-3644, 4:3 and widescreen). Missed before: the stage
   checks compared the stage's layers alone, or the composed picture with another composed the same way (the stage alone's
   and the match's, both with 3rd Strike's fighters over the whole stage; "native pixels with a stage", the one frame
   against the board models' two pictures, which put the stage under the same way): no check compared a composed picture
