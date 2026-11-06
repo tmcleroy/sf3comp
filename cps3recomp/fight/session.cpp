@@ -52,6 +52,21 @@ namespace {
         return d.fighting && d.fighting();
     }
 
+    // (debugging aid, CPS3RECOMP_HUD_LOG=1: the HUD's lines each time they change, for the checks to read)
+    void LogHud(const Machine &machine, const std::vector<HudLine> &lines) {
+        static const bool log = getenv("CPS3RECOMP_HUD_LOG") != nullptr;
+        static std::vector<HudLine> last;
+        if (!log || RunningAhead() || lines == last) {
+            return;
+        }
+        last = lines;
+        fprintf(stderr, "hud: frame %llu:", static_cast<unsigned long long>(machine.frame));
+        for (const HudLine &line : lines) {
+            fprintf(stderr, " [%s]", line.text.c_str());
+        }
+        fprintf(stderr, "\n");
+    }
+
     void Boot(Machine &machine) {
         uint16_t &one = machine.players[0], &two = machine.players[1];
         const bool press = g_bootFrames % 16 < 6;
@@ -264,6 +279,7 @@ void Frame(Machine &machine) {
     }
     SetBoxes(std::move(boxes));
     g_dummy.Hud(lines, 0.17f);
+    LogHud(machine, lines);
     SetHud(std::move(lines));
 }
 

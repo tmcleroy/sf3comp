@@ -374,6 +374,22 @@ namespace {
                 }
             }
         }
+        // (debugging aid, SFIII3_TRAINING_LOG=1: each frame of a round, what checktraining.sh judges by: both players'
+        // doings (fight::Doing), player 2's controls as the game took them, thrown, health, stun (taken, the most, the
+        // timer), places, the animations, and the parry windows)
+        static const bool trainingLog = getenv("SFIII3_TRAINING_LOG") != nullptr;
+        if (trainingLog && !RunningAhead()) {
+            const Machine *m = TheMachine();
+            fprintf(stderr, "tl %llu %u d %d %d held %04x %04x thrown %u life %u %u stun %u %u %u x %d %d y %d %d anim %04x %04x play %d win %u%u%u%u how %u %u\n",
+                    static_cast<unsigned long long>(m ? m->frame : 0), g.frame, static_cast<int>(session::Now(0)), static_cast<int>(session::Now(1)), m ? m->players[0] : 0,
+                    m ? m->players[1] : 0, Ram8(Player(1) + sfiii3::kThrown), Ram8(Player(0) + sfiii3::kLife),
+                    Ram8(Player(1) + sfiii3::kLife), Ram32(sfiii3::kStunMost[1] + 6) >> 24, Ram8(sfiii3::kStunMost[1]),
+                    Ram8(sfiii3::kStunMost[1] + 2), Signed16(Player(0) + sfiii3::kX), Signed16(Player(1) + sfiii3::kX),
+                    Signed16(Player(0) + sfiii3::kY), Signed16(Player(1) + sfiii3::kY), Ram16(Player(0) + sfiii3::kAnimation + 2),
+                    Ram16(Player(1) + sfiii3::kAnimation + 2), Signed16(0x02011372), Ram8(sfiii3::kParryWindow[0] + sfiii3::kParryWindowPlayer2) != 0,
+                    Ram8(sfiii3::kParryWindow[1] + sfiii3::kParryWindowPlayer2) != 0, Ram8(sfiii3::kParryWindow[2] + sfiii3::kParryWindowPlayer2) != 0,
+                    Ram8(sfiii3::kParryWindow[3] + sfiii3::kParryWindowPlayer2) != 0, Ram16(Player(1) + 0x26), Ram16(Player(1) + 0x28));
+        }
     }
 
     bool FullMeter(int p) {
