@@ -150,6 +150,11 @@ namespace {
         }
         return false;
     }
+    // Nothing drawn: the way to the round (character select, the versus screen, the entrances and the round's banners,
+    // run at speed) is not shown, the picture black until the character is on its stage, framed (Veiled)
+    bool HideAll(const machine::Machine &, uint32_t) {
+        return true;
+    }
     // Player 1's fighter (its objects' palettes 0x08-0x0F), drawn over the stage's pieces in front of the fighters
     // ("Stage in front": Behind)
     bool Front(const machine::Machine &board, uint32_t object) {
@@ -710,6 +715,11 @@ bool ModelViewerOn() {
     return v.on && session::InSession();
 }
 
+// The viewer (and the colour editor) on its way to the round: shown black, the intro of a versus fight not seen
+bool ModelVeiled() {
+    return ModelViewerOn() && !v.arrived;
+}
+
 void ModelBeforeFrame(Machine &m) {
     if (v.on && (!session::InSession() || session::Starts() != v.session)) {
         v.on = false; // (the board reset, or another session started: training's)
@@ -730,6 +740,12 @@ void ModelBeforeFrame(Machine &m) {
     m.frontObject = on && !v.editing && !Plain() && FeatureValue("model_foreground") == 1 ? Front : nullptr;
     const int background = FeatureValue("model_background");
     m.backdrop = on && Plain() ? (background == kCount ? 0x01FFFFFFu : 0x01000000u) : 0;
+    if (ModelVeiled()) {
+        m.hideObject = HideAll;
+        m.frontObject = nullptr;
+        m.hidePanel = true;
+        m.backdrop = 0x01000000u;
+    }
     if (!ModelViewerOn()) {
         return;
     }
@@ -812,6 +828,12 @@ namespace {
 
 // After the frame: the picture zoomed about the character's feet
 void ModelAfterFrame(Machine &m) {
+    if (ModelVeiled() && m.drawing) {
+        // (black whatever drew it: a stage board's stage composed under it too)
+        uint32_t *picture = m.Picture();
+        std::fill(picture, picture + static_cast<size_t>(m.PictureWidth()) * Video::kHeight, 0u);
+        return;
+    }
     if (!Showing() || !v.arrived) {
         return; // (not till the round is on: the entrances and banners run unseen before it)
     }
