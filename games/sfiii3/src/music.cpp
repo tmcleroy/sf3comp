@@ -11,10 +11,9 @@
 //   stopped). Track 0's start says which song is playing; its place at its start, that it has just started (the
 //   song again from the beginning, as the round's music after a continue). Found by watching the records' writes
 //   (the driver's routine that starts a song, 0x06139544 on, takes its number in r4 and reads the table above).
-// - Which of the sound chip's voices are music now: the records for the music's tracks, and for each of 8 sound
-//   effects' (0x020797EC on), which take voices 8-15 from the music while they play. Its routine at 0x0613B1D8 (a
-//   note's pitch) is called for a voice as it is set, with the record in r14 and the voice's registers in r13: a
-//   hook there notes who has the voice.
+// - Which of the sound chip's voices are music now: the driver's records for the music's 16 channels and the effects'
+//   16 (0x0207944C on; the effects use 8-15), channel n on voice n, an effect's taking its voice from the music while
+//   it plays (MusicVoice).
 #include "game.h"
 #include "lift.h"
 #include "system.h"
@@ -32,15 +31,8 @@ namespace {
     constexpr uint32_t kTrackState = 0x5E;        // (a byte: 0x80 set, stopped)
     constexpr uint32_t kMostSongs = 64;
 
-    std::array<bool, 16> g_music{};
+    constexpr uint32_t kEffectChannels = kTracks + 16 * kTrackSize; // the effects' 16 channel records (0x0207944C)
     int32_t g_songNow = -1; // (the song playing, at the last frame: SongNow)
-    void PitchHook(Guest &g) {
-        const uint32_t voice = ((g.R(13) & 0x1FFFFFFFu) - 0x040E0000u) / 0x20;
-        if (voice < 16) {
-            const uint32_t record = g.R(14);
-            g_music[voice] = record >= kTracks && record < kTracks + 16 * kTrackSize;
-        }
-    }
 
     // Where each song's data starts, from the table (read once the driver has set it up)
     uint32_t g_tableAt = 0;
@@ -74,8 +66,13 @@ int SongNow() {
     return g_songNow;
 }
 
+// Whether a voice is the music's now: the sound driver gives voice n to its music's channel n unless its effects' channel n
+// is playing (sound_driver.cpp, StepChannel: the effect's flags, +94, without 0x80). (Until 2026-11-06 this was noted by
+// a hook on the note's pitch routine, 0x0613B1D8, from the registers the driver's code had then; the driver's channel
+// step rewritten (sound_driver.cpp) calls that routine with registers of its own, so no voice was ever the music's, and
+// on another game's stage 3rd Strike's music played on under the stage's.)
 bool MusicVoice(int voice) {
-    return voice >= 0 && voice < 16 && g_music[voice];
+    return voice >= 0 && voice < 16 && (Ram8(kEffectChannels + static_cast<uint32_t>(voice) * kTrackSize + kTrackState) & 0x80) != 0;
 }
 
 // Before each frame: the song the driver plays, to the custom soundtrack
@@ -160,7 +157,6 @@ void RegisterMusic(Game &game) {
     if (Machine *machine = TheMachine()) {
         machine->soundtrack.SetMusic(std::move(songs));
     }
-    AddHook("Voice set (music or effect)", 0x0613B1D8, 8, 0xBA5502CCC81A1B0Eull, PitchHook);
     AddHook("Song asked for", 0x061394D0, 8, 0x1BF90A4B22ACB049ull, StartSongHook);
     game.features.push_back({"fight_music", "Game", "Fight music",
                              "The music of a fight: its stage's own, or another stage's (both its halves, as the match goes on).",

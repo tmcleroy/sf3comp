@@ -497,18 +497,18 @@ void Machine::KeepGpuGuest() {
     const native::Video &v = m_stage->native;
     for (int page = 0; page < native::Textures::kPages; page++) {
         const uint64_t version = v.textures.PageVersion(page);
-        if (m_gpuGuest != m_stage.get() || version != m_gpuGuestPages[static_cast<size_t>(page)]) {
+        if (m_gpuGuest != m_stageMade || version != m_gpuGuestPages[static_cast<size_t>(page)]) {
             m_gpuGuestVideo.textures.PutPage(page, v.textures.Pixels() + static_cast<size_t>(page) * 0x10000);
             m_gpuGuestPages[static_cast<size_t>(page)] = version;
         }
     }
-    if (m_gpuGuest != m_stage.get() || v.palette.Version() != m_gpuGuestColours) {
+    if (m_gpuGuest != m_stageMade || v.palette.Version() != m_gpuGuestColours) {
         m_gpuGuestVideo.palette.SetAll(v.palette.Colours());
         m_gpuGuestColours = v.palette.Version();
     }
     m_gpuGuestVideo.registers = v.registers;
     m_gpuGuestVideo.objects = v.objects;
-    m_gpuGuest = m_stage.get();
+    m_gpuGuest = m_stageMade;
 }
 
 void Machine::MakePicture() const {
@@ -837,6 +837,7 @@ void Machine::RunFrame() {
 
 void Machine::SetStageBoard(std::unique_ptr<RomSet> set) {
     SetSecondStageBoard(false); // (of the set that goes)
+    m_stageMade++;
     m_stagePcm.reset();
     if (m_stage) {
         Detach(*m_stage);
@@ -934,6 +935,7 @@ void Machine::SwapStageBoards() {
         return;
     }
     std::swap(m_stage, m_stage2);
+    m_stageMade++;
     std::swap(m_stagePcm, m_stage2Pcm);
     std::swap(m_stageAudio, m_stage2Audio);
     stageSlide = 0;

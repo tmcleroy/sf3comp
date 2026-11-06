@@ -52,6 +52,10 @@ namespace {
         void (*beforeBuild)(Guest &g, int stage);
         std::vector<Call> build, frame;
         uint32_t music; // (called with r4 the stage's number)
+        // word: its camera held (bg_stop: 3rd Strike's 0x02028028, at +0x18 of the stage's state the match's set-up
+        // clears, `matchHands`' third; 1 as a round starts), and the byte after it, held for its stage's entrance
+        // (bg_app_stop)
+        uint32_t cameraHeld;
         uint32_t stepAt; // byte: the stage's head's step (bg_routine): from `frameStep` on, its frame
         uint8_t frameStep;
         // For the check against a match played behind the stage (SFIII3_STAGE_COMPARE=1): the game's steps (three
@@ -92,6 +96,7 @@ namespace {
         {{0x06079FF0}, {0x0608EF88, 0}, {0x0608EF88, 1}, {0x06090F34, 0}, {0x06090F34, 1}, {0x06090F34, 2}, {0x06090F34, 3},
          {0x06090F34, 4}, {0x06090F34, 5}, {0x06090F34, 6}},
         0x0602940C,
+        0x0201D288,
         0x0201BE10, 1, // (its stage's step: 0 its set-up, then its frame; 3rd Strike's sets up over three)
         // (the game task's step 1, the game's 2 (the match), the match's 0 (its set-up, 0x0602BFC0); the fighters' two
         // records (0x3D8 each); the bytes and words the stage's set-up clears that the match sets (0x0607C054: the
@@ -124,6 +129,7 @@ namespace {
         {{0x060A0480}, {0x060BE46C, 0}, {0x060BE46C, 1}, {0x060C0614, 0}, {0x060C0614, 1}, {0x060C0614, 2}, {0x060C0614, 3},
          {0x060C0614, 4}, {0x060C0614, 5}, {0x060C0614, 6}},
         0x06082848,
+        0x020235E0,
         0x02022160, 1,
         // (the check: as New Generation's, its places: the fighters' records 0x0200E504 and 0x0200E910, the camera held
         // and the zoom's asks (cleared by 0x060A2438), the head's +0x22-0x2D, the dice's counters, the hit stop's words)
@@ -207,6 +213,8 @@ namespace {
         int given = 0;       // ... and the camera it was given (its fighters placed for)
         int givenUp = 0;     // ... and how far up (Give)
         bool gaveCamera = false; // (given one for its last frame)
+        bool givenBefore = false; // (given one since its stage was built)
+        bool jumped = false; // (sent somewhere else at once, or first, the frame before: the stage check passes that frame by)
         // (the ends its camera really keeps, where they are nearer than its ends words say: learned when it stays put
         // short of where it was sent; 0 not known)
         int realLeft = 0, realRight = 0, stuck = 0, stuckAt = 0;
@@ -288,17 +296,28 @@ namespace {
         static const bool on = getenv("SFIII3_STAGE_CHECK") != nullptr;
         return on;
     }
+    // (how far off its camera may be and pass: across, 2 columns (3rd Strike's camera's step mapped to the stage's
+    // columns, its camera code's cut to 80 in 100); up, 6 lines or half the way, whichever is more (its camera code's
+    // place up is made from heights, a step of 1.75 lines, and the stage games' own way up eases, a few lines behind
+    // 3rd Strike's in a fast jump). Within the limits: on average a column off or less, and no more than one frame in
+    // 50 off by more than those, either way. Before 2026-11-06 it was some columns off every frame (its camera made for
+    // the stage's left end, put back each frame) and never went up)
+    constexpr int kAcrossOff = 2, kUpOff = 6;
     struct PlayCheck {
         uint64_t frames = 0, across = 0, up = 0, upFrames = 0, zoom = 0, twoSongs = 0, songFrames = 0, leftOver = 0, built = 0, heardAlone = 0;
+        uint64_t off = 0; // (columns off, all told)
+        int most = 0;
         unsigned reports[6] = {3, 3, 3, 3, 3, 3};
         ~PlayCheck() {
             if (Checking()) {
+                const bool within = frames > 0 && off <= frames && across * 50 <= frames && up * 50 <= frames;
                 fprintf(stderr, "stages: the stage check: %llu frames on a stage game's stage (%llu with its camera up), its camera off where it was sent: "
-                                "across %llu, up %llu; its picture's zoom not whole with its frame whole: %llu; 3rd Strike's music heard with the stage's: %llu "
+                                "across %llu (%.2f columns on average, %d at most), up %llu (%s the limits); its picture's zoom not whole with its frame whole: %llu; 3rd Strike's music heard with the stage's: %llu "
                                 "(of %llu frames of the stage's music); stages built %llu, with the stage board's sound playing %llu; its sound heard with no "
                                 "stage: %llu\n",
                         static_cast<unsigned long long>(frames), static_cast<unsigned long long>(upFrames), static_cast<unsigned long long>(across),
-                        static_cast<unsigned long long>(up), static_cast<unsigned long long>(zoom), static_cast<unsigned long long>(twoSongs),
+                        frames ? static_cast<double>(off) / static_cast<double>(frames) : 0.0, most, static_cast<unsigned long long>(up),
+                        within ? "within" : "outside", static_cast<unsigned long long>(zoom), static_cast<unsigned long long>(twoSongs),
                         static_cast<unsigned long long>(songFrames), static_cast<unsigned long long>(built), static_cast<unsigned long long>(leftOver),
                         static_cast<unsigned long long>(heardAlone));
             }
@@ -504,6 +523,30 @@ namespace {
         return game.alone && !match;
     }
 
+    // How far the stage alone's camera may be from where it is sent and still be left to follow its fighters (Give)
+    constexpr int kSteered = 24;
+    // 3rd Strike's camera as its stage is shown: in a scripted move (a super art's zoom or a throw's close-up sending the
+    // camera somewhere and back: its stage's head's chase flags, 0x02026BD1, bits 0-3 across, 4-7 up) its fighters'
+    // layer's scripted place (chase_xy, +0x58 across, +0x5C up: stage_zoom.cpp), from which its stage's layers are drawn
+    // then; else its place (wxy). (Until 2026-11-06 its place only: in a super art that sends the camera up, the guest
+    // stage stayed down.)
+    constexpr uint32_t kOwnChase = 0x02026BD1, kOwnFighters = 0x02026C90;
+    int OwnCameraAcross() {
+        return static_cast<int16_t>(Ram16((Ram8(kOwnChase) & 0x0F) ? kOwnFighters + 0x58 : sfiii3::kCameraX));
+    }
+    int OwnCameraUp() {
+        return static_cast<int16_t>(Ram16((Ram8(kOwnChase) & 0xF0) ? kOwnFighters + 0x5C : sfiii3::kCameraY));
+    }
+
+    // Whether its stage is in its own entrance (its picture's frame drawn in from a close-up as it begins, its camera
+    // panning down from the sky: New Generation's Gill stage, and some of 2nd Impact's): its frame not whole (its head's
+    // +0x2E and +0x30 not 64), or its camera held for its entrance (the byte after its camera held, bg_app_stop, its
+    // own: never given). Given nothing then (BeforeStage), its entrance its own, as in its match.
+    bool InEntrance(const uint8_t *ram, const StageGame &game) {
+        const uint32_t head = game.camera[1] - 0x20 - 0x54 - static_cast<uint32_t>(game.cameraLayer) * 0x90;
+        return Word(ram, head + 0x2E) != 64 || Word(ram, head + 0x30) != 64 || (game.alone && ram[(game.alone->cameraHeld + 2) & 0x7FFFF] != 0);
+    }
+
     // What the stage board's stage is given each frame for its camera (BeforeStage, from 3rd Strike's camera and
     // fighters mapped to its stage; in the check against its own match in play, SFIII3_STAGE_COMPARE=play, from that
     // match's): its camera's middle across, its fighters' places across (its coordinates) and heights, and how far up
@@ -513,15 +556,60 @@ namespace {
         int placed[2] = {};
         int height[2] = {};
         int up = 0;
+        // (its stage alone: its fighters' places and heights where its camera code reads them, +0x60 and +0x62, when
+        // known (the check against its own match in play: the match's own); none (-32768): made (Give))
+        int seen[2] = {-32768, -32768}, seenUp[2] = {-32768, -32768};
+        // (its stage alone: its camera held, as 3rd Strike's is (its round's start, a throw, a super art's); and the
+        // stage's shakes, its head's frames of a shake left across and up, +0x2A and +0x2C)
+        int held = 0, quake[2] = {};
     };
     // The gift written where its game's camera code reads it: its fighters' places (+0x64 across, +0x68 up, as in 3rd
     // Strike), so that its game's camera step, which makes its camera from them each frame, leaves it about there; its
     // camera's words; and its layers' places up, for the frames its game holds its camera (its own round's start)
     void Give(uint8_t *ram, const StageGame &game, const Gift &gift, bool alone) {
-        (void)alone;
         for (int p = 0; p < 2; p++) {
             SetWord(ram, game.players[p] + 0x64, gift.placed[p]);
             SetWord(ram, game.players[p] + 0x68, gift.height[p]);
+            // (its stage alone: no fighter of its runs, and a fighter's own frame is what copies its place to where the
+            // camera code reads it (+0x60 across, +0x62 up: scr_mv_x, scr_mv_y); so those are given too (below).
+            // Left as they were (0), its camera made for the stage's left end every frame (put back each frame, its
+            // far layers and objects placed from where it went: parts of the stage black, others scrolling by
+            // themselves) and never went up. Up: the heights, from which its camera code makes its place up.)
+            if (alone) {
+                SetWord(ram, game.players[p] + 0x62, gift.seenUp[p] != -32768 ? gift.seenUp[p] : gift.height[p]);
+            }
+        }
+        // Across (its stage alone): its camera is left where its last frame left it, and its own camera code moves it
+        // on from there (where it is before its frame, where it was and how far it moves all its own, as a match's are:
+        // its stage's code that brings in the stage's columns as its camera moves goes by where it was and where it is,
+        // and its far layers by how far it moved). Put where it was sent each frame (until 2026-11-06), its camera code
+        // then took a step of its own after its fighters, and the next frame began somewhere else: columns its camera
+        // passed were never brought in (black) and its far layers went by a camera that was not there. So its fighters
+        // are put where its camera code takes it exactly to where it is sent: one in the picture's left quarter, one in
+        // its right, their middle where it is to go (its camera code then goes to their middle: scr_11_22, stage_camera.cpp's
+        // ToMiddle; the two of the same character, as on its board, where no fighter has been chosen), so far that the
+        // step it takes, cut to 80 in 100 (and to the most a frame, made enough), is the step wanted. Further than
+        // kSteered from there (a round's start, a stage built), it is put there. In the check against its own match in
+        // play the match's own places are given (Gift::seen), and its camera code makes its camera as the match's did.
+        const uint32_t fighters0 = game.camera[1] - 0x20;
+        const uint32_t head0 = fighters0 - 0x54 - static_cast<uint32_t>(game.cameraLayer) * 0x90;
+        const int had = static_cast<int16_t>(Word(ram, game.camera[1]));
+        const bool steered = alone && game.alone && g.givenBefore && std::abs(had - gift.across) <= kSteered;
+        if (alone && game.alone) {
+            if (gift.seen[0] != -32768) {
+                for (int p = 0; p < 2; p++) {
+                    SetWord(ram, game.players[p] + 0x60, gift.seen[p]);
+                }
+            } else {
+                const int d = steered ? gift.across - had : 0, want = std::abs(d);
+                const int step = want ? (want * 100 + 79) / 80 : 0;
+                if (step > static_cast<int16_t>(Word(ram, head0 + 0x4E))) {
+                    SetWord(ram, head0 + 0x4E, step);
+                }
+                const int middle = (steered ? had : gift.across) + (d < 0 ? -step : step);
+                SetWord(ram, game.players[0] + 0x60, middle - 200);
+                SetWord(ram, game.players[1] + 0x60, middle + 200);
+            }
         }
         const uint32_t fighters = game.camera[1] - 0x20;
         for (const uint32_t at : {fighters + kShownUp, fighters + kUp}) {
@@ -551,17 +639,47 @@ namespace {
                 SetWord(ram, at + 2, static_cast<int>(place & 0xFFFF));
             }
         }
+        if (alone && game.alone) {
+            SetWord(ram, game.alone->cameraHeld, gift.held);
+            SetWord(ram, head + 0x2A, gift.quake[0]);
+            SetWord(ram, head + 0x2C, gift.quake[1]);
+        }
+        if (!steered) {
+            for (const uint32_t at : game.camera) {
+                SetWord(ram, at, gift.across);
+            }
+            // (its stage alone, its camera put somewhere at once: its other layers put where they are for it, as its
+            // game makes them each frame (stage_camera.cpp's LayerAcross), which it does not while its camera is held
+            // (a round's start): put there as a round started, its far layers stayed where they were for its camera
+            // before, some columns off, until the round began)
+            if (alone) {
+                const int moved = gift.across - static_cast<int16_t>(Word(ram, fighters0 + 0x48));
+                for (int n = 0; n < 7; n++) {
+                    const uint32_t layer = head0 + 0x54 + static_cast<uint32_t>(n) * 0x90;
+                    if (layer == fighters0 || Word(ram, layer + kSteps) == 0) {
+                        continue;
+                    }
+                    const uint32_t speed = (static_cast<uint32_t>(Word(ram, layer + 0x10)) << 16) | Word(ram, layer + 0x12);
+                    const uint32_t place = speed * static_cast<uint32_t>(moved);
+                    const int across = static_cast<int16_t>(place >> 16) + static_cast<int16_t>(Word(ram, layer + 0x48));
+                    for (const uint32_t at : {layer + 0x18u, layer + 0x20u, layer + 0x58u}) {
+                        SetWord(ram, at, across);
+                        SetWord(ram, at + 2, static_cast<int>(place & 0xFFFF));
+                    }
+                    SetWord(ram, layer + 0x30, across);
+                }
+            }
+            for (const uint32_t at : game.edge) {
+                if (at) {
+                    SetWord(ram, at, gift.across - 192);
+                }
+            }
+        }
+        g.jumped = !g.givenBefore || std::abs(gift.across - g.given) > kSteered;
         g.given = gift.across;
         g.givenUp = gift.up;
         g.gaveCamera = true;
-        for (const uint32_t at : game.camera) {
-            SetWord(ram, at, gift.across);
-        }
-        for (const uint32_t at : game.edge) {
-            if (at) {
-                SetWord(ram, at, gift.across - 192);
-            }
-        }
+        g.givenBefore = true;
     }
 
     // Before each of the stage board's frames: on the way to its fight, coins, Start and a character; in it, no clock,
@@ -605,12 +723,16 @@ namespace {
             g_check.frames++;
             g_check.upFrames += wantedUp > 0;
             char what[160];
-            if (g.given >= lo && g.given <= hi && std::abs(had - g.given) > 1) {
+            if (g.given >= lo && g.given <= hi && !g.jumped) {
+                g_check.off += static_cast<uint64_t>(std::abs(had - g.given));
+                g_check.most = std::max(g_check.most, std::abs(had - g.given));
+            }
+            if (g.given >= lo && g.given <= hi && !g.jumped && std::abs(had - g.given) > kAcrossOff) {
                 g_check.across++;
                 snprintf(what, sizeof(what), "its camera across at %d, sent to %d (its ends %d-%d)", had, g.given, lo, hi);
                 g_check.Report(0, what, machine.frame);
             }
-            if (std::abs(hadUp - wantedUp) > 1) {
+            if (!g.jumped && std::abs(hadUp - wantedUp) > std::max(kUpOff, wantedUp / 2)) {
                 g_check.up++;
                 snprintf(what, sizeof(what), "its camera up at %d, sent to %d", hadUp, wantedUp);
                 g_check.Report(1, what, machine.frame);
@@ -622,17 +744,51 @@ namespace {
             if (!g.fought || (Comparing() && !g_cmp.refFollows)) {
                 return;
             }
+            if (ComparingPlay() && &stage == machine.SecondStageBoard() && machine.StageBoard() && InEntrance(ram, game)) {
+                g.givenBefore = false;
+                return; // (its own entrance: nothing given, as in a fight)
+            }
             if (ComparingPlay() && &stage == machine.SecondStageBoard() && machine.StageBoard()) {
                 // (the check against its own match in play: given what the stage alone is given in a fight, from the
                 // match's own camera and fighters)
                 const uint8_t *ref = machine.StageBoard()->mainRam;
                 Gift gift;
-                gift.across = static_cast<int16_t>(Word(ref, game.camera[1]));
-                gift.up = std::max(0, static_cast<int>(static_cast<int16_t>(Word(ref, game.camera[1] + 4))));
+                // (its camera as the match's stage is shown: in a scripted move (its round's start, a super art's) its
+                // scripted place, as 3rd Strike's is given in a fight: OwnCameraAcross)
+                const uint32_t refFighters = game.camera[1] - 0x20;
+                const uint8_t chase = ref[(refFighters - 0x54 - static_cast<uint32_t>(game.cameraLayer) * 0x90 + 0x25) & 0x7FFFF];
+                gift.across = static_cast<int16_t>(Word(ref, (chase & 0x0F) ? refFighters + 0x58 : game.camera[1]));
+                gift.up = std::max(0, static_cast<int>(static_cast<int16_t>(Word(ref, (chase & 0xF0) ? refFighters + 0x5C : refFighters + kShownUp))));
+                // (and its fighters' places as its camera code read them, as its stage's frame began: taken there,
+                // MatchStageFrame, with the fighters' records)
+                size_t records = 0;
+                for (const auto &[place, size] : g_cmp.extra) {
+                    records += size;
+                }
                 for (int p = 0; p < 2; p++) {
                     gift.placed[p] = static_cast<int16_t>(Word(ref, game.players[p] + 0x64));
                     gift.height[p] = static_cast<int16_t>(Word(ref, game.players[p] + 0x68));
+                    const size_t at = records + (game.players[p] - game.alone->matchHands[0].first);
+                    if (at + 0x63 < g_cmp.handed.size()) {
+                        gift.seen[p] = static_cast<int16_t>((g_cmp.handed[at + 0x60] << 8) | g_cmp.handed[at + 0x61]);
+                        gift.seenUp[p] = static_cast<int16_t>((g_cmp.handed[at + 0x62] << 8) | g_cmp.handed[at + 0x63]);
+                    }
                 }
+                const auto handed = [&](uint32_t place) -> int {
+                    size_t from = records;
+                    for (const auto &[at, size] : game.alone->matchHands) {
+                        if (place >= at && place + 1 < at + size) {
+                            const size_t i = from + (place - at);
+                            return i + 1 < g_cmp.handed.size() ? static_cast<int16_t>((g_cmp.handed[i] << 8) | g_cmp.handed[i + 1]) : 0;
+                        }
+                        from += size;
+                    }
+                    return 0;
+                };
+                const uint32_t head = game.camera[1] - 0x20 - 0x54 - static_cast<uint32_t>(game.cameraLayer) * 0x90;
+                gift.held = handed(game.alone->cameraHeld);
+                gift.quake[0] = handed(head + 0x2A);
+                gift.quake[1] = handed(head + 0x2C);
                 Give(ram, game, gift, true);
                 return;
             }
@@ -768,7 +924,7 @@ namespace {
         if (ComparingPlay() && &stage == machine.StageBoard()) {
             return; // (the check against its own match in play: its camera its own)
         }
-        const int camera = static_cast<int16_t>(Ram16(sfiii3::kCameraX));
+        const int camera = alone ? OwnCameraAcross() : static_cast<int16_t>(Ram16(sfiii3::kCameraX));
         const int right = static_cast<int16_t>(Ram16(sfiii3::kCameraRight[0])), left = static_cast<int16_t>(Ram16(sfiii3::kCameraLeft[0]));
         // (in widescreen its camera stays as far from its stage's ends as 3rd Strike's is kept from its own: where its game
         // keeps them, they are narrowed, the game's own remembered)
@@ -805,6 +961,18 @@ namespace {
         }
         if (g.realRight && g.realRight - margin < theirRight && g.realRight - margin > theirLeft) {
             theirRight = g.realRight - margin;
+        }
+        // (its stage alone, in its own entrance (its picture's frame drawn in from a close-up as it begins, its camera
+        // panning down from the sky: New Generation's Gill stage, and some of 2nd Impact's): given nothing until its
+        // frame is whole (its head's +0x2E and +0x30 at 64), its entrance its own, as in its match (and as a stage built
+        // between fights had it: 3rd Strike's camera's ends then not a stage's, nothing was given). Built in a fight
+        // (chosen on the menu, or in turn), it was given 3rd Strike's camera through its entrance, its layers put
+        // down from the sky at once; its entrance then put its picture's zoom whole as it began and went on drawing
+        // it out a step a frame, past whole: the stage drawn small, black to its right and below, the rest of the
+        // fight)
+        if (alone && InEntrance(ram, game)) {
+            g.givenBefore = false;
+            return;
         }
         if (right > left && theirRight > theirLeft) {
             // (its game makes its camera from its fighters each frame, whatever its camera words say: so its fighters,
@@ -853,7 +1021,7 @@ namespace {
             // times its speed up, as far as its camera's layer's top), so its fighters, unseen, are put as high as that
             // needs; and its layers' places up are given too, for the frames its game holds its camera (its own round's
             // start, as 3rd Strike's intros play)
-            const int up = g_cameraWanted == kFollow ? std::max(0, static_cast<int>(static_cast<int16_t>(Ram16(sfiii3::kCameraY)))) : 0;
+            const int up = g_cameraWanted == kFollow ? std::max(0, alone ? OwnCameraUp() : static_cast<int>(static_cast<int16_t>(Ram16(sfiii3::kCameraY)))) : 0;
             const int top = static_cast<int16_t>(Word(ram, game.camera[1] - 0x20 + kTopEnd));
             const int wantedUp = std::clamp(up, 0, std::max(top, 0));
             const int height = wantedUp > 0 ? 88 + static_cast<int>((static_cast<int64_t>(wantedUp) * 65536 + game.upSpeed - 1) / game.upSpeed) : 0;
@@ -895,6 +1063,11 @@ namespace {
             }
             g.stuckAt = had;
             gift.across = theirs;
+            // (its stage alone: held as 3rd Strike's camera is (its round's start, a throw, a super art's), and shaken as
+            // 3rd Strike's stage is)
+            gift.held = Ram16(0x02028028);
+            gift.quake[0] = Ram16(0x02026BAC + 0x2A);
+            gift.quake[1] = Ram16(0x02026BAC + 0x2C);
             Give(ram, game, gift, alone);
             // (debugging aid, SFIII3_STAGE_CAMERA=1: the camera given, and what its frame before left)
             static const bool log = getenv("SFIII3_STAGE_CAMERA") != nullptr;
@@ -944,10 +1117,15 @@ namespace {
             for (size_t i = 0; i < a.matchHands.size(); i++) {
                 const auto &[place, size] = a.matchHands[i];
                 // (in play: only the dice's two counters and the hit stop's and frame count's words, the last three: the
-                // rest the stage alone makes from what it is given, as in a fight)
+                // rest the stage alone makes from what it is given (Give), as in a fight)
                 const bool noise = i + 3 >= a.matchHands.size();
                 for (uint32_t n = 0; n < size && at < g_cmp.handed.size(); n++, at++) {
-                    if (!ComparingPlay() || noise) {
+                    // (and the fighters' records (the first), all but their places, +0x60-0x6B, which it is given: what
+                    // else of theirs the stage's code reads (against a wall, ...) the stage alone has not, from 3rd
+                    // Strike's, in a fight)
+                    const uint32_t inRecord = (place + n - kChoices[g.loaded].game->players[0]) % (kChoices[g.loaded].game->players[1] - kChoices[g.loaded].game->players[0]);
+                    const bool record = i == 0 && !(inRecord >= 0x60 && inRecord < 0x6C);
+                    if (!ComparingPlay() || noise || record) {
                         guest.Write8(place + n, g_cmp.handed[at]);
                     }
                 }
@@ -1320,6 +1498,49 @@ namespace {
                             "the match's stage ran at %.3f of its frame\n",
                     static_cast<unsigned long long>(machine.frame), g.inFight, layers ? "the same" : "different", objects ? "the same" : "different",
                     oa.size(), ob.size(), composed ? "the same" : "different", g_cmp.refStageAt);
+            if (everyPicture) {
+                // (and how their palettes and textures differ)
+                const uint16_t *ca = one->native.palette.Colours(), *cb = two->native.palette.Colours();
+                uint32_t colours = 0, first = 0;
+                for (uint32_t i = 0; i < native::Palette::kColours; i++) {
+                    if (ca[i] != cb[i] && !colours++) {
+                        first = i;
+                    }
+                }
+                uint32_t pages = 0;
+                for (int page = 0; page < native::Textures::kPages; page++) {
+                    pages += memcmp(one->native.textures.Pixels() + page * 0x10000, two->native.textures.Pixels() + page * 0x10000, 0x10000) != 0;
+                }
+                fprintf(stderr, "stages: the check: %u colours different (the first %05X: %04X / %04X), %u texture pages different\n", colours, first, ca[first],
+                        cb[first], pages);
+                {
+                    const uint8_t *sa = one->SpriteRamBytes(), *sb = two->SpriteRamBytes();
+                    uint32_t bytes = 0, firstAt = 0, lastAt = 0;
+                    for (uint32_t i = 0x8000; i < 0x80000; i++) { // (past the object words: the tilemaps' cells and line tables)
+                        if (sa[i] != sb[i]) {
+                            firstAt = bytes++ ? firstAt : i;
+                            lastAt = i;
+                        }
+                    }
+                    fprintf(stderr, "stages: the check: sprite RAM from 8000: %u bytes different (%05X-%05X)\n", bytes, firstAt, lastAt);
+                }
+                const uint32_t l1 = kChoices[g.loaded].game->camera[1] - 0x20, hd = l1 - 0x54 - 0x90;
+                for (const machine::Machine *m : {one, two}) {
+                    const uint8_t *r = m->mainRam;
+                    fprintf(stderr, "stages: the check's camera (%s): col %d shown %04X.%04X at %04X.%04X was %d abs %d | moved %d now %d | L0 %d %d L2 %d %d\n", m == one ? "match" : "alone",
+                            static_cast<int16_t>(Word(r, l1 + 0x0A)), Word(r, l1 + 0x18), Word(r, l1 + 0x1A), Word(r, l1 + 0x20), Word(r, l1 + 0x22),
+                            static_cast<int16_t>(Word(r, l1 + 0x30)), static_cast<int16_t>(Word(r, l1 + 0x8C)), static_cast<int16_t>(Word(r, hd + 0x12)),
+                            static_cast<int16_t>(Word(r, hd + 0x40)), static_cast<int16_t>(Word(r, l1 - 0x90 + 0x0A)), static_cast<int16_t>(Word(r, l1 - 0x90 + 0x8C)),
+                            static_cast<int16_t>(Word(r, l1 + 0x90 + 0x0A)), static_cast<int16_t>(Word(r, l1 + 0x90 + 0x8C)));
+                }
+                for (size_t i = 0; i < std::min(oa.size(), ob.size()); i++) {
+                    if (!(oa[i] == ob[i])) {
+                        fprintf(stderr, "stages: the check, object %zu: %08X %08X %08X / %08X %08X %08X\n", i, oa[i].words[0], oa[i].words[1], oa[i].words[2],
+                                ob[i].words[0], ob[i].words[1], ob[i].words[2]);
+                        break;
+                    }
+                }
+            }
         }
     }
 } // namespace
@@ -1452,7 +1673,12 @@ void StagesBeforeFrame(Machine &machine) {
             const uint32_t head = game.camera[1] - 0x20 - 0x54 - static_cast<uint32_t>(game.cameraLayer) * 0x90;
             const native::FrameRegisters &r = machine.StageBoard()->native.registers;
             const int zoomX = r.screen[7] & 0xFF, zoomY = r.screen[15] & 0xFF;
-            if (Word(ram, head + 0x2E) == 64 && Word(ram, head + 0x30) == 64 && (zoomX != 0x40 || zoomY != 0x40)) {
+            // (its frame whole since the frame before: the zoom handed over at the vertical blank, a frame after)
+            static bool wasWhole = false;
+            const bool whole = Word(ram, head + 0x2E) == 64 && Word(ram, head + 0x30) == 64;
+            const bool wholeBefore = wasWhole;
+            wasWhole = whole;
+            if (whole && wholeBefore && (zoomX != 0x40 || zoomY != 0x40)) {
                 g_check.zoom++;
                 char what[96];
                 snprintf(what, sizeof(what), "its picture's zoom %02X %02X, its frame whole", zoomX, zoomY);

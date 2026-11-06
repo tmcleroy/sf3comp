@@ -25,13 +25,32 @@ start-up done, about 400 of its frames, run 16 a shown frame) it is kept, and ev
   board's own native interface (video_games.cpp), its DMA-done interrupt chains the textures and colours the stage asked
   for, its sound driver plays. The interrupts are kept: on the CPS-3 the frame's hand-offs and the sound driver are the
   vertical blank's own code (there is no sound CPU), and they are the game's.
-- **The camera in**: as before, the words the stage's camera code reads: its fighters' records' places (+0x64 across,
-  +0x68 up) and the camera words, given from 3rd Strike's camera (BeforeStage). Nothing else of 3rd Strike's reaches it.
+- **The camera in** (stages.cpp's `Give`, 2026-11-06): the words the stage's camera code reads, from 3rd Strike's camera
+  as its stage is shown (its scripted place in a super art's or a round's scripted move) mapped to the stage: its
+  fighters' places for the camera code (+0x60 across and +0x62 up, scr_mv_x and scr_mv_y, which a fighter's own frame
+  makes from its place, +0x64 and +0x68: with no fighter running they were left at 0, and the camera made for the
+  stage's left end every frame, put back each frame), its camera held when 3rd Strike's is (bg_stop, the stage's state
+  at +0x18 of what the match's set-up clears), and the stage's shakes (its head's +0x2A, +0x2C). Its camera is left
+  where its last frame left it and its own camera code takes it to where it is sent: its fighters are put one in each
+  outer quarter of its picture with their middle where it is to go (scr_11_22), so that the step its code takes (cut to
+  80 in 100) is the step wanted; only when it is further than 24 columns from there (a round's start, a stage built) is
+  it put there at once, and then its far layers with it. So where it was (old_pos_x), where it is and how far it moved
+  are its own each frame, as in a match: its stage's code brings in the stage's columns as its camera passes them by
+  those (put where it was sent each frame, it brought in the wrong ones: black parts of the stage), and its far layers
+  go by how far it moved (they scrolled by themselves). Up: its fighters given the height that makes its camera code's
+  place up 3rd Strike's (it eases there a few lines behind in a fast jump). In its own entrance (its frame not whole,
+  +0x2E/+0x30 not 64, or its camera held for its entrance: New Generation's Gill stage, which zooms out from a close-up
+  and pans down from the sky, and some of 2nd Impact's) nothing is given: given 3rd Strike's camera through it (a stage
+  chosen mid-fight), its entrance put its zoom whole as it began and then drew it on out past whole, the stage small and
+  black at the right and bottom for the rest of the fight.
 - **The music**: the game's own routine for the stage's tune, called once its stage's frame runs (New Generation's
   0x0602940C, by the head's stage number from a table; 2nd Impact's 0x06082848, r4 the stage's number): the same tune
   the round's management asks for in a match (New Generation's Ken stage: the same song data, 0x0638DC9A, both ways).
   The board's sound is made as it was: its driver writes its sound chip, the stage board's pcm.cpp mixes it, and that is
-  added to 3rd Strike's in a fight on the stage with 3rd Strike's music's voices left out (Machine::stageSound,
+  added to 3rd Strike's in a fight on the stage with 3rd Strike's music's voices left out (music.cpp's MusicVoice: a
+  voice is the music's unless the driver's effect channel of that number is playing; until 2026-11-06 it was told by a
+  hook on the note's pitch routine from registers the rewritten channel step no longer sets, so no voice was ever left
+  out, and 3rd Strike's music played on under every guest stage's: two soundtracks at once) (Machine::stageSound,
   board.silenced). What is different is only what the driver is asked for: the stage's tune and nothing else (no
   announcer, no fighters' voices or effects of a hidden match). Not changed: the guest's sound on the native mixer
   (native_sound.h) would need New Generation's and 2nd Impact's drivers' rewrites or hooks of their own (their request
@@ -50,6 +69,25 @@ one sliding or fading in, darkened) are still composed as two pictures.
 **Before** (until 2026-11-05): the stage board played a hidden match on the chosen stage, coins, Start and a character on
 its way there (8 of its frames a frame), its clock and health held, its fighters made players' so that they stood. That
 way is kept behind SFIII3_STAGE_MATCH=1, for the check below.
+
+**The checks against ground truth** (2026-11-06, checkguests.sh, part of checkstages.sh): the check below compared the
+stage alone with the match's stage given everything the match hands it, the fighters' records whole among it, producer
+against producer: the stage alone never had to make its camera from what a fight gives it, so the play-test's bugs (black
+parts, far layers scrolling by themselves, no camera up, New Generation's Gill stage drawn small, 3rd Strike's music
+under the stage's) were all out of its reach. Now SFIII3_STAGE_COMPARE=play: the stage game's own match on the stage,
+played (made-up play on its board: 600 frames idle, then 600 walking, jumping and attacking, by turns; its own camera), is
+the ground truth, and the stage alone is given only what `Give` gives it in a fight, from the match's own camera and
+fighters, and the noise (dice, frame count, hit stop, the fighters' records but their places). All 28 stages, 4:3 and
+widescreen, 3466-3644 frames each: 15 stages the same in every frame but one (the fight's second or third); New
+Generation's Gill, Alex, Ryu, Elena and Sean and 2nd Impact's Gill, Hugo, Elena and Akuma differ in 66-134 frames of
+the round's start (the match's camera held and moved by its own intro); both Necro stages' far layer behind the window
+some columns off (65 frames; 2nd Impact's every frame); 2nd Impact's Yang stage's far tilemap now and then 2 columns
+behind. On main before (638cb12) every stage differed in 2000-3600 frames. And SFIII3_STAGE_CHECK=1 in play: one-player
+games with the stage chosen mid-fight through every stage of each game, the other game's, none and one again, and the
+opponent's stages; each frame its camera where it was sent (0.6 of a column off on average or less, and as far up as sent), its zoom whole when its
+frame is, no music of 3rd Strike's heard with the stage's, no stage board sound left playing at a stage's build. With
+the GPU, checknative.sh's window twin over all 28 stages chosen in turn: the GPU's picture as a window shows it the CPU's,
+every frame (also on main: none of the play-test's bugs was the GPU's).
 
 **The check** (SFIII3_STAGE_COMPARE=1): the stage board plays the match as before (the reference, shown), and before the
 frame its match is set up a second board is made as it is then, and makes the stage alone from there; each frame it is
