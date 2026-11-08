@@ -16,7 +16,7 @@
 #
 #   games/sfiii3/checkstages.sh ROM [BUILD] [FRAMES]     (BUILD: build/sfiii3; FRAMES: 12000 a run)
 #
-# CHECKSTAGES_ONLY=lifts, guests or pictures: that part alone.
+# CHECKSTAGES_ONLY=lifts, guests, pictures, viewer, popin or wide: that part alone.
 HERE=$(cd "$(dirname "$0")" && pwd)
 status=0
 if [ -z "$CHECKSTAGES_ONLY" ] || [ "$CHECKSTAGES_ONLY" = lifts ]; then
@@ -29,5 +29,13 @@ fi
 if [ -z "$CHECKSTAGES_ONLY" ] || [ "$CHECKSTAGES_ONLY" = pictures ]; then
     "$HERE/checkpictures.sh" "$1" "${2:-build/sfiii3}" || status=1
 fi
+# 4. The third play-test's (2026-11-07): the stage viewer's entries against each stage's own fight (checkviewer.sh), pop-in
+#    at the widescreen picture's edges on every stage (checkpopin.sh), widescreen switched in the menu against started so,
+#    in the real frontend (checkwide.sh; its GPU runs one at a time under the GPU lock, CHECKWIDE_GPU=0: none)
+for part in viewer popin wide; do
+    if [ -z "$CHECKSTAGES_ONLY" ] || [ "$CHECKSTAGES_ONLY" = $part ]; then
+        "$HERE/check$part.sh" "$1" "${2:-build/sfiii3}" || status=1
+    fi
+done
 [ $status = 0 ] && echo "checkstages: all the same" || echo "checkstages: DIFFERENT"
 exit $status

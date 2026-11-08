@@ -38,6 +38,7 @@ void RegisterRingOut(Game &game);
 void RegisterMusic(Game &game);
 void WidescreenBeforeFrame(Machine &m, bool fighting);
 int WidestPicture(); // widescreen.cpp
+void RegisterWidescreen(); // widescreen.cpp
 void TrainingBeforeFrame(Machine &m);
 void AttractBeforeFrame(Machine &m);
 void RegisterAttract(Game &game);
@@ -132,6 +133,7 @@ void RegisterGame() {
     RegisterTraining(game);
     RegisterLifts3rdStrike();
     RegisterStages(game);
+    RegisterWidescreen();
     RegisterMusic(game);
     RegisterBattle(game);
     RegisterModel(game);

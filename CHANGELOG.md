@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Stage viewer: New Generation's and 2nd Impact's stages, each with its own music; "Q's" gone (Q has no stage of his
+  own: it showed Dudley's). On one stage it stays on it.
+- Widescreen: switched in the in-game menu, the window takes the 16:9 shape as it does when started so (it stayed 4:3,
+  the picture letterboxed in it); the stages' things no longer pop in 64 columns inside the picture's edges.
+
 - Sound in stereo: the board set to its EXTERNAL (stereo) output, not JAMMA (mono), its default. In mono the knock-out's
   boom, made of one voice for each side, played twice on both, twice as loud, flanged and clipping. The Board page's
   Sound row picks mono again.
