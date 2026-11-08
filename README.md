@@ -1,89 +1,162 @@
 # sf3comp
 
-An unofficial native port of Capcom's **Street Fighter III: 3rd Strike** (arcade, CPS-3 board) for macOS, Linux
-(Steam Deck included) and Windows, made by static recompilation: the game's SH-2 program becomes C++ that runs on a
+[![CI](https://github.com/tmcleroy/sf3comp/actions/workflows/ci.yml/badge.svg)](https://github.com/tmcleroy/sf3comp/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/tmcleroy/sf3comp?include_prereleases)](https://github.com/tmcleroy/sf3comp/releases)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
+
+![Ken against Ryu in widescreen](docs/screenshots/widescreen.jpg)
+
+**An unofficial native port of Capcom's Street Fighter III: 3rd Strike (arcade, CPS-3) for macOS, Linux (Steam Deck
+and Steam Machine included) and Windows.** The game's SH-2 program is translated ahead of time into C++ and runs on a
 machine written for this project, not an emulator. It adds a full training mode, online play with rollback,
-widescreen, and modes the arcade game never had.
+widescreen, new modes, and the stages and music of **New Generation** and **2nd Impact**: one definitive Third
+Strike.
 
-The aim is one definitive Street Fighter III: 3rd Strike's gameplay, with the stages and music of **New Generation**
-and **2nd Impact** as well ([games/sfiii3/DEFINITIVE.md](games/sfiii3/DEFINITIVE.md)).
+**[Get started →](#getting-started)**
 
-> **Early.** The whole game plays, and its translated code is checked against an interpreter instruction by
-> instruction, but it has been played on few machines yet. Expect rough edges.
+**No game files are included.** You need your own arcade ROM set of 3rd Strike, `sfiii3nr1`, and for the other games'
+stages your own `sfiiin` and `sfiii2n` ([what you need](#what-you-need)). This project cannot help you get them.
 
-**No game files are included.** You need your own ROM set: `sfiii3nr1` (Japan 990512). For the other games'
-stages, `sfiiin` (New Generation) and `sfiii2n` (2nd Impact) as well. The sets' cipher keys are worked out from the
-sets themselves when the game starts; none are in this repository. This project is not affiliated with, endorsed by,
-or sponsored by Capcom. *Street Fighter* is a trademark of Capcom Co., Ltd.
-
-| Widescreen | Training mode | A 2nd Impact stage |
-| --- | --- | --- |
-| ![](docs/screenshots/widescreen.png) | ![](docs/screenshots/training.png) | ![](docs/screenshots/stage-2nd-impact.png) |
-
-## What it has
-
-- **A launcher and an in-game menu** (Esc or F1; on a gamepad, the left stick's click, or Start and Select
-  together): every feature, save states, speed, the cheats, the board's own settings (difficulty, damage, timer,
-  rounds, bonus games) and its test menu. Keyboard, gamepad or arcade stick, every button changeable per player.
-- **Pure or Enhanced**: Pure plays exactly as the board does; Enhanced (the default) adds free play. Every other
-  feature is a switch of its own. Colours made in the colour editor are always used.
-- **Widescreen**: the stage drawn out to 16:9, or 16:9 played exactly as the board plays (invisible walls at the
-  board's own ends). Shaders, scaling and picture shapes as the other recomp ports have them.
-- **Online play** with rollback, by a code or the lobby, from the launcher's Online page.
-- **Zoom**: the left stick's click held and a shoulder pressed zooms in on a fighter, or on both (or the Display page's
-  Zoom row).
-- **A custom soundtrack**: your own music in place of the game's, by song or as a playlist; or any stage's music
-  for every fight.
-- **Gill playable**, for either player.
-- **Arcade timing** (off unless chosen): the board's processor speed, its memory and cache as the board has them, so
-  the game slows down where the arcade game does. Checked against jotego's CPS-3 core ([docs/TIMING.md](docs/TIMING.md)).
+| | |
+| --- | --- |
+| ![Training mode: hit boxes, input display, frame data, frame meter and stun readouts](docs/screenshots/training.jpg) | ![Tag team battle: Ibuki tagged in, her partner's health beside her bar](docs/screenshots/tag-team.jpg) |
+| ![New Generation's beer festival stage in 3rd Strike](docs/screenshots/stage-new-generation.jpg) | ![2nd Impact's Oro stage in 3rd Strike](docs/screenshots/stage-2nd-impact.jpg) |
 
 ## Training mode
 
-A fight with no clock that nobody loses: hit boxes (projectiles' too), an input display, a frame meter and frame
-data (with a log), combo, stun and parry readouts, health and super art gauges that refill, and a stage of your
-choice. The dummy guards (always, after a hit, or at random), parries, red parries while guarding, escapes throws,
-quick-stands, mashes out of stun, records and replays you, answers with the recording, or is played by the game.
+From the in-game menu, a fight with no clock that nobody loses:
 
-## Alternative modes
+- **Hit boxes** (projectiles' too), **frame data** (startup, active, recovery, advantage) with a **frame meter** and a
+  log to a file, an **input display**, and combo, damage, stun and parry readouts.
+- **A dummy** that guards (always, after the first hit, or at random), **parries** and red-parries a share of your
+  attacks, escapes throws, gets up quickly, mashes out of stun, **records and replays** what you show it, answers
+  with the recording, or is played by the game's own computer at the level you choose.
+- Health and super art gauges refilled, any stage (the other games' too), and save states.
 
-The in-game menu's first row has ways to play and watch the game that the board does not have.
+## Online play
 
-| Mode | What it does |
-| --- | --- |
-| Training mode | As above |
-| Attract mode | The game's own show on a loop: everything, the intro only, or one demonstration fight after another |
-| Stage viewer | Any stage with nobody on it and no panel, scrolled with the stick or by itself, with any stage's tune. "Infinite" goes through every stage in turn |
-| Model viewer | One character alone, on a stage or plain white or black, from half its size to eight times, moved with your controls or going through any of its animations, at full speed or slower |
-| Colour editor | Change a character's colours while you watch, any of its seven sets, then fight in them: random colours, and sets saved to a library and loaded into any set |
-| Survival | One computer opponent after another on the health you have left |
-| Endless battle | Two fighters the game plays for as long as you like, with no bars and no clock, on stages that scroll by one after another, on stages that fade into one another, or on one stage. Touch the controls to take a fighter over |
-| Ring out | No health: knock your opponent over the end of the stage, then jump down after it onto the next |
-| Tag team battle | Two teams of two or three. **Tag** (the default): tag your next fighter in with the left trigger (or Start); yours flies off the screen and the next jumps in from that side with an attack. Each keeps its own health; one whose bar empties lies there a while and the next jumps in. The computer's team tags too, at good moments. **Knock-out**: one fighter of each team at a time, the next coming on when one is knocked out. **Tag team**: co-op (players 1 and 2 against the computer's team) or 2 vs 2 for four players |
-| Bonus games | The one-player game's bonus stages, Crush the Car and Parry the Ball, straight away with the character you choose |
+Two players on two machines, with **rollback**. Host from the launcher's Online page and give the other player the
+match's code, or find each other in the lobby or the waiting room; nothing needs setting up on either router. The
+match has the host's board settings. Any mix of macOS, Linux, the Steam Deck and Windows can play each other.
 
 ## The definitive version's stages
 
-With New Generation's and 2nd Impact's sets beside 3rd Strike's, a fight can be on one of their stages, or on each
-opponent's own, with that game's music. The other game runs beside this one to draw its stage. Load ahead keeps
-the stages ready between fights.
+With New Generation's and 2nd Impact's ROM sets beside 3rd Strike's, a fight can be on any of their stages, or on
+each opponent's own, with that game's music: in arcade fights, training, the stage viewer and the modes. Their stages
+are drawn by their own games' stage code, run beside 3rd Strike's.
 
-## Playing
+## Alternative modes
 
-Download the release for your system from the Releases page (macOS: an app for Apple silicon and Intel, signed ad hoc,
-so Gatekeeper asks the first time; Linux x86_64, the Steam Deck too; Windows x64), unpack it and start the launcher.
-In the launcher, choose `sfiii3nr1.zip` (or drop it on the launcher); the other games' sets go beside it. Settings, save states and the board's settings memory go in
-your user folder; the ROM sets are only ever read.
+The in-game menu's first row has ways to play the board never had: **survival**, **endless battle** (the game plays
+both fighters on stages that scroll or fade one into the next; touch the controls to take one over), **ring out**,
+a **tag team battle** (tag your partner in, or two against two for four players), the **bonus games** straight
+away, a **stage viewer**, a **model viewer** and a **colour editor** whose colours you then fight in. And **Gill**,
+playable by either player.
 
-## Building
+## Everything else
 
-See [docs/BUILDING.md](docs/BUILDING.md): the game's code is translated from your own ROM set, then built with CMake;
-`tools/release/` makes the downloads for macOS, Linux and Windows.
+- **Widescreen**: the stage drawn out to 16:9, or 16:9 played exactly as the board plays (its own walls).
+- **Native picture and sound**: the game's drawing and sound code hands its frames and voices to the port's own
+  renderer and mixer; the board's video and sound chips are modelled only as the reference the checks compare
+  against. Sharp or smooth scaling, 4:3 or square pixels, RetroArch shaders, and a zoom that follows the fighters.
+- **An in-game menu** (Esc or F1; on a gamepad the left stick's click, or Start and Select together): save states,
+  speed, the cheats, the board's own settings and test menu, every feature. Pure plays exactly as the board does;
+  Enhanced (the default) adds free play.
+- **Controls**: keyboard, gamepad or arcade stick, every button changeable per player.
+- **A custom soundtrack**: your own music in place of the board's, by song or as a playlist.
+- **Arcade timing** (off unless chosen): the processor slows down where the real board does, checked frame by frame
+  against a cycle-accurate model of it ([docs/TIMING.md](docs/TIMING.md)).
+- **A launcher** that checks your ROM set, sets every feature and both players' controls, hosts and joins online
+  matches, and adds the game to Steam.
 
+![The launcher](docs/screenshots/launcher.png)
+
+## Getting started
+
+1. Download the build for your system from the [releases page](https://github.com/tmcleroy/sf3comp/releases) and
+   unpack it.
+2. Open the launcher (`Street Fighter III 3rd Strike.app`, `sfiii3-launcher`, `sfiii3-launcher.exe`) and choose your
+   `sfiii3nr1.zip` (or drop it on the launcher). Put `sfiiin.zip` and `sfiii2n.zip` beside it for the other games'
+   stages. Your ROM sets are only ever read.
+3. Press **Play**.
+
+- **macOS:** the app isn't notarized: the first time, right-click it and choose Open.
+- **Windows:** the programs aren't signed: if Windows says it protected your PC, press More info, then Run anyway.
+- **Steam Deck and Steam Machine:** in Desktop Mode, unpack the Linux download somewhere it can stay, open
+  `sfiii3-launcher`, choose your ROM set, and press **Add to Steam**; the game is then in Game Mode under
+  **Non-Steam**.
+
+Settings, save states and the board's settings memory are kept in your user folder.
+
+## What you need
+
+- **`sfiii3nr1`**: Street Fighter III 3rd Strike: Fight for the Future (Japan 990512, NO CD), as a zip or a folder of
+  its files. The launcher checks every file and says which is missing or different. Other revisions don't work: the
+  port is made from this one's program.
+- For the other games' stages (optional): **`sfiiin`** (New Generation, Asia 970204, NO CD) and **`sfiii2n`** (2nd
+  Impact, Asia 970930, NO CD), beside it.
+- macOS 13 or later (Apple silicon or Intel), Linux x86_64 (SteamOS included) or Windows 10 or 11, 64-bit.
+- A gamepad or stick is recommended (six buttons).
+
+The CPS-3's program is enciphered; the port works out each set's cipher key from the set itself when the game starts.
+No key is in this repository or in a release.
+
+**Status:** early (beta). The whole game plays, and its translated code is checked against an interpreter
+instruction by instruction. Played on macOS, a Steam Machine and a Steam Deck (online between a Mac and a Deck).
+The Windows build runs the game exactly as the Mac's (checked frame by frame) but has not yet been played on a
+Windows PC.
+
+## How it works
+
+The game's SH-2 code is translated ahead of time into C++ from your own ROM set and compiled into the program; what
+the translation did not reach runs in an interpreter. The parts the features touch (the fight, the computer player,
+the stages, the drawing and sound code) are rewritten by hand as readable C++, each checked call by call against the
+game's own code. The board (memory map, cipher, DMA, settings memory) is code written for this project. The CPS-3
+toolkit is in [`cps3recomp/`](cps3recomp/), the game's code in [`games/sfiii3/`](games/sfiii3/).
+
+## Building from source
+
+With CMake, Ninja, a C++20 compiler, Python 3, SDL 3 and zlib, and your own ROM sets:
+
+```sh
+bash cps3recomp/tools/translate.sh path/to/sfiii3nr1.zip      # once: the game's code translated (work/, never committed)
+cmake -S . -B build/sfiii3 -G Ninja && ninja -C build/sfiii3
+./build/sfiii3/sfiii3-launcher
 ```
-cps3recomp/   the CPS-3 toolkit: machine/ (SH-2, board, cipher, ROM set, flash), video/, sound/, port/, tools/
-games/sfiii3/ 3rd Strike: game.cfg, src/, PROGRESS.md
-work/, build/ generated from your ROM set, never committed
-```
 
-GPL-3.0. Not affiliated with Capcom.
+[docs/BUILDING.md](docs/BUILDING.md) has the other games' stages, the release builds for each system and the checks;
+[docs/RELEASING.md](docs/RELEASING.md) how a release is made.
+
+## Feedback and contributing
+
+Bug reports and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) for the rules (above all: nothing
+from the game, ever, and never a key). Security reports go by [SECURITY.md](SECURITY.md).
+
+## Related projects
+
+| Project | What |
+| --- | --- |
+| [cps2recomp](https://github.com/tmcleroy/cps2recomp) | The same kind of port for Capcom's CPS-2 games, whose frontend, training and online play this one shares |
+| [satrecomp](https://github.com/tmcleroy/satrecomp) | The Sega Saturn toolkit, whose SH-2 translator and interpreter this one started from |
+| [recomp-common](https://github.com/tmcleroy/recomp-common) | The in-game menu, settings and launcher these projects share |
+
+## License and credits
+
+[GPL-3.0-only](LICENSE). [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) has the notices in full.
+
+- The program cipher and the board's drawing rules follow MAME's CPS-3 driver (BSD-3-Clause; the cipher is Andreas
+  Naive's work); no MAME code is here.
+- The arcade timing follows [jtcores](https://github.com/jotego/jtcores)' SH7604 model in jotego's CPS-3 core
+  (GPL-3.0-or-later).
+- Names for the game's routines come from the PlayStation 2 decompilation (crowded-street/3s-decomp); some of the
+  training mode's memory addresses from Grouflon's [3rd_training_lua](https://github.com/Grouflon/3rd_training_lua).
+  No code of either is here.
+- The launcher's look comes from the launcher of [wiiparty-recomp](https://github.com/arelkair/wiiparty-recomp) by
+  arelkair (GPL-3.0-or-later), in `cps3recomp/recomp-common/launcher/`.
+- The programs use SDL 3 (zlib), Dear ImGui (MIT), the Inter font (SIL OFL 1.1) and librashader (MPL-2.0 or
+  GPL-3.0); the release archives carry their licenses.
+
+The repository holds no game data and nothing derived from it.
+
+This project is not affiliated with, endorsed by, or sponsored by Capcom. *Street Fighter* is a trademark of Capcom
+Co., Ltd.; "CPS-3" is a name of Capcom's, used here only to say what the program works with.

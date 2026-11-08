@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Tommy McLeroy. Part of cps3recomp (sf3comp).
 """The SH7604 model's decode (decode.txt, dump.sv) per the port's instruction kinds (sh2_ops.h): for each kind, the
 registers its first state reads, whether its last state accesses memory and the register a read there loads, and
 whether it is a bra/bsr with a 12-bit displacement; registers as the n field, the m field or a fixed number.

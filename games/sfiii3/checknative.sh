@@ -85,7 +85,7 @@ run() { # name kind args...
             [ -n "$CHECKNATIVE_ARCADE" ] && timing=(--features arcade_timing)
             [ -z "$CHECKNATIVE_GPU_READ" ] && export CPS3RECOMP_NATIVE_GPU_PRESENT=1
             # One GPU run at a time on the whole machine (every worktree, every agent): several at once kept the GPU
-            # from WindowServer until the watchdog restarted the Mac (twice, 2026-11-05). lockf lets go when the run ends. The lock is shared by every recomp project on this Mac (agreed with the cps2recomp and naomicomp sessions), and a run is ended after 30 minutes.
+            # from WindowServer until the watchdog restarted the Mac (twice, 2026-11-05). lockf lets go when the run ends. The lock is shared by every recomp project on this Mac, and a run is ended after 30 minutes.
             gpulock=()
             [ -z "$CHECKNATIVE_NO_GPU" ] && gpulock=(lockf -k /tmp/recomp-gpu.lock gtimeout -k 30 1800)
             CPS3RECOMP_STAGE_LOG=1 CPS3RECOMP_NATIVE_CHECK=1 nice -n 20 "${gpulock[@]}" "$BUILD/sfiii3" --rom "$ROM" --headless --frames "$FRAMES" \

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- The open source project: a new README, CONTRIBUTING, CODE_OF_CONDUCT and SECURITY, issue and pull request
+  templates, the files' audit (tools/audit.sh), CI on macOS, Linux and Windows (the programs built with no
+  translated code and started with no window: tools/ci_smoke.sh), and a release workflow that drafts a release from
+  a tag (docs/RELEASING.md).
 - Sound in stereo: the board set to its EXTERNAL (stereo) output, not JAMMA (mono), its default. In mono the knock-out's
   boom, made of one voice for each side, played twice on both, twice as loud, flanged and clipping. The Board page's
   Sound row picks mono again.

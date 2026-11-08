@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Tommy McLeroy. Part of sf3comp.
+# Requests for ROM sets or where to find them are closed without an answer: the port works with your own copy of
+# the game, and this project cannot help anyone get one.
+blank_issues_enabled: false

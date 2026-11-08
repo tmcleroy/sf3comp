@@ -22,6 +22,14 @@ The checks: `bash cps3recomp/tools/check.sh path/to/sfiii3nr1.zip 6000 1500` (th
 interpreter, block by block) and `ROM=path/to/sfiii3nr1.zip bash cps3recomp/tools/check_online.sh` (two copies
 online over a bad connection, rollback and all).
 
+## With no game (what CI builds)
+
+`tools/ci_smoke.sh` builds the program with no translated code (with a ROM set it would run the game in the
+interpreter, about a twentieth the speed) and the launcher, and starts both with no window: the program lists its
+features, the launcher draws its pages to pictures. `tools/audit.sh` checks the files for anything that must never be
+committed. CI (`.github/workflows/ci.yml`) runs both, and the release scripts below with `NO_GAME_CODE=1`, on macOS,
+Linux and Windows.
+
 ## Release builds
 
 `tools/release/` builds one download for each system, with SDL built in and the licences beside the programs:

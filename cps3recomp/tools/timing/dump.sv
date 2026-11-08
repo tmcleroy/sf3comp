@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Tommy McLeroy. Part of cps3recomp (sf3comp). Run against jtcores' SH7604 model (GPL-3.0-or-later),
+// which is not in this repository.
 // sf3comp's timing harness: the SH7604 model's decoder (SH_pkg.sv's Decode) for every opcode and state, as a table
 module dump;
     import SH2_PKG::*;

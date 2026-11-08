@@ -5,7 +5,9 @@
 # download for each system. The program holds the game's code translated to C++, as a build from source does: the
 # generated code in work/sfiii3/gen (and the stage games' in work/sfiiin/gen and work/sfiii2n/gen, for the
 # definitive version's stages), made by cps3recomp/tools/translate.sh from the builder's own ROM sets. So releases are
-# built on the machine of someone who has the games, never by CI.
+# built on the machine of someone who has the games, never by CI. With NO_GAME_CODE=1 (CI's builds, in a tree with no
+# work/) the programs are built with no translated code instead: they run the ROM set in the interpreter, about a
+# twentieth the speed, and are not releases.
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 GAME=sfiii3
 VERSION="${VERSION:-$(cat "$ROOT/VERSION")}"
@@ -42,6 +44,7 @@ sdl_static() {
 build_programs() {
     build=$1; shift
     for game in sfiii3 sfiiin sfiii2n; do
+        [ "${NO_GAME_CODE:-}" = 1 ] && break
         if ! ls "$ROOT/work/$game/gen"/blocks_*.cpp >/dev/null 2>&1; then
             echo "error: no translated code for $game in work/$game/gen: run cps3recomp/tools/translate.sh with its ROM set first (GAME=$game)" >&2
             exit 1

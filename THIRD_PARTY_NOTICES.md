@@ -10,7 +10,8 @@ project. What follows is everything that was not; the licences of all of it are 
 No MAME code is here, but some of the board's code follows MAME's CPS-3 driver (`src/mame/capcom/cps3.cpp`,
 `cps3_a.cpp`, by David Haywood, Andreas Naive, Tomasz Slanina and ElSemi; BSD-3-Clause) closely enough to be
 credited to it: the program cipher (`cps3recomp/machine/crypt.cpp`: Andreas Naive's algorithm), how the video chip
-draws its objects, tilemaps and text layer (`cps3recomp/video/renderer.cpp`), how the sound chip's voices step
+draws its objects, tilemaps and text layer (`cps3recomp/video/renderer.cpp`; its colour fade formula also in
+`cps3recomp/video/native.h`), how the sound chip's voices step
 through their samples (`cps3recomp/sound/pcm.cpp`), and the memory map and DMAs (`cps3recomp/machine/machine.cpp`).
 The cipher's keys are worked out from the player's own ROM set when the game starts; none are in this repository.
 
@@ -59,7 +60,20 @@ made by `cps3recomp/tools/sync-common.sh` and never changed here; its launcher d
 
 `cps3recomp/third_party/librashader.h` is librashader's C header (MIT).
 
+### jtcores' SH7604 model (GPL-3.0-or-later)
+
+The arcade timing feature's rules (`cps3recomp/machine/bus.h`, `cps3recomp/machine/sh2_pipeline.h`) are the SH7604's
+as the SH7604 model in [jtcores](https://github.com/jotego/jtcores) (jotego's CPS-3 core; its CPU from the MiSTer
+Saturn core) applies them. The table in `sh2_pipeline.h` (which registers each kind of instruction reads and loads)
+was made by running that model's decoder over every opcode (`cps3recomp/tools/timing/dump.sv` and `kinds.py`, which
+run against a copy of jtcores the developer fetches); no code of jtcores is in this repository. GPL-3.0-or-later is
+compatible with this project's GPL-3.0.
+
 ### Facts about 3rd Strike
+
+Names for the game's routines and variables in comments (`Player_move`, `Com_Pl.c` and the like) are the PlayStation 2
+version's, as the decompilation [crowded-street/3s-decomp](https://github.com/crowded-street/3s-decomp) (AGPL-3.0)
+has them: names and understanding only, no code of it is here.
 
 Some of the places in 3rd Strike's memory the training mode reads (the players' records, their boxes, the
 parry windows, the stun gauge) were taken as facts from Grouflon's

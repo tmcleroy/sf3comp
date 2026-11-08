@@ -1,0 +1,166 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# Copyright (C) 2026 Tommy McLeroy. Part of sf3comp; its shape is cps2recomp's .github/workflows/ci.yml.
+# Every push and pull request, without any game: nothing from a game can be in the repository, so CI cannot build
+# what a release holds (the game's program translated to C++ needs its ROM set). It audits the files
+# (tools/audit.sh), checks the copy of recomp-common, and proves that everything compiles, packs and starts on each
+# system: the downloads as tools/release/ makes them, with the program built with no translated code
+# (NO_GAME_CODE=1: it would run a ROM set in the interpreter), started with no display (--list-features, and the
+# launcher's pages drawn to pictures: tools/ci_smoke.sh). The checks that need a ROM set (cps3recomp/tools/check.sh,
+# games/sfiii3/check*.sh) and the release archives are made on a contributor's own machine. To be quick: SDL 3 and
+# librashader are built once and kept (actions/cache), the compiler's objects too (ccache); a pull request has no Mac
+# build (GitHub's Mac machines are often too few to start one: the Mac build is made on main); a change of words only
+# (the README, docs/) builds nothing; and a pull request's older run stops when a newer commit comes.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NO_GAME_CODE: 1
+  LINUX_PACKAGES: >-
+    ninja-build zlib1g-dev libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxss-dev
+    libxtst-dev libxkbcommon-dev libwayland-dev wayland-protocols libdecor-0-dev libegl-dev libgl-dev
+    libpulse-dev libasound2-dev libudev-dev libdbus-1-dev libpipewire-0.3-dev
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: tools/audit.sh
+      - run: bash cps3recomp/tools/sync-common.sh --check
+
+  # Whether anything but words changed (the README, docs/, a changelog): the builds are skipped when not
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: diff
+        run: |
+          base="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$base" ] || ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo code=true >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "$base" HEAD | grep -qvE '\.md$|^docs/|^LICENSE$'; then
+            echo code=true >> "$GITHUB_OUTPUT"
+          else
+            echo code=false >> "$GITHUB_OUTPUT"
+          fi
+
+  # (not for a pull request: GitHub's Mac machines are often too few to start one; main's and a release's only)
+  macos:
+    runs-on: macos-15
+    needs: changes
+    if: needs.changes.outputs.code == 'true' && github.event_name != 'pull_request'
+    env:
+      MAC_ARCHS: arm64;x86_64
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install ninja ccache
+      - uses: actions/cache@v4
+        with:
+          path: build/deps
+          key: deps-macos-${{ env.MAC_ARCHS }}-${{ hashFiles('tools/release/lib.sh', 'cps3recomp/tools/librashader.sh') }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: ccache-macos-${{ env.MAC_ARCHS }}-${{ github.run_id }}
+          restore-keys: ccache-macos-${{ env.MAC_ARCHS }}-
+      - name: Build and pack
+        env:
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+        run: tools/release/macos.sh
+      - name: Start the programs with no display (both halves)
+        run: |
+          app="build/release/Street Fighter III 3rd Strike.app/Contents/MacOS"
+          SKIP_BUILD=1 BIN="$app" BUILD="$RUNNER_TEMP/smoke" tools/ci_smoke.sh
+          arch -x86_64 "$app/sfiii3" --list-features | grep -q '^free_play'
+
+  linux:
+    strategy:
+      matrix:
+        include:
+          - { system: linux-x86_64, runner: ubuntu-24.04 }
+          - { system: linux-arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends $LINUX_PACKAGES ccache
+      - uses: actions/cache@v4
+        with:
+          path: build/deps
+          key: deps-${{ matrix.system }}-${{ hashFiles('tools/release/lib.sh', 'cps3recomp/tools/librashader.sh') }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ matrix.system }}-${{ github.run_id }}
+          restore-keys: ccache-${{ matrix.system }}-
+      - name: Build and pack
+        env:
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+        run: tools/release/linux.sh
+      - name: Start the programs with no display
+        run: |
+          tar -xzf build/release/SF3comp-${{ matrix.system }}.tar.gz -C "$RUNNER_TEMP"
+          SKIP_BUILD=1 BIN="$RUNNER_TEMP/SF3comp" BUILD="$RUNNER_TEMP/smoke" tools/ci_smoke.sh
+
+  windows-build:
+    runs-on: ubuntu-24.04
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - run: >
+          sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ninja-build zip ccache
+          g++-mingw-w64-x86-64-posix gcc-mingw-w64-x86-64-posix binutils-mingw-w64-x86-64 libz-mingw-w64-dev
+      - uses: actions/cache@v4
+        with:
+          path: build/deps
+          key: deps-windows-${{ hashFiles('tools/release/lib.sh', 'tools/release/windows.sh', 'cps3recomp/tools/librashader.sh') }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-windows-${{ github.run_id }}
+          restore-keys: ccache-windows-
+      - name: Build and pack (cross-compiled)
+        env:
+          CMAKE_C_COMPILER_LAUNCHER: ccache
+          CMAKE_CXX_COMPILER_LAUNCHER: ccache
+        run: tools/release/windows.sh
+      # (handed to the Windows machine below to be started; no translated code in it, and not a release)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-no-game-code
+          path: build/release/SF3comp-windows-x64.zip
+          retention-days: 1
+
+  windows-run:
+    needs: windows-build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-no-game-code
+      - name: Start the programs on Windows with no display
+        shell: bash
+        run: |
+          unzip -q SF3comp-windows-x64.zip -d "$RUNNER_TEMP"
+          SKIP_BUILD=1 BIN="$RUNNER_TEMP/SF3comp" BUILD="$RUNNER_TEMP/smoke" tools/ci_smoke.sh
