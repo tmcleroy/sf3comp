@@ -1965,8 +1965,11 @@ namespace {
     // (`was` moved by the frame's move, ox across and oy down, first; a patch also kPopSize across and down at least: not
     // the thin lines a layer's line objects leave as its lines scroll)
     constexpr int kPopSize = 8;
-    void Appeared(const std::vector<uint32_t> &was, const std::vector<uint32_t> &now, int w, int h, int margin, int ox, int oy, uint64_t &inMargin,
-                  uint64_t &inMiddle, std::vector<uint8_t> &mark) {
+    // (`seenWas`, `seenNow`: the whole stage as shown, the frame before and this one: a patch counts only where the picture
+    // changed with it, not a thing drawn under another or one whose two frames look alike)
+    void Appeared(const std::vector<uint32_t> &was, const std::vector<uint32_t> &now, const std::vector<uint32_t> &seenWas,
+                  const std::vector<uint32_t> &seenNow, int w, int h, int margin, int ox, int oy, uint64_t &inMargin, uint64_t &inMiddle,
+                  std::vector<uint8_t> &mark) {
         // (was's coverage spread kPopNear each way: a box sum)
         std::vector<int> sum(static_cast<size_t>(w + 1) * (h + 1), 0);
         for (int y = 0; y < h; y++) {
@@ -1979,6 +1982,9 @@ namespace {
             x -= ox;
             y -= oy;
             const int x0 = std::max(0, x - kPopNear), x1 = std::min(w, x + kPopNear + 1), y0 = std::max(0, y - kPopNear), y1 = std::min(h, y + kPopNear + 1);
+            if (x1 <= x0 || y1 <= y0) {
+                return false; // (moved past the picture's edge: nothing was there)
+            }
             return sum[static_cast<size_t>(y1) * (w + 1) + x1] - sum[static_cast<size_t>(y0) * (w + 1) + x1] - sum[static_cast<size_t>(y1) * (w + 1) + x0] +
                        sum[static_cast<size_t>(y0) * (w + 1) + x0] > 0;
         };
@@ -2020,15 +2026,25 @@ namespace {
             if (area < kPopArea || right - left + 1 < kPopSize || bottom - top + 1 < kPopSize || left < kPopEdge || right >= w - kPopEdge) {
                 continue;
             }
-            // (and nothing of the stage's objects anywhere in its box the frame before: a thing that was there and moved
+            // (and nothing of the stage's objects in or beside its box the frame before: a thing that was there and moved
             // its arm, a spectator's animation, is not one that came on)
             {
-                const int x0 = std::max(0, left - ox), x1 = std::min(w, right + 1 - ox), y0 = std::max(0, top - oy), y1 = std::min(h, bottom + 1 - oy);
+                constexpr int kBeside = 16; // (its box and as far again around it)
+                const int x0 = std::max(0, left - ox - kBeside), x1 = std::min(w, right + 1 - ox + kBeside), y0 = std::max(0, top - oy - kBeside),
+                          y1 = std::min(h, bottom + 1 - oy + kBeside);
                 if (x1 > x0 && y1 > y0 &&
                     sum[static_cast<size_t>(y1) * (w + 1) + x1] - sum[static_cast<size_t>(y0) * (w + 1) + x1] - sum[static_cast<size_t>(y1) * (w + 1) + x0] +
                             sum[static_cast<size_t>(y0) * (w + 1) + x0] > 0) {
                     continue;
                 }
+            }
+            int seen = 0;
+            for (const int at : patch) {
+                const int x = at % w - ox, y = at / w - oy;
+                seen += x < 0 || y < 0 || x >= w || y >= h || seenNow[at] != seenWas[static_cast<size_t>(y) * w + x];
+            }
+            if (seen * 2 < area) {
+                continue;
             }
             const int middle = static_cast<int>(across / area);
             const bool inTheMargin = middle < margin || middle >= w - margin;
@@ -2104,8 +2120,8 @@ namespace {
             const uint64_t before = s.objectsMargin;
             int ox = 0, oy = 0;
             PictureShift(p.objects, objects, w, h, ox, oy);
-            Appeared(p.objects, objects, w, h, margin, ox, oy, s.objectsMargin, s.objectsMiddle, mark); // (appearing)
-            Appeared(objects, p.objects, w, h, margin, -ox, -oy, s.objectsMargin, s.objectsMiddle, mark); // (going)
+            Appeared(p.objects, objects, p.whole, whole, w, h, margin, ox, oy, s.objectsMargin, s.objectsMiddle, mark); // (appearing)
+            Appeared(objects, p.objects, whole, p.whole, w, h, margin, -ox, -oy, s.objectsMargin, s.objectsMiddle, mark); // (going)
             // (each tilemap lined up with the frame before; then its cells that changed, but the columns brought in at the
             // picture's ends by the move)
             // (lined up a band of kBand lines at a time, across only (a layer's lines scroll each their own way: the

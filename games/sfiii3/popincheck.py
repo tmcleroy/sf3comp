@@ -19,6 +19,9 @@ ALLOW = {
     # (Elena's stage in a fight, at the top of a high jump: its sky's last 6 columns at the right end of the wide picture have
     # nothing drawn, for a few frames (8 of 1688 in the check's fight, 2026-11-08: a tilemap the stage does not write that far
     # past the board's 384); not put right yet)
+    # (New Generation's Gill stage in a fight: its lava throws up sparks every 72 frames at the same place, which the
+    # fight's camera keeps in the left margin; the stage's own effect, as many before the widened range as after (13))
+    ('fight', 'sfiiin:0'): ((16, 0, 0), "New Generation's Gill stage: the lava's sparks, its own, in the left margin"),
     ('fight', 'sfiii3:8'): ((0, 0, 12), "Elena's sky, its right end's last columns at the top of a high jump"),
 }
 

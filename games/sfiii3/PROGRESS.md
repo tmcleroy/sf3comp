@@ -183,9 +183,11 @@
     (SFIII3_POPIN_CHECK): the stage viewer over all 48 entries and training fights of made-up play on all 49 Stage rows,
     widescreen; a stage piece appearing or going whole in the margins, a tilemap cell going from nothing to something
     there, or an end column with nothing of the stage, beyond what the stage does between them (animation, things it
-    brings on). On 3bbe95e: 14 stage runs failed (Dudley's 23 pop-ins in the viewer, Chun-Li's 12, Alex's 8, Ken's 7, ...).
-    Left: Elena's sky has nothing in its last 6 columns at the right end for a few frames at the top of a high jump (8 of
-    1688 frames; allowed by name in popincheck.py). Tilemap streaming: no column brought in late was found on any stage.
+    brings on; and seen so in the picture). Without the widened range (3bbe95e's) 7 runs failed: the viewer on Dudley's
+    stage 16 pop-ins, Chun-Li's 6, Ken's 4, Twelve's 3; fights on Dudley's 6, Chun-Li's 3, Remy's 3. With it, none. Allowed
+    by name in popincheck.py: Elena's sky has nothing in its last 6 columns at the right end for a few frames at the top of
+    a high jump (8 of 1688 frames: not put right); New Generation's Gill stage's lava sparks, its own effect, which the
+    fight's camera keeps in the left margin (13, the same either way). Tilemap streaming: no column brought in late found.
 
 ## Gotchas
 
