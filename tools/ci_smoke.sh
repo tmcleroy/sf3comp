@@ -19,7 +19,7 @@ BIN="${BIN:-$B}"
 EXE=""
 [ -f "$BIN/sfiii3.exe" ] && EXE=.exe
 features="$("$BIN/sfiii3$EXE" --list-features | tr -d '\r')"
-for f in free_play widescreen training_stage dummy_parry; do
+for f in free_play widescreen_walls stages training_stage dummy_parry; do
     echo "$features" | grep -q "^$f	" || { echo "the program's feature list has no $f"; exit 1; }
 done
 echo "ok: the program starts and lists its features ($(echo "$features" | wc -l | tr -d ' '))"
