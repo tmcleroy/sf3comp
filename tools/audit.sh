@@ -29,13 +29,17 @@ check "no key-like hex strings (32 digits or more)" "$(grep_files '(^|[^0-9a-fA-
 # (machine/crypt.cpp) and none may be written into the tree: not as numbers given to a key, not as a key table)
 check "no cipher key written out" "$(grep_files -i -e '\b(key[12]?|cipher[a-z_]*key[a-z_]*)[ ]*[=:{(,][ ]*\{?[ ]*0x[0-9a-f]{6,8}' -e 'init_crypt[ ]*\(' -e '\.key[12][ ]*=[ ]*0x' || true)"
 check "no home folder paths or scratch folders" "$(grep_files -e '/Users/[a-z]' -e '/home/[a-z]+/' -e 'C:\\\\Users\\\\[a-z]' -e '~/code/' -e '/private/tmp/' -e '/tmp/claude' || true)"
-check "no private session links, machine names or private network addresses" "$(grep_files -i -e 'claude\.ai/code/session' -e '\b192\.168\.[0-9]+\.[0-9]+' -e '\b10\.[0-9]+\.[0-9]+\.[0-9]+\b' -e '\btcm-[a-z]' -e 'steammachine\.lan' -e 'steamdeck\.local' -e 'deck@' || true)"
+check "no private session links, machine names or private network addresses" "$(grep_files -i -e 'claude\.ai/code/session' -e '\b192\.168\.[0-9]+\.[0-9]+' -e '\b10\.[0-9]+\.[0-9]+\.[0-9]+\b' -e 'steammachine\.lan' -e 'steamdeck\.local' -e 'deck@' || true)"
 # (the README's pictures may be larger; the sound file decoders are kept as their projects publish them)
 check "no file over 512 KB (the README's pictures: 2 MB; the third-party decoders: 1 MB)" "$( (grep -v -e '^docs/screenshots/' -e '^cps3recomp/third_party/' "$LIST" | tr '\n' '\0' | xargs -0 find 2>/dev/null -prune -type f -size +512k; \
     grep '^cps3recomp/third_party/' "$LIST" | tr '\n' '\0' | xargs -0 find 2>/dev/null -prune -type f -size +1024k; \
     grep '^docs/screenshots/' "$LIST" | tr '\n' '\0' | xargs -0 find 2>/dev/null -prune -type f -size +2048k) || true)"
-# (ports that are not public yet are not named here)
-check "no names of ports that are still private" "$(grep_files -i -e 'bonkers' -e 'naomicomp' -e 'muscle.?march-dev' -e 'doaxvb-re-private' -e 'satrecomp-reference' -e 'cps2recomp-private' -e '[a-z0-9]-archive\b' -e 'attract-app' || true)"
+# (the names of ports that are not public yet, and of the maintainer's machines, are not written here, since this file
+# is public: one pattern per line in .git/private-names, or in the file AUDIT_PRIVATE_NAMES names, on the
+# maintainer's machine; without either, only the generic forms are looked for)
+names="${AUDIT_PRIVATE_NAMES:-$(git rev-parse --git-common-dir)/private-names}"
+check "no names of ports that are still private, or of private machines" "$(grep_files -i -e '[a-z0-9]-archive\b' -e '[a-z0-9]-private\b' || true
+    if [ -f "$names" ]; then grep -v -e '^#' -e '^$' "$names" | while read -r n; do grep_files -i -e "$n"; done; fi)"
 check "no words that point to where game files or keys are found" "$(grep_files -i -e 'archive\.org' -e 'internet archive' -e 'rom ?sites?\b' -e 'emuparadise' -e 'vimm' -e 'romsfun' -e 'torrent' -e 'download (the|a|an) (rom|rom set|key|key file)' || true)"
 check "no submodules" "$(git ls-files -s | awk '$1 == "160000" {print $4}'; [ ! -f .gitmodules ] || echo .gitmodules)"
 check "no patch files" "$(grep -iE '\.(patch|diff)$|(^|/)patches/' "$LIST" || true)"
