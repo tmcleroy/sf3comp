@@ -322,7 +322,10 @@ void Presenter::Close() {
 }
 
 void Presenter::Size(int &width, int &height) const {
-    if (m_shading) {
+    if (!m_window && m_offscreen) {
+        width = m_offscreenWidth; // (offscreen: its texture is the window)
+        height = m_offscreenHeight;
+    } else if (m_shading) {
         m_shading->Size(width, height);
     } else if (m_renderer) {
         SDL_GetRenderOutputSize(m_renderer, &width, &height);
@@ -597,6 +600,7 @@ void Presenter::Show(const uint32_t *pixels, int width, int height, const SDL_FR
         SDL_RenderClear(m_renderer);
         draw(m_texture, 1);
         overlay();
+        KeepShown();
         SDL_RenderPresent(m_renderer);
         return;
     }
@@ -624,7 +628,43 @@ void Presenter::Show(const uint32_t *pixels, int width, int height, const SDL_FR
     SDL_RenderClear(m_renderer);
     draw(m_enlarged ? m_enlarged : m_texture, m_enlarged ? static_cast<float>(by) : 1.0f);
     overlay();
+    KeepShown();
     SDL_RenderPresent(m_renderer);
+}
+
+// (the checks: SDL's renderer's picture as it is presented, kept for ReadShown)
+void Presenter::KeepShown() {
+    if (!keepShown || !m_renderer) {
+        return;
+    }
+    SDL_Surface *read = SDL_RenderReadPixels(m_renderer, nullptr);
+    SDL_Surface *got = read ? SDL_ConvertSurface(read, SDL_PIXELFORMAT_XBGR8888) : nullptr;
+    if (got) {
+        m_shownWidth = got->w;
+        m_shownHeight = got->h;
+        m_shown.resize(static_cast<size_t>(got->w) * got->h);
+        for (int y = 0; y < got->h; y++) {
+            memcpy(&m_shown[static_cast<size_t>(y) * got->w], static_cast<const uint8_t *>(got->pixels) + static_cast<size_t>(y) * got->pitch,
+                   static_cast<size_t>(got->w) * 4);
+        }
+    }
+    SDL_DestroySurface(got);
+    SDL_DestroySurface(read);
+}
+
+bool Presenter::ReadShown(std::vector<uint32_t> &pixels, int &width, int &height) {
+    if (m_offscreen && !m_window) {
+        width = m_offscreenWidth;
+        height = m_offscreenHeight;
+        return ReadOffscreen(pixels);
+    }
+    if (m_shown.empty()) {
+        return false;
+    }
+    pixels = m_shown;
+    width = m_shownWidth;
+    height = m_shownHeight;
+    return true;
 }
 
 bool Presenter::Screen(SDL_GPUCommandBuffer *commands, SDL_GPUTexture *&screen, Uint32 &width, Uint32 &height) {

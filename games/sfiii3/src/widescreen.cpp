@@ -45,6 +45,14 @@ int WorldShift() {
     return middle - camera;
 }
 
+// The picture's columns, as the window is shaped for it (Game::widestPicture, as the CPS-2 ports have it): at start-up,
+// and again whenever widescreen is switched (in the menu). Until 2026-11-08 the game gave none, so the window was made
+// 4:3 at start-up and kept so: a widescreen picture shown in it letterboxed (the play-test: "when switching to
+// widescreen in the in game menu it shrinks the display and doesnt fill the full wide area")
+int WidestPicture() {
+    return Video::kWidth + (FeatureOn("widescreen") ? 2 * kMargin : 0);
+}
+
 void WidescreenBeforeFrame(Machine &m, bool fighting) {
     const bool on = FeatureOn("widescreen");
     m.SetWideMargin(on ? kMargin : 0);

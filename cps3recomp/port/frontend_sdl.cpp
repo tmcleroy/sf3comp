@@ -236,6 +236,14 @@ int RunWindowed(Port &port) {
     Presenter presenter;
     std::string presentError;
     const bool wantGpu = port.opt.renderer != "sdl" && strcmp(SDL_GetCurrentVideoDriver(), "dummy") != 0;
+    // (the checks, CPS3RECOMP_WINDOW_OFFSCREEN=1 with SDL's offscreen video driver: no window at all (that driver makes none
+    // without OpenGL); the GPU's picture drawn as for one of CPS3RECOMP_WINDOW_SIZE, into a texture that size, read back
+    // by CPS3RECOMP_WINDOW_SHOT)
+    const bool offscreen = wantGpu && getenv("CPS3RECOMP_WINDOW_OFFSCREEN") != nullptr;
+    int checkWidth = 1280, checkHeight = 720;
+    if (const char *size = getenv("CPS3RECOMP_WINDOW_SIZE")) {
+        sscanf(size, "%dx%d", &checkWidth, &checkHeight);
+    }
     const bool canShade = strcmp(SDL_GetCurrentVideoDriver(), "dummy") != 0;
     std::string preset = canShade ? port.ShaderPreset() : "";
     int shaderValue = FeatureValue("display_shader");
@@ -244,7 +252,15 @@ int RunWindowed(Port &port) {
         fprintf(stderr, "shader: %s; the picture is drawn without it\n", shaderError.c_str());
         preset.clear();
     }
-    SDL_Window *window = makeWindow(!preset.empty(), carried ? &placed : nullptr, 0, windowHeight, port.opt.fullscreen);
+    if (offscreen) {
+        preset.clear();
+    }
+    SDL_Window *window = offscreen ? nullptr : makeWindow(!preset.empty(), carried ? &placed : nullptr, 0, windowHeight, port.opt.fullscreen);
+    // (the checks, CPS3RECOMP_WINDOW_SIZE=WxH: the window that size, as a full screen of that shape would be)
+    if (getenv("CPS3RECOMP_WINDOW_SIZE") && window && checkWidth > 0 && checkHeight > 0) {
+        SDL_SetWindowSize(window, checkWidth, checkHeight);
+        SDL_SyncWindow(window);
+    }
     // (opened as the preset says, or as without one when that fails)
     auto openPresenter = [&]() {
         if (!preset.empty()) {
@@ -267,11 +283,14 @@ int RunWindowed(Port &port) {
                 return false;
             }
         }
+        if (offscreen) {
+            return presenter.OpenOffscreen(std::max(checkWidth, 1), std::max(checkHeight, 1), false, presentError);
+        }
         return presenter.Open(window, wantGpu, presentError);
     };
     presenter.SetVsync(FeatureOn("display_vsync")); // (kept when it is opened again)
-    if (!window || !openPresenter()) {
-        fprintf(stderr, "SDL window: %s\n", window ? presentError.c_str() : SDL_GetError());
+    if ((!window && !offscreen) || !openPresenter()) {
+        fprintf(stderr, "SDL window: %s\n", window || offscreen ? presentError.c_str() : SDL_GetError());
         return 1;
     }
     if (wantGpu && !presenter.UsesGpu() && !presenter.Shaded()) {
@@ -504,6 +523,34 @@ int RunWindowed(Port &port) {
         SDL_Event ev;
         if (cps3recomp::TakeMenuAsk() && !port.menu.IsOpen() && !port.net) {
             toggleMenu(); // (the game's sources asked for it: a mode over)
+        }
+        // (the checks, CPS3RECOMP_MENU_SCRIPT=FRAME:KEYS[;FRAME:KEYS...]: from that frame on, the in-game menu worked as a
+        // player works it, a key a pass of this loop: m opens or closes it, u d l r up, down, left, right, a confirms, b
+        // goes back: games/sfiii3/checkwide.sh, widescreen switched in the menu)
+        if (static const char *script = getenv("CPS3RECOMP_MENU_SCRIPT"); script && !port.net) {
+            static std::string left = script;
+            static size_t at = std::string::npos;
+            const uint64_t from = strtoull(left.c_str(), nullptr, 10);
+            const size_t colon = left.find(':'), end = std::min(left.find(';'), left.size());
+            if (!left.empty() && colon != std::string::npos && port.frame >= from) {
+                if (at == std::string::npos) {
+                    at = colon + 1;
+                }
+                if (at < end) {
+                    static const std::string kKeys = "udlrab";
+                    const char key = left[at++];
+                    if (key == 'm') {
+                        toggleMenu();
+                    } else if (port.menu.IsOpen() && kKeys.find(key) != std::string::npos) {
+                        port.MenuAct(port.menu.Press(1u << kKeys.find(key)));
+                        menuDirty = true;
+                    }
+                }
+                if (at >= end) {
+                    left = end < left.size() ? left.substr(end + 1) : "";
+                    at = std::string::npos;
+                }
+            }
         }
         if (port.typing && (!port.net || port.connecting)) {
             chatOpen(false); // (the match over, or waited for again)
@@ -941,6 +988,22 @@ int RunWindowed(Port &port) {
         if (!shownNative) {
             const bool isZoomed = port.WindowedPicture(shown, zoomed);
             presenter.Show(shown.data(), port.ShownWidth(), Video::kHeight, where, isZoomed ? &zoomed : nullptr);
+        }
+        // (the checks, CPS3RECOMP_WINDOW_SHOT=PREFIX:EVERY: every so many frames what the window was shown, read back, to
+        // PREFIX<frame>.png: games/sfiii3/checkwide.sh)
+        static const char *windowShot = getenv("CPS3RECOMP_WINDOW_SHOT");
+        if (windowShot && ran) {
+            const std::string spec = windowShot;
+            const size_t colon = spec.rfind(':');
+            const uint64_t every = colon == std::string::npos ? 60 : std::max<uint64_t>(1, strtoull(spec.c_str() + colon + 1, nullptr, 10));
+            presenter.keepShown = true;
+            std::vector<uint32_t> pixels;
+            int w = 0, h = 0;
+            if (port.frame % every == 0 && presenter.ReadShown(pixels, w, h)) {
+                char path[600];
+                snprintf(path, sizeof(path), "%s%06llu.png", spec.substr(0, colon).c_str(), static_cast<unsigned long long>(port.frame));
+                WritePng(path, pixels.data(), static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+            }
         }
 
         if (!port.opt.unthrottled && !FastForward()) {

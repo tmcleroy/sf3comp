@@ -2000,6 +2000,34 @@ void StageChecksBeforeFrame(Machine &machine) {
             fprintf(stderr, "\n");
         }
     }
+    // (the checks, SFIII3_STAGE_PICTURES=PREFIX:EVERY: every so many frames of a fight, the stage as it is shown, its
+    // layers drawn alone (the stage board's stage when it is composed, else this board's own: no fighters, no panel),
+    // to PREFIX<frame>.png; stagecheck.py names the stage shown from them: checkviewer.sh)
+    static const char *pictures = getenv("SFIII3_STAGE_PICTURES");
+    if (pictures && InMatch()) {
+        const std::string spec = pictures;
+        const size_t colon = spec.rfind(':');
+        const uint64_t each = colon == std::string::npos ? 60 : std::max(1ull, strtoull(spec.c_str() + colon + 1, nullptr, 10));
+        const bool composed = machine.StageBoard() && machine.composeNow && machine.composeNow();
+        // (the stage viewer: only once its stage is shown, not the unseen fight's own before)
+        if (machine.frame % each == 0 && (composed || !machine.onlyStage)) {
+            static native::Rasteriser r;
+            static std::vector<uint32_t> shown;
+            int w = 0, h = 0;
+            r.margin = machine.WideMargin();
+            r.text = false;
+            if (composed) {
+                r.keep = [](const void *, const native::Object &o, uint32_t) { return StageWords(o.words[0], o.words[2]); };
+                r.Draw(machine.StageBoard()->native, machine.StageBoard()->SpriteRamBytes(), machine.StageBoard()->SsRam(), shown, w, h);
+            } else {
+                r.keep = [](const void *, const native::Object &o, uint32_t) { return OwnStageWords(o.words[0], o.words[2]); };
+                r.Draw(machine.board.native, machine.board.SpriteRamBytes(), machine.board.SsRam(), shown, w, h);
+            }
+            char path[600];
+            snprintf(path, sizeof(path), "%s%06llu.png", spec.substr(0, colon).c_str(), static_cast<unsigned long long>(machine.frame));
+            WritePng(path, shown.data(), static_cast<uint32_t>(w), static_cast<uint32_t>(h));
+        }
+    }
     if (JitterChecking()) {
         JitterFrame(machine);
     }
@@ -2262,6 +2290,12 @@ void StageBehind(int stage) {
     g_cameraWanted = kFollow;
     g_boardMusic = true;
     g_onlyMusic = false;
+}
+// ... or another game's stage (the stage viewer's New Generation's and 2nd Impact's: GuestStageNames' choice, from 1),
+// made alone as in a fight on it, its own music
+void StageBehindGuest(int choice) {
+    StageBehind(-1);
+    g_choiceWanted = std::clamp(choice, 1, kOpponentsFirst - 1);
 }
 // ... nothing but music heard (the stage viewer)
 void StageBehindOnlyMusic(bool on) {
