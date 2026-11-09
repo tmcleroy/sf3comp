@@ -271,6 +271,12 @@ layers through the same interface (DEFINITIVE.md item 10). The readable work bel
 
 ## Readable code: what gets rewritten
 
+Before rewriting a routine, read it in the byte-matching decompilations of the three programs (the same sets as
+ours; `cps3recomp/docs/READABLE.md`, "Read the decompilations first": how to find a routine by address or name with
+`cps3recomp/tools/names.py`, where each part of the game is in their files, and the behaviours a rewrite must keep).
+Names and understanding only, no code. With complete readable source published there, rewriting for readability's
+own sake has no point left: rewrites are for what a feature or the native path has to change.
+
 The user's decision (2026-11-04): rewrite what features need, not the whole program for its own sake. About 645
 routines are readable (about a quarter of the code seen running; measured from the block database with routine
 starts taken from direct calls).
