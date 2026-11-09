@@ -58,6 +58,10 @@ How they help:
   stage's routines in New Generation). Each `functions.tsv` gives address, size, name and file for every routine,
   so a routine's size for `Lift` and `lifthash.py` is there too, and the translated code and the checks' logs carry
   the names (docs/VERIFYING.md).
+- **Carrying an address to another game.** `tools/crossmap.py` takes an address known in one game (3rd Strike's
+  RAM facts) to the same variable in another by the routines' names: same-named routines load the same things in the
+  same order, each from its own literal pool. What it gives is a lead to confirm in the game (a RAM dump at a known
+  moment). New Generation's and 2nd Impact's facts were found so (`games/<id>/PROGRESS.md`).
 - **Reading it.** Open the named file in their tree at the commit `game.cfg` pins (`names_source`). Each file starts
   with what it does; `docs/HOW_THE_GAME_WORKS.md` in the 3rd Strike tree is a tour of the frame loop, tasks, input,
   drawing lists, moves, hit boxes and damage. Their `include/structs.h` and `work.h` name the records' fields:
