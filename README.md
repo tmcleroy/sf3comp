@@ -119,7 +119,7 @@ toolkit is in [`cps3recomp/`](cps3recomp/), the game's code in [`games/sfiii3/`]
 With CMake, Ninja, a C++20 compiler, Python 3, SDL 3 and zlib, and your own ROM sets:
 
 ```sh
-bash cps3recomp/tools/translate.sh path/to/sfiii3nr1.zip      # once: the game's code translated (work/, never committed)
+bash cps3recomp/tools/translate.sh path/to/sfiii3nr1.zip 0    # once: the game's code translated (work/, never committed)
 cmake -S . -B build/sfiii3 -G Ninja && ninja -C build/sfiii3
 ./build/sfiii3/sfiii3-launcher
 ```
