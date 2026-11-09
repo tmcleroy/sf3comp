@@ -3,7 +3,7 @@
 # Copyright (C) 2026 Tommy McLeroy. Part of sf3comp; from cps2recomp.
 #
 # Release build for Linux, for the processor it runs on: x86_64 (Steam Deck and Steam Machine included) or ARM64:
-# build/release/SF3comp-linux-x86_64.tar.gz or -arm64 (the launcher, the game, librashader and the shaders,
+# build/release/SF3comp-linux-x86_64.tar.gz or -arm64 (the launcher, the three games, librashader and the shaders,
 # licences). Run on Linux with cps2recomp's tools/release/Dockerfile's packages (its image cps2recomp-build):
 #   docker run --rm --platform linux/amd64 -v "$PWD":"$PWD" -w "$PWD" cps2recomp-build tools/release/linux.sh
 # SDL 3 is built in; the programs need only the system's usual X11 or Wayland, sound and zlib libraries.
@@ -20,8 +20,10 @@ build_programs "$BUILD" -DCMAKE_PREFIX_PATH="$DEPS/sdl-$SYSTEM" "-DCMAKE_EXE_LIN
 STAGE="$BUILD/stage/$ARCHIVE"
 rm -rf "$BUILD/stage" && mkdir -p "$STAGE"
 copy_programs "$BUILD" "$STAGE" ""
-strip "$STAGE/$GAME" "$STAGE/$GAME-launcher"
-add_notices "$STAGE" "$BUILD"
+for program in $GAMES $EXE-launcher; do
+    strip "$STAGE/$program"
+done
+add_notices "$STAGE" "$BUILD/launcher"
 LIBRA=$("$ROOT/cps3recomp/tools/librashader.sh")
 cp "$LIBRA/librashader.so" "$STAGE/"
 cp -R "$LIBRA/shaders" "$STAGE/"

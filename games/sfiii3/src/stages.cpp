@@ -482,11 +482,17 @@ namespace {
             list.simm[n] = ParseRomFiles(ng ? ngSimm[n] : iiSimm[n]);
         }
         list.programEnciphered = ng; // (2nd Impact's data is not)
+        auto set = std::make_unique<RomSet>();
+        std::string error;
+        // (the set the player chose for that game in the collection's launcher, which says it: --guest)
+        if (const std::string &chosen = GuestRomPath(game.set); !chosen.empty()) {
+            if (std::filesystem::exists(std::filesystem::u8path(chosen)) && LoadRomSet(chosen, list, *set, error)) {
+                return set;
+            }
+        }
         // (beside the player's 3rd Strike set: its zip or its folder, by the set's name)
         std::filesystem::path folder = std::filesystem::u8path(RomPath());
         folder = std::filesystem::is_directory(folder) ? folder.parent_path() : folder.parent_path();
-        auto set = std::make_unique<RomSet>();
-        std::string error;
         for (const std::filesystem::path &at : {folder / (std::string(game.set) + ".zip"), folder / game.set}) {
             if (std::filesystem::exists(at) && LoadRomSet(at.string(), list, *set, error)) {
                 return set;
@@ -2734,7 +2740,7 @@ void StageBehindSwitch(Machine &machine) {
 void RegisterStages(Game &game) {
     game.features.push_back({"stages", "Display", "Stages (experiment)",
                              "The definitive version's stages, an early form: a fight drawn on one of New Generation's or 2nd "
-                             "Impact's stages, by running that game beside this one (its set beside this one's, sfiiin.zip or sfiii2n.zip). "
+                             "Impact's stages, by running that game beside this one (its set chosen in the launcher, or beside this one's: sfiiin.zip or sfiii2n.zip). "
                              "In a fight its music plays in place of 3rd Strike's. It takes a few seconds to reach its stage after it is chosen. "
                              "The opponent's: each fight on that game's stage of the character whose stage 3rd Strike chose (its own "
                              "for the characters that game has not).",

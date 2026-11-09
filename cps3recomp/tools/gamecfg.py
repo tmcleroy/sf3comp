@@ -5,10 +5,12 @@
 
   gamecfg.py KEY [GAME]            print one value
   gamecfg.py --header OUT [GAME]   write a C header with every value as a GAME_<KEY> string macro
-  gamecfg.py --collection OUT GAME...   write the collection launcher's table of games (launcher/src/games.h)
+  gamecfg.py --collection OUT GAME...   write the collection launcher's table of games (games.h, for launcher/src/description.cpp)
+  gamecfg.py --games               print every game's id, in the collection's order
 """
 
 import os
+import re
 import sys
 
 # Where games/ is: where this is run from (make runs it from the top, the example from example/), or else this repository
@@ -31,8 +33,17 @@ def load(game=None):
 
 
 # What the collection's launcher is told of each game (launcher/src/description.cpp, GameInfo), in its order
-COLLECTION_KEYS = ["id", "name", "rom_set", "rom_parent", "rom_name", "program", "graphics", "sound_program", "samples", "key", "display",
-                   "players", "buttons", "board", "cps_b", "extra_set", "multi", "other_set", "series"]
+COLLECTION_KEYS = ["id", "name", "rom_set", "rom_parent", "rom_name", "bios", "simm1", "simm2", "simm3", "simm4", "simm5", "simm6",
+                   "program_enciphered", "launcher_extra_sets", "guests", "display"]
+
+
+def collection_order(game):
+    """Where a game stands in the collection: by its `collection_order` (a number, the lowest first; the game the
+    launcher takes the shared keys and buttons from is the first), then as the games came out (the date in the set's
+    name, "990512"), then by name."""
+    cfg = load(game)
+    date = re.search(r"\b(\d{6})\b", cfg.get("rom_name", ""))
+    return (int(cfg.get("collection_order") or 1000), date.group(1) if date else "999999", cfg.get("name", game))
 
 
 def quoted(value):
@@ -49,18 +60,18 @@ def write_if_changed(path, content):
 def main():
     args = sys.argv[1:]
     if len(args) >= 2 and args[0] == "--collection":
-        lines = ["// Generated from games/*/game.cfg by tools/gamecfg.py --collection", "#pragma once", "",
+        lines = ["// Generated from games/*/game.cfg by cps3recomp/tools/gamecfg.py --collection", "#pragma once", "",
                  "static const GameInfo kGames[] = {"]
-        # (in the order of their names, as the player reads them; a series' games together, where its name is)
-        def order(g):
-            cfg = load(g)
-            return (cfg.get("series") or cfg.get("name", g), cfg.get("name", g))
-        for game in sorted(args[2:], key=order):
+        for game in sorted(args[2:], key=collection_order):
             cfg = load(game)
             cfg.setdefault("id", game)
             lines.append("    {" + ", ".join(quoted(cfg.get(key, "")) for key in COLLECTION_KEYS) + "},")
         lines.append("};")
         write_if_changed(args[1], "\n".join(lines) + "\n")
+        return
+    if args and args[0] == "--games":
+        print(" ".join(sorted((g for g in sorted(os.listdir(os.path.join(ROOT, "games")))
+                               if os.path.isfile(os.path.join(ROOT, "games", g, "game.cfg"))), key=collection_order)))
         return
     if len(args) >= 2 and args[0] == "--header":
         cfg = load(args[2] if len(args) > 2 else None)

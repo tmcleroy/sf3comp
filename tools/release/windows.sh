@@ -3,7 +3,7 @@
 # Copyright (C) 2026 Tommy McLeroy. Part of sf3comp; from cps2recomp.
 #
 # Release build for Windows x64, cross-compiled with MinGW-w64 on Linux:
-# build/release/SF3comp-windows-x64.zip (the launcher, the game, SDL3.dll, zlib1.dll, librashader.dll and the shaders, licences).
+# build/release/SF3comp-windows-x64.zip (the launcher, the three games, SDL3.dll, zlib1.dll, librashader.dll and the shaders, licences).
 # Needs the packages of tools/release/Dockerfile, and the translated code of a build of each game with its ROM
 # sets (lib.sh), and Rust with its x86_64-pc-windows-gnu target for librashader (tools/librashader.sh: the Display
 # page's shaders).
@@ -31,7 +31,7 @@ if x86_64-w64-mingw32-objdump -p "$STAGE"/*.exe | grep -i 'DLL Name' | grep -viE
     echo "error: a program needs a DLL that is not in the archive" >&2
     exit 1
 fi
-add_notices "$STAGE" "$BUILD"
+add_notices "$STAGE" "$BUILD/launcher"
 # (the Display page's shaders, port/shading.h: librashader beside the games and the presets, tools/librashader.sh)
 LIBRA=$("$ROOT/cps3recomp/tools/librashader.sh" --windows)
 if x86_64-w64-mingw32-objdump -p "$LIBRA/librashader.dll" | grep -i 'DLL Name' | grep -viE 'KERNEL32|ntdll|msvcrt|USER32|ADVAPI32|api-ms-|bcrypt|WS2_32|userenv|OPENGL32|GDI32|ole32|OLEAUT32|SHELL32'; then

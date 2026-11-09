@@ -1347,9 +1347,8 @@ std::filesystem::path LauncherFolder() {
     if (!base) {
         return {};
     }
-    std::error_code missing;
-    const bool collection = !std::filesystem::exists(std::string(base) + GAME_ID "-launcher" + kExeSuffix, missing);
-    const std::string name = recomp::FolderName(GAME_NAME);  // (as the launcher names it)
+    const bool collection = InCollection();
+    const std::string name = recomp::FolderName(collection ? kCollectionName : GAME_NAME);  // (as the launcher names it)
     std::filesystem::path folder = recomp::PortableFolder(base);
     if (!folder.empty()) {
         folder /= std::filesystem::u8path(name);
@@ -1798,9 +1797,9 @@ bool InCollection() {
     static const bool collection = [] {
         const char *base = SDL_GetBasePath();
         std::error_code missing;
-        (void)base;
-        (void)missing;
-        return false; // (a game of its own: no collection yet)
+        // (the collection's launcher beside it: also where a launcher of the game's own from an earlier version, before
+        // the collection, was left by a download unpacked over the old one)
+        return base && std::filesystem::exists(std::string(base) + kCollectionLauncher + kExeSuffix, missing);
     }();
     return collection;
 }
@@ -1815,6 +1814,8 @@ void Usage() {
             "  --rom PATH             the ROM set (%s): a folder with its files, or its zip\n"
             "  --rom2 PATH            (a game that reads another set too) that set: a folder or zip (else\n"
             "                         beside --rom, by the set's name)\n"
+            "  --guest ID=PATH        (a game that shows another game's stages) that game's set: a folder or zip\n"
+            "                         (else beside --rom, by the set's name)\n"
             "  --eeprom FILE          where the board's settings memory is kept\n"
             "  --cpu MODE             native (translated code), blocks (the interpreter run the same way),\n"
             "                         interp (the interpreter, an instruction at a time), check\n"
@@ -1900,6 +1901,11 @@ bool ParseArgs(int argc, char **argv, port::Options &o) {
             o.romPath = next();
         } else if (a == "--rom2") {
             o.extraRomPath = next();
+        } else if (a == "--guest") {
+            const std::string guest = next();
+            if (const size_t equals = guest.find('='); equals != std::string::npos) {
+                SetGuestRomPath(guest.substr(0, equals), guest.substr(equals + 1));
+            }
         } else if (a == "--eeprom") {
             o.eepromPath = next();
         } else if (a == "--cpu") {
@@ -2093,7 +2099,7 @@ bool ParseArgs(int argc, char **argv, port::Options &o) {
 // The game's program opened by itself, with nothing to say what to play (a double click on it rather than on
 // the launcher): the launcher beside it is started instead, straight into the game if the player has chosen
 // their ROM set in it before (its --play), or at its first page to choose one. The launcher is the game's own, or
-// the collection's (cps2recomp-launcher: then at this game's page, or --play ID). True: it was started.
+// the collection's (sf3comp-launcher: then at this game's page, or --play ID). True: it was started.
 #ifndef __ANDROID__
 bool StartLauncher() {
     const char *base = SDL_GetBasePath();
@@ -2101,16 +2107,19 @@ bool StartLauncher() {
         return false;
     }
     const char *kExe = port::kExeSuffix;
-    std::string launcher = std::string(base) + GAME_ID "-launcher" + kExe;
+    std::string launcher = std::string(base) + port::kCollectionLauncher + kExe;
     std::error_code missing;
-    bool collection = false;
-    if (!std::filesystem::exists(launcher, missing)) {
-        return false;
+    const bool collection = port::InCollection();
+    if (!collection) {
+        launcher = std::string(base) + GAME_ID "-launcher" + kExe;
+        if (!std::filesystem::exists(launcher, missing)) {
+            return false;
+        }
     }
     bool setUp = false;
     // (the launcher's own folder and file; the collection's keeps each game's file in a section of its own. In
     // portable mode the folder is in user/ beside the launcher, as the launcher has it: recomp-common/folders.h)
-    const std::string name = recomp::FolderName(collection ? "CPS-2 Recomp" : GAME_NAME);  // (as the launcher names it)
+    const std::string name = recomp::FolderName(collection ? port::kCollectionName : GAME_NAME);  // (as the launcher names it)
     std::filesystem::path folder = recomp::PortableFolder(base);
     if (!folder.empty()) {
         folder /= std::filesystem::u8path(name);

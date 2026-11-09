@@ -11,6 +11,10 @@
 // sound (the system page's last row: 1 JAMMA, the board's default, 0 EXTERNAL; the driver's stereo byte 0x02079C5B
 // follows it). A blank EEPROM (the first start) gets the game's defaults at start-up, over these: they take from the
 // next start, once the EEPROM is kept.
+// The game's bytes are kept high first in each 32-bit word of the EEPROM as the machine holds it (SetByte). Checked
+// 2026-11-09 with every setting chosen at once and both pages of the test menu read: each row showed its own choice
+// (with the bytes low first, as this had it since 2026-11-02, difficulty set the damage level and the others went
+// astray the same way).
 //
 // The sound is EXTERNAL (stereo) unless chosen otherwise, since the port's sound is stereo. JAMMA is the board's mono
 // output, and the game makes it by giving every voice both sides at full volume: an effect made as a stereo pair, one
@@ -31,12 +35,12 @@ namespace {
     void SetByte(Machine &m, uint32_t offset, uint8_t value) {
         for (const uint32_t base : {0x00u, 0x30u}) { // (the block and its copy)
             uint32_t &word = m.eeprom.words[(base + offset) / 4];
-            const int shift = static_cast<int>((base + offset) % 4) * 8; // (the game's bytes, low first in each word kept)
+            const int shift = (3 - static_cast<int>((base + offset) % 4)) * 8; // (the game's bytes, high first in each word kept)
             word = (word & ~(0xFFu << shift)) | (static_cast<uint32_t>(value) << shift);
         }
     }
     uint8_t Byte(const Machine &m, uint32_t offset) {
-        return static_cast<uint8_t>(m.eeprom.words[offset / 4] >> (static_cast<int>(offset % 4) * 8));
+        return static_cast<uint8_t>(m.eeprom.words[offset / 4] >> ((3 - static_cast<int>(offset % 4)) * 8));
     }
     // The sound (0 stereo, the default: EXTERNAL; 1 JAMMA; 2 as the EEPROM has it). The game reads it at start-up
     // (frame 95) into its sound driver's stereo byte; from a blank EEPROM it takes its defaults instead (JAMMA), so the

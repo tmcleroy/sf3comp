@@ -3,10 +3,12 @@
 # Copyright (C) 2026 Tommy McLeroy. Part of sf3comp; from cps2recomp.
 #
 # Fails if a release archive holds anything it must not (game files, keys, a builder's home path) or lacks what it
-# must carry (the programs, the licences).
+# must carry (every game's program, the launcher, the licences).
 #   check_archive.sh ARCHIVE...
 set -eu
 status=0
+# (every game's program must be there: the ids of games/, as the launcher lists them)
+games="$(cd "$(dirname "$0")/../.." && python3 cps3recomp/tools/gamecfg.py --games)"
 bad() { echo "ARCHIVE FAIL ($archive): $1"; status=1; }
 for archive in "$@"; do
     dir="$(mktemp -d)"
@@ -20,8 +22,10 @@ for archive in "$@"; do
     for need in LICENSE.txt THIRD_PARTY_NOTICES.md licenses/SDL3.txt licenses/DearImGui.txt licenses/Inter-OFL.txt licenses/sound-decoders.txt SOURCE.txt; do
         echo "$names" | grep -q "/$need\$" || bad "missing $need"
     done
-    find "$dir" -type f \( -name sfiii3 -o -name sfiii3.exe \) | grep -q . || bad "no game program"
-    find "$dir" -type f \( -name sfiii3-launcher -o -name sfiii3-launcher.exe \) | grep -q . || bad "no launcher"
+    for game in $games; do
+        find "$dir" -type f \( -name "$game" -o -name "$game.exe" \) | grep -q . || bad "no program of $game"
+    done
+    find "$dir" -type f \( -name sf3comp-launcher -o -name sf3comp-launcher.exe \) | grep -q . || bad "no launcher"
     paths="$(cd "$dir" && grep -rlaE '/Users/[a-z]|/home/[a-z]+/|C:\\Users\\' . || true)"
     [ -z "$paths" ] || bad "a builder's home path inside: $paths"
     rm -rf "$dir"

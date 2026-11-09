@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Board page: each setting now sets its own (Difficulty set the damage level and Damage level the difficulty, Timer
+  speed did nothing, and the rounds, Event and Bonus games were crossed).
 - Stage viewer: New Generation's and 2nd Impact's stages, each with its own music; "Q's" gone (Q has no stage of his
   own: it showed Dudley's). On one stage it stays on it.
 - Widescreen: switched in the in-game menu, the window takes the 16:9 shape as it does when started so (it stayed 4:3,

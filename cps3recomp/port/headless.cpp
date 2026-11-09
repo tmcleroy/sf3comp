@@ -280,6 +280,11 @@ int main(int argc, char **argv) {
         };
         dump("bios.bin", rom.bios);
         dump("program.bin", rom.program);
+        // (a set whose instructions alone are enciphered, 2nd Impact's: program.bin is what its data reads see, with
+        // the instructions as stored; opcodes.bin what the CPU runs, with the data wrong)
+        if (!rom.opcodes.empty()) {
+            dump("opcodes.bin", rom.opcodes);
+        }
     }
     if (!blockList.empty()) {
         // (each listed block's code read from the set's own program: the cartridge's ROM or the program SIMMs, as

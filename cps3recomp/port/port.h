@@ -296,7 +296,11 @@ struct Port {
 };
 
 int RunWindowed(Port &port);
-// The game was started by the collection's launcher (cps2recomp-launcher is beside it, and no launcher of its own)
+// The collection: one launcher for every game (launcher/CMakeLists.txt, COLLECTION), its program beside the games'
+// and the name of its folder (its launcher.ini; each game keeps its own folder, named by the game)
+inline constexpr const char *kCollectionLauncher = "sf3comp-launcher";
+inline constexpr const char *kCollectionName = "SF3comp";
+// The game is one of the collection's (sf3comp-launcher is beside it)
 bool InCollection();
 // The optional features as the launcher lists them (--list-features)
 std::string LauncherFeatureList();

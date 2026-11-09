@@ -215,6 +215,10 @@ const std::vector<HudBox> &Boxes();
 // The player's ROM set (a zip or a folder), for game sources that read other sets beside it; and the machine
 void SetRomPath(const std::string &path);
 const std::string &RomPath();
+// Another game's set the player has chosen (the collection's launcher says them: --guest ID=PATH), by that game's id;
+// empty: none said, and a game source that reads it looks beside the player's own set
+void SetGuestRomPath(const std::string &id, const std::string &path);
+const std::string &GuestRomPath(const std::string &id);
 void SetMachine(Machine *machine);
 Machine *TheMachine();
 

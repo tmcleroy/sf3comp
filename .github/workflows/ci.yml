@@ -86,7 +86,7 @@ jobs:
         run: tools/release/macos.sh
       - name: Start the programs with no display (both halves)
         run: |
-          app="build/release/Street Fighter III 3rd Strike.app/Contents/MacOS"
+          app="build/release/SF3comp.app/Contents/MacOS"
           SKIP_BUILD=1 BIN="$app" BUILD="$RUNNER_TEMP/smoke" tools/ci_smoke.sh
           arch -x86_64 "$app/sfiii3" --list-features | grep -q '^free_play'
 

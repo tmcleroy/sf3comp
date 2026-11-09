@@ -22,6 +22,7 @@ Game &TheGame() {
 
 namespace {
     std::string g_romPath;
+    std::vector<std::pair<std::string, std::string>> g_guestRomPaths;
     Machine *g_machine = nullptr;
 } // namespace
 void SetRomPath(const std::string &path) {
@@ -29,6 +30,18 @@ void SetRomPath(const std::string &path) {
 }
 const std::string &RomPath() {
     return g_romPath;
+}
+void SetGuestRomPath(const std::string &id, const std::string &path) {
+    g_guestRomPaths.emplace_back(id, path);
+}
+const std::string &GuestRomPath(const std::string &id) {
+    static const std::string none;
+    for (const auto &[which, path] : g_guestRomPaths) {
+        if (which == id) {
+            return path;
+        }
+    }
+    return none;
 }
 void SetMachine(Machine *machine) {
     g_machine = machine;
