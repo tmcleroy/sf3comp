@@ -23,7 +23,8 @@ check "nothing made from a game (generated code, block databases, listings, memo
 # (a game's block list, games/<id>/block_addresses.txt, is committed: an address and a length in instructions per
 # line, never code; tools/translate.sh reads the code from the player's own set)
 check "block lists hold addresses and lengths only, no code" "$(grep -E '(^|/)block_addresses\.txt$' "$LIST" | while read -r f; do grep -nvE '^(#.*|[0-9A-F]{8} [0-9]{1,3})$' "$f" | sed "s|^|$f:|"; done)"
-check "every game has its game.cfg" "$(grep -E '^games/[^/]+/' "$LIST" | cut -d/ -f2 | sort -u | while read -r g; do [ -f "games/$g/game.cfg" ] || echo "games/$g"; done)"
+# (games/shared: sources several games build, each naming them in its game.cfg's shared_sources)
+check "every game has its game.cfg" "$(grep -E '^games/[^/]+/' "$LIST" | cut -d/ -f2 | sort -u | grep -vx shared | while read -r g; do [ -f "games/$g/game.cfg" ] || echo "games/$g"; done)"
 check "no pictures but the README's, no sound or video" "$(grep -iE '\.(png|jpe?g|gif|bmp|ppm|webp|mp4|mov|webm|wav|ogg|mp3|flac)$' "$LIST" | grep -vE '^docs/screenshots/[a-z0-9-]+\.(png|jpg)$' || true)"
 # (the published checksums of the libraries the builds download, and the commits they are pinned to, are not keys;
 # a ROM file's CRC in game.cfg is 8 digits, a fact about the file; nor is the commit a fetched file is pinned to)
