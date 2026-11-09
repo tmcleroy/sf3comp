@@ -190,7 +190,7 @@ while [ -n "$left" ]; do
     for name in "${NAMES[@]}"; do
         log="$OUT/$name-$round.log"
         if grep -q "rewrite .* differs" "$log"; then
-            echo "round $round, $name: a rewrite differs:"; grep "rewrite .* differs" "$log" | head -5; status=1
+            echo "round $round, $name: a rewrite differs:"; grep "rewrite .* differs" "$log" | head -5 | python3 "$TOP/cps3recomp/tools/names.py" annotate sfiii3; status=1
         fi
         if grep "cps3recomp: rewrite" "$log" | grep -v " 0 different," | sed "s/^cps3recomp: /round $round, $name: /" | grep .; then
             status=1

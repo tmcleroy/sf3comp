@@ -8,8 +8,11 @@
 #
 #   cps3recomp/tools/translate.sh ROMSET [FRAMES] [SEEDS]      (from the top of the repository)
 #
-# work/<game>/blocks.txt (the block database) and work/<game>/gen/ (the C++) are derived from the game: never
-# committed. Running it again adds to the database.
+# The block list, games/<game>/block_addresses.txt, is committed: each block's address and length in instructions,
+# no code. Recording adds what it finds to it (sorted, each block once). The code itself is read from the ROM set
+# given, deciphered as the game loads it (<game>-headless --block-code), into work/<game>/blocks.txt (the block
+# database recomp.py reads) and work/<game>/gen/ (the C++): derived from the game, never committed.
+# FRAMES 0: no recording, the committed list translated as it is.
 set -euo pipefail
 ROM=${1:?usage: translate.sh ROMSET [FRAMES] [SEEDS]}
 FRAMES=${2:-6000}
@@ -23,24 +26,40 @@ cmake -S "$TOP" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release -DGAME="$GAME" >
 ninja -C "$BUILD" "$GAME-headless" >/dev/null
 GAME_BIN="$BUILD/$GAME-headless"
 
+LIST="$TOP/games/$GAME/block_addresses.txt"
+[ -f "$LIST" ] || echo "# cps3recomp block list: address, length in instructions. No code: cps3recomp/tools/translate.sh reads it from your ROM set" > "$LIST"
+
 record() {
     nice -n 20 "$GAME_BIN" "$ROM" --cpu free --record-blocks "$WORK/blocks-$1.txt" "${@:2}" 2>&1 | grep "block database" || true
 }
-# (each run into its own file, so that they can run side by side; then merged)
-pids=()
-record attract --frames "$FRAMES" &
-pids+=($!)
-for seed in $SEEDS; do
-    # shellcheck disable=SC2046
-    record "play$seed" --frames "$FRAMES" $(python3 "$TOP/cps3recomp/tools/madeup_input.py" "$seed" "$FRAMES") &
+if [ "$FRAMES" != 0 ]; then
+    # (each run into its own file, so that they can run side by side; then merged)
+    rm -f "$WORK"/blocks-*.txt
+    pids=()
+    record attract --frames "$FRAMES" &
     pids+=($!)
-done
-wait "${pids[@]}"
-touch "$WORK/blocks.txt"
-cat "$WORK"/blocks-*.txt "$WORK/blocks.txt" | grep -v '^#' | sort -u > "$WORK/blocks.merged"
-{ echo "# cps3recomp block database: address, code bytes (derived from the game: never commit)"; cat "$WORK/blocks.merged"; } > "$WORK/blocks.txt"
-rm -f "$WORK"/blocks-*.txt "$WORK/blocks.merged"
-echo "block database: $(grep -vc '^#' "$WORK/blocks.txt") blocks"
+    for seed in $SEEDS; do
+        # shellcheck disable=SC2046
+        record "play$seed" --frames "$FRAMES" $(python3 "$TOP/cps3recomp/tools/madeup_input.py" "$seed" "$FRAMES") &
+        pids+=($!)
+    done
+    wait "${pids[@]}"
+fi
+# The blocks recorded, and those of a database made before the list was kept (work/<game>/blocks.txt), into the
+# list by address and length: only the ROMs' (what runs in main RAM is whatever the program put there)
+shopt -s nullglob
+recorded=("$WORK"/blocks-*.txt)
+[ ! -f "$WORK/blocks.txt" ] || recorded+=("$WORK/blocks.txt")
+if [ ${#recorded[@]} -gt 0 ]; then
+    { head -1 "$LIST"
+      { grep -v '^#' "$LIST" || true
+        cat "${recorded[@]}" | awk '!/^#/ {a = substr($1, 1, 2); if (a == "00" || a == "06") printf "%s %d\n", $1, length($2) / 4}'
+      } | LC_ALL=C sort -u; } > "$WORK/list.merged"
+    mv "$WORK/list.merged" "$LIST"
+    rm -f "$WORK"/blocks-*.txt
+fi
+"$GAME_BIN" "$ROM" --block-code "$LIST" "$WORK/blocks.txt"
+echo "block list: $(grep -vc '^#' "$LIST") blocks"
 
 # (a stage game's code is linked into 3rd Strike's program beside 3rd Strike's own: its names prefixed, its tables
 # registered by name; its own headless build finds them the same way)
@@ -50,8 +69,11 @@ case "$GAME" in
     sfiii2n) PREFIX_ARGS="--prefix sfiii2n --index-base 20000" ;;
     *) PREFIX_ARGS="--prefix $GAME --index-base 30000" ;;
 esac
+# (the routines' names in comments, where their table has been fetched: tools/names.py fetch)
+NAMES_ARGS=""
+[ -f "$WORK/functions.tsv" ] && NAMES_ARGS="--names $WORK/functions.tsv"
 # shellcheck disable=SC2086
-python3 "$TOP/cps3recomp/tools/recomp.py" --blocks "$WORK/blocks.txt" --ops "$TOP/cps3recomp/machine/sh2_ops.h" --out "$WORK/gen" $PREFIX_ARGS
+python3 "$TOP/cps3recomp/tools/recomp.py" --blocks "$WORK/blocks.txt" --ops "$TOP/cps3recomp/machine/sh2_ops.h" --out "$WORK/gen" $PREFIX_ARGS $NAMES_ARGS
 cmake -S "$TOP" -B "$BUILD" >/dev/null
 ninja -C "$BUILD" "$GAME-headless" >/dev/null
 echo "built $GAME_BIN with the translated code"

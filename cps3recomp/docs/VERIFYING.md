@@ -12,8 +12,17 @@ cps3recomp/tools/check.sh ROMSET [FRAMES] [CHECK_FRAMES] # compare the translati
 
 `translate.sh` records the blocks the game runs (`--cpu free --record-blocks`) in attract mode and in made-up play
 (`tools/madeup_input.py SEED FRAMES`: coins, Start, a character, then random presses), adds the blocks found by
-following their code through the ROMs, writes `work/<game>/gen/blocks_*.cpp` and builds. Running it again adds to
-`work/<game>/blocks.txt`.
+following their code through the ROMs, writes `work/<game>/gen/blocks_*.cpp` and builds. What it finds goes into the
+game's block list, `games/<game>/block_addresses.txt` (committed: each block's address and length in instructions,
+sorted, no code); each block's code is read from the ROM set given, deciphered as the game loads it
+(`<game>-headless ROMSET --block-code LIST OUT`), into `work/<game>/blocks.txt`, the database `recomp.py` reads.
+FRAMES 0 records nothing: the list as it is.
+
+`tools/names.py fetch` downloads the table of a game's routines' names that its `game.cfg` names (`names_source`) to
+`work/<game>/functions.tsv`. With it there, the translated blocks carry their routine's name in a comment, the checks
+print each address with its routine (`check: block 0611962C (Player_move+0x4C) differs`), `names.py lookup` answers
+for one address or name, and `names.py annotate` does the same for any log piped through it. Without it nothing
+changes.
 
 ## The CPU modes (`--cpu`)
 

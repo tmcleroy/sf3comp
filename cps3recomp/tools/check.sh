@@ -49,7 +49,8 @@ compare "made-up play" "$OUT/play-native" "$OUT/play-native2"
 echo "3. block by block ($CHECK_FRAMES frames of the play, every dispatch)"
 # shellcheck disable=SC2086
 "$BIN" "$ROM" --frames "$CHECK_FRAMES" --cpu native --check 1 $PLAY > /dev/null 2> "$OUT/blocks.log" || failed=1
-grep -E "^check:|cps3recomp: check" "$OUT/blocks.log" | sed 's/^/  /'
+# (each address with its routine's name, where the names' table has been fetched: tools/names.py)
+grep -E "^check:|cps3recomp: check" "$OUT/blocks.log" | python3 "$TOP/cps3recomp/tools/names.py" annotate "$GAME" | sed 's/^/  /'
 if [ "$failed" = 0 ]; then
     echo "check: all the same"
 else
