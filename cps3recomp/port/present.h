@@ -118,8 +118,16 @@ public:
     double WaitShown();
     // ... and what the last was read back (0x00BBGGRR), in a command buffer of its own after WaitShown
     bool ReadOffscreen(std::vector<uint32_t> &pixels);
+    // For the checks (the window's picture, CPS3RECOMP_WINDOW_SHOT: frontend_sdl.cpp): what the window was last shown,
+    // read back, `width` x `height` (0x00BBGGRR): offscreen, the presenter's texture; through SDL's renderer, its
+    // picture kept as each is presented (keepShown). False: none kept
+    bool keepShown = false;
+    bool ReadShown(std::vector<uint32_t> &pixels, int &width, int &height);
 
 private:
+    void KeepShown();
+    std::vector<uint32_t> m_shown;
+    int m_shownWidth = 0, m_shownHeight = 0;
     bool OpenGpu(SDL_Window *window, std::string &error);
     bool MakePipeline(SDL_GPUTextureFormat target, std::string &error);
     bool Upload(SDL_GPUCommandBuffer *commands, const uint32_t *pixels, int width, int height);

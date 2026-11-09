@@ -46,6 +46,8 @@ namespace cps3recomp {
 
 // (stages.cpp: 3rd Strike's own stages drawn behind the fighters from the stage board)
 void StageBehind(int stage);
+void StageBehindGuest(int choice);
+std::vector<const char *> GuestStageNames();
 void StageBehindCamera(int x);
 int StageBehindFollow();
 bool StageBehindEnds(int &left, int &right);
@@ -80,6 +82,15 @@ namespace {
     constexpr int32_t kViewerStick = 384;               // (the stage viewer) ... with the stick held
     enum { kStageScroll, kStageShuffle };               // (endless_stage's first two choices; then the stages)
     enum { kTuneOwn, kTuneNone };                       // (viewer_music's: the stage's own, or none)
+    // The stage viewer's stages after Infinite: 3rd Strike's by their stage numbers (as its characters are numbered),
+    // then New Generation's and 2nd Impact's (stages.cpp's choices, GuestStageNames, from 1). Q has no stage of his own:
+    // the game meets him on the stage of the fight before (0x02016D81, kept from the stage byte at 0x0609AEE8), and
+    // its stage number 18 builds Dudley's stage (the stage's head's routine word, +0x4A, 4; the same picture). Until
+    // 2026-11-08 the viewer's list was the characters' (Q's among them: Dudley's stage shown, the play-test's "Qs stage
+    // is dudleys"), and had none of the guest stages
+    constexpr uint8_t kQ = 18;
+    constexpr uint8_t kViewerOwn[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 19, 20};
+    constexpr int kViewerOwnCount = static_cast<int>(std::size(kViewerOwn));
     // The computer's level in the one-player game goes by its play time (Control_Time, a word of seconds: fight_round.cpp,
     // computer_entry.cpp), which a person's win puts 40 seconds on (Update_Level_Control, fight_match.cpp) as far as its
     // limit (Limit_Time)
@@ -125,6 +136,7 @@ namespace {
         int8_t direction = 1;
         bool infinite = false;
         int8_t viewed = -1;
+        int8_t guest = 0;           // (the viewer on another game's stage: stages.cpp's choice, from 1; 0 3rd Strike's)
         uint8_t tune = 0;           // (the viewer's music: kTuneOwn or kTuneNone)
         int fade = 0;               // the fade between two stages: 0 none, 1-kFadeFor out, then in
         int32_t scroll = 0;         // (scrolling) the camera's middle, in 256ths of a pixel
@@ -285,7 +297,7 @@ namespace {
     }
     uint8_t AnotherStage(uint8_t not1) {
         uint8_t stage = not1;
-        for (int n = 0; n < 8 && stage == not1; n++) {
+        for (int n = 0; n < 8 && (stage == not1 || stage == kQ); n++) { // (Q's number: Dudley's stage)
             stage = static_cast<uint8_t>(Next() % kCharacterCount);
         }
         return stage;
@@ -361,11 +373,17 @@ namespace {
         Begin(machine, kEndless);
         b.viewer = true;
         b.viewed = static_cast<int8_t>(FeatureValue("viewer_stage"));
-        b.infinite = b.viewed <= 0 || b.viewed > kCharacterCount; // (Infinite the first choice, then the stages)
-        b.stage = b.infinite ? 0 : static_cast<uint8_t>(b.viewed - 1);
+        const int guests = static_cast<int>(GuestStageNames().size());
+        b.infinite = b.viewed <= 0 || b.viewed > kViewerOwnCount + guests; // (Infinite the first choice, then the stages)
+        b.guest = !b.infinite && b.viewed > kViewerOwnCount ? static_cast<int8_t>(b.viewed - kViewerOwnCount) : 0;
+        b.stage = b.infinite || b.guest ? 0 : kViewerOwn[b.viewed - 1];
         b.nextStage = b.stage;
         b.tune = FeatureValue("viewer_music") == kTuneNone ? kTuneNone : kTuneOwn; // (taken as the viewer starts; a tune of the old list: its own)
-        StageBehind(b.stage);
+        if (b.guest) {
+            StageBehindGuest(b.guest); // (its own music, as in a fight on it)
+        } else {
+            StageBehind(b.stage);
+        }
         b.want[0] = RandomCharacter();
         b.want[1] = RandomCharacter();
     }
@@ -739,8 +757,14 @@ namespace {
         const uint32_t minutes = static_cast<uint32_t>(kShuffleMinutes[std::clamp(FeatureValue("endless_shuffle"), 0, 4)]);
         const bool continuous = scrolling && (b.viewer || FeatureValue("endless_between") == 0);
         const bool due = scrolling ? b.scrolled : b.onStageFor >= minutes * 3600;
+        // (the viewer on one stage stays on it: it went on to another after the endless battle's Shuffle every, a minute
+        // unless set otherwise)
+        if (b.viewer && !scrolling) {
+            return;
+        }
         if (shown && b.nextStage == b.stage && (scrolling || b.onStageFor + 600 >= minutes * 3600)) {
-            b.nextStage = scrolling ? static_cast<uint8_t>((b.stage + 1) % kCharacterCount) : AnotherStage(b.stage);
+            // (in turn, Q's stage number passed over: Dudley's stage again)
+            b.nextStage = scrolling ? static_cast<uint8_t>((b.stage + 1 + (b.stage + 1 == kQ)) % kCharacterCount) : AnotherStage(b.stage);
             if (continuous) {
                 StageBehindNextBeside(m, b.nextStage);
             } else if (!scrolling) {
@@ -1948,10 +1972,16 @@ void RegisterBattle(Game &game) {
     {
         static std::vector<const char *> viewerStages;
         viewerStages.assign(1, "Infinite");
-        viewerStages.insert(viewerStages.end(), stages.begin() + 2, stages.end());
+        for (const uint8_t stage : kViewerOwn) {
+            viewerStages.push_back(stageNames[stage].c_str());
+        }
+        for (const char *name : GuestStageNames()) {
+            viewerStages.push_back(name);
+        }
         game.features.push_back({"viewer_stage", "Stage viewer", "Stage",
-                                 "Infinite: every stage in turn, each scrolling to its end and fading into the next, with its own "
-                                 "tune. Or one stage. Changing it while viewing goes to the new one.",
+                                 "Infinite: every one of 3rd Strike's stages in turn, each scrolling to its end and fading into the "
+                                 "next, with its own tune. Or one stage: 3rd Strike's, or New Generation's or 2nd Impact's (their sets "
+                                 "beside this one's, sfiiin.zip and sfiii2n.zip). Changing it while viewing goes to the new one.",
                                  kFeatureMenuChoices, viewerStages});
         game.features.push_back({"viewer_scroll", "Stage viewer", "Scrolling",
                                  "How the viewer moves across the stage: with the stick, or by itself from one end to the other and "

@@ -26,8 +26,9 @@
 
 - Widescreen (Game category: it changes play): 64 columns more each side (the renderer's margin: tilemaps drawn on,
   objects and the text layer moved over); in a fight the camera's ends (02026CF4/CF6 right, CF8/CFA left) are
-  narrowed by 64 so the picture never shows past the stage. Seen on Ken's stage at both ends; other stages, the
-  objects the game leaves out at the edges (it culls to its 384 columns) and non-fight screens not looked at.
+  narrowed by 64 so the picture never shows past the stage. The stages' things the game left out past its 384 columns
+  are drawn into the margins (range_x_check widened for the display entries; checkpopin.sh, every stage); the window
+  takes the picture's shape when it is switched (Game::widestPicture; checkwide.sh).
   Invisible walls (widescreen_walls): the limits left as the game sets them, the world drawn off centre near a stage's
   end (Renderer::shift) and the text layer (the panel) centred: the state hash is the same as without widescreen.
 - The board's game settings (Board page: difficulty, damage, timer speed, rounds against the computer and between
@@ -47,7 +48,8 @@
   playing, +0x204 its cell (in fours of bytes), +0x214 the frames left of it, +0x20C the step; 0x06089848 advances it.
   The model viewer plays one chosen (A0..J159, the ones a character lacks passed over), or all in turn.
 - Stage viewer (the Alternative modes' mode; the training page's own entry removed 2026-11-06): Machine::onlyStage draws
-  the board's own stage objects and no text layer (or the stage board's picture alone).
+  the board's own stage objects and no text layer (or the stage board's picture alone). 3rd Strike's 20 stages and New
+  Generation's and 2nd Impact's 28 (2026-11-08; checkviewer.sh).
 - Survival, endless battle and team battle (games/sfiii3/src/battle.cpp, as cps2recomp's fight/battle.h): a board
   reset to character select for two players, that machine kept, and each next match made on a spare machine
   (runtime/spare.h, cps2recomp's) from it while the knock-out plays (six of its frames a frame, about 70 frames of
@@ -152,6 +154,39 @@
     written, the same numbers for the same move hit or guarded; a note at the bottom of the screen says where the file
     is as each move is written.
   - The training page's Stage viewer removed (the Alternative modes' stage viewer is the mode).
+- The third play-test's fixes (2026-11-07, the Steam Machine; each check written first, failing on 3bbe95e, passing after):
+  - Stage viewer: "guest stages should be available in stage viewer mode. also in stage viewer Qs stage is dudleys". Its
+    list was the characters' 21, Q's among them: Q has no stage of his own (the game meets him on the fight before's,
+    0x02016D81 kept from the stage byte at 0x0609AEE8) and stage number 18 builds Dudley's stage (the head's routine word
+    4, the same picture). Now 3rd Strike's 20 stages, then New Generation's 13 and 2nd Impact's 15 (made alone on the
+    stage board as in a fight, their own music, none with None); Q's number passed over in the modes' turns and shuffles
+    too; a viewer on one stage stays on it (it shuffled to another after the endless battle's "Shuffle every"). Infinite
+    goes through 3rd Strike's stages only (the second board that scrolls the next one in is the same game's).
+    checkviewer.sh: ground truth is each stage's own fight (training sessions on it, SFIII3_STAGE_PICTURES: its layers
+    alone); stagecheck.py names each entry's stage by its colours (its own 0.79-0.97 of its colours shared, the next
+    other at most 0.54) and hears its music. On 3bbe95e: Q's the same stage as Dudley's, 28 stages missing.
+  - Widescreen switched in the in-game menu was letterboxed: the game gave the frontend no widest picture
+    (Game::widestPicture, as the CPS-2 ports give it), so the window was made 4:3 at start-up and never took another
+    shape. checkwide.sh works the real frontend's menu (CPS3RECOMP_MENU_SCRIPT) and reads back what the window was shown
+    (CPS3RECOMP_WINDOW_SHOT; the GPU presenter offscreen at 1280x720 with CPS3RECOMP_WINDOW_OFFSCREEN, under the GPU lock)
+    against a run started so, both ways, the opening and the stage viewer: on 3bbe95e the window stayed 896x672 with
+    16:9 in it. The GPU and CPU presenters themselves gave the same picture switched as started (no presenter sizing at
+    start-up found). Not reproduced: the Steam Machine's gamescope full screen (no access); the user's play-test is the
+    test there.
+  - Pop-in at the widescreen picture's edges: the stages' things (crates, sawhorses, signs, people: effects) are pushed for
+    drawing by the display entries (disp_pos_trans_entry_r and kin, 0x060B65E0-0x060B6B00) only while range_x_check
+    (0x060B6404) finds their place within 193 columns of their layer's middle, so in 16:9 each came on whole 64 columns
+    inside the edge. With widescreen on, for those entries only, the range is 193 + 96 (widescreen.cpp, a lift on 3rd
+    Strike's board and its stage boards); range_x_check's other callers and range_x_check3 (projectiles: play) keep the
+    game's. New Generation's and 2nd Impact's own range checks keep things within 272 already. checkpopin.sh
+    (SFIII3_POPIN_CHECK): the stage viewer over all 48 entries and training fights of made-up play on all 49 Stage rows,
+    widescreen; a stage piece appearing or going whole in the margins, a tilemap cell going from nothing to something
+    there, or an end column with nothing of the stage, beyond what the stage does between them (animation, things it
+    brings on; and seen so in the picture). Without the widened range (3bbe95e's) 7 runs failed: the viewer on Dudley's
+    stage 16 pop-ins, Chun-Li's 6, Ken's 4, Twelve's 3; fights on Dudley's 6, Chun-Li's 3, Remy's 3. With it, none. Allowed
+    by name in popincheck.py: Elena's sky has nothing in its last 6 columns at the right end for a few frames at the top of
+    a high jump (8 of 1688 frames: not put right); New Generation's Gill stage's lava sparks, its own effect, which the
+    fight's camera keeps in the left margin (13, the same either way). Tilemap streaming: no column brought in late found.
 
 ## Gotchas
 

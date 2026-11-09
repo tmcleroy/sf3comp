@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Stage viewer: New Generation's and 2nd Impact's stages, each with its own music; "Q's" gone (Q has no stage of his
+  own: it showed Dudley's). On one stage it stays on it.
+- Widescreen: switched in the in-game menu, the window takes the 16:9 shape as it does when started so (it stayed 4:3,
+  the picture letterboxed in it); the stages' things no longer pop in 64 columns inside the picture's edges.
+
 - The open source project: a new README, CONTRIBUTING, CODE_OF_CONDUCT and SECURITY, issue and pull request
   templates, the files' audit (tools/audit.sh), CI on macOS, Linux and Windows (the programs built with no
   translated code and started with no window: tools/ci_smoke.sh), and a release workflow that drafts a release from

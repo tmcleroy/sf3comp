@@ -1918,7 +1918,318 @@ namespace {
 
 // After the frame's other sources (the modes' too): the checks that drive the fight or watch it (SFIII3_JITTER_CHECK,
 // SFIII3_SESSION_STAGES, SFIII3_LAYER_CHECK)
+namespace {
+    // The pop-in check (SFIII3_POPIN_CHECK=1: checkpopin.sh), in widescreen, each frame a stage is shown (3rd Strike's own
+    // in a fight, a stage board's composed, the stage viewer's): the stage's layers drawn as the picture has them, its
+    // objects alone and each of its tilemaps alone, against the frame before. A stage piece that appears or goes in one
+    // frame, whole, inside the picture (its pixels drawn where nothing of the stage's objects was within a few columns
+    // the frame before, a patch of kPopArea or more, not at the picture's outer edge where things slide in) is pop-in;
+    // counted in the margins (the columns widescreen adds) and in the board's 384 between (what the 4:3 game would show
+    // appearing too: animation, things the stage brings on). A tilemap's cell (16 columns of 8 lines) that goes
+    // from nothing to something or back, seen so, once its band of lines is lined up with the frame before (a column
+    // brought in late), likewise. And columns at the picture's ends with nothing
+    // of the stage at all (black: what was never meant to be seen). Reported by stage at the end; the first few frames
+    // with pop-in in the margins written as strips (the frame before | the frame | red where it appeared) to
+    // SFIII3_POPIN_STRIPS's folder. The play-test of 2026-11-07: "in widescreen (at least stage viewer mode) stage elements
+    // that would be offscreen on 4:3 pop in at the edges of 16:9".
+    bool PopInChecking() {
+        static const bool on = getenv("SFIII3_POPIN_CHECK") != nullptr;
+        return on;
+    }
+    constexpr int kPopArea = 160, kPopNear = 6, kPopEdge = 4;
+    struct PopStats {
+        uint64_t frames = 0, objectsMargin = 0, objectsMiddle = 0, cellsMargin = 0, cellsMiddle = 0, blackFrames = 0;
+    };
+    struct PopIn {
+        std::vector<uint32_t> objects, tiles[4], whole;
+        int width = 0, height = 0;
+        std::string stage;
+        std::vector<std::pair<std::string, PopStats>> stats;
+        unsigned strips = 6;
+        ~PopIn() {
+            if (!PopInChecking()) {
+                return;
+            }
+            for (const auto &[name, s] : stats) {
+                fprintf(stderr, "popin: stage %s: %llu frames compared; objects appearing or going in the margins %llu (between them %llu); tilemap cells "
+                                "changing in the margins %llu (between them %llu); frames with an end column with nothing of the stage %llu\n",
+                        name.c_str(), static_cast<unsigned long long>(s.frames), static_cast<unsigned long long>(s.objectsMargin),
+                        static_cast<unsigned long long>(s.objectsMiddle), static_cast<unsigned long long>(s.cellsMargin),
+                        static_cast<unsigned long long>(s.cellsMiddle), static_cast<unsigned long long>(s.blackFrames));
+            }
+        }
+    } g_pop;
+
+    // Patches of pixels drawn in `now` with nothing drawn within kPopNear of them in `was`: (count of patches of kPopArea or
+    // more inside the picture, not touching its outer kPopEdge columns) in the margins and between; `mark` set where they are
+    // (`was` moved by the frame's move, ox across and oy down, first; a patch also kPopSize across and down at least: not
+    // the thin lines a layer's line objects leave as its lines scroll)
+    constexpr int kPopSize = 8;
+    // (`seenWas`, `seenNow`: the whole stage as shown, the frame before and this one: a patch counts only where the picture
+    // changed with it, not a thing drawn under another or one whose two frames look alike)
+    void Appeared(const std::vector<uint32_t> &was, const std::vector<uint32_t> &now, const std::vector<uint32_t> &seenWas,
+                  const std::vector<uint32_t> &seenNow, int w, int h, int margin, int ox, int oy, uint64_t &inMargin, uint64_t &inMiddle,
+                  std::vector<uint8_t> &mark) {
+        // (was's coverage spread kPopNear each way: a box sum)
+        std::vector<int> sum(static_cast<size_t>(w + 1) * (h + 1), 0);
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                sum[static_cast<size_t>(y + 1) * (w + 1) + x + 1] = (was[static_cast<size_t>(y) * w + x] != 0) + sum[static_cast<size_t>(y) * (w + 1) + x + 1] +
+                                                                    sum[static_cast<size_t>(y + 1) * (w + 1) + x] - sum[static_cast<size_t>(y) * (w + 1) + x];
+            }
+        }
+        const auto near = [&](int x, int y) {
+            x -= ox;
+            y -= oy;
+            const int x0 = std::max(0, x - kPopNear), x1 = std::min(w, x + kPopNear + 1), y0 = std::max(0, y - kPopNear), y1 = std::min(h, y + kPopNear + 1);
+            if (x1 <= x0 || y1 <= y0) {
+                return false; // (moved past the picture's edge: nothing was there)
+            }
+            return sum[static_cast<size_t>(y1) * (w + 1) + x1] - sum[static_cast<size_t>(y0) * (w + 1) + x1] - sum[static_cast<size_t>(y1) * (w + 1) + x0] +
+                       sum[static_cast<size_t>(y0) * (w + 1) + x0] > 0;
+        };
+        std::vector<uint8_t> fresh(static_cast<size_t>(w) * h, 0);
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                fresh[static_cast<size_t>(y) * w + x] = now[static_cast<size_t>(y) * w + x] != 0 && !near(x, y);
+            }
+        }
+        std::vector<int> stack;
+        for (int start = 0; start < w * h; start++) {
+            if (fresh[start] != 1) {
+                continue;
+            }
+            int area = 0, left = w, right = -1, top = h, bottom = -1;
+            int64_t across = 0;
+            std::vector<int> patch;
+            stack.assign(1, start);
+            fresh[start] = 2;
+            while (!stack.empty()) {
+                const int at = stack.back();
+                stack.pop_back();
+                patch.push_back(at);
+                const int x = at % w, y = at / w;
+                area++;
+                across += x;
+                left = std::min(left, x);
+                right = std::max(right, x);
+                top = std::min(top, y);
+                bottom = std::max(bottom, y);
+                const int next[4] = {x > 0 ? at - 1 : -1, x + 1 < w ? at + 1 : -1, y > 0 ? at - w : -1, y + 1 < h ? at + w : -1};
+                for (const int n : next) {
+                    if (n >= 0 && fresh[n] == 1) {
+                        fresh[n] = 2;
+                        stack.push_back(n);
+                    }
+                }
+            }
+            if (area < kPopArea || right - left + 1 < kPopSize || bottom - top + 1 < kPopSize || left < kPopEdge || right >= w - kPopEdge) {
+                continue;
+            }
+            // (and nothing of the stage's objects in or beside its box the frame before: a thing that was there and moved
+            // its arm, a spectator's animation, is not one that came on)
+            {
+                constexpr int kBeside = 16; // (its box and as far again around it)
+                const int x0 = std::max(0, left - ox - kBeside), x1 = std::min(w, right + 1 - ox + kBeside), y0 = std::max(0, top - oy - kBeside),
+                          y1 = std::min(h, bottom + 1 - oy + kBeside);
+                if (x1 > x0 && y1 > y0 &&
+                    sum[static_cast<size_t>(y1) * (w + 1) + x1] - sum[static_cast<size_t>(y0) * (w + 1) + x1] - sum[static_cast<size_t>(y1) * (w + 1) + x0] +
+                            sum[static_cast<size_t>(y0) * (w + 1) + x0] > 0) {
+                    continue;
+                }
+            }
+            int seen = 0;
+            for (const int at : patch) {
+                const int x = at % w - ox, y = at / w - oy;
+                seen += x < 0 || y < 0 || x >= w || y >= h || seenNow[at] != seenWas[static_cast<size_t>(y) * w + x];
+            }
+            if (seen * 2 < area) {
+                continue;
+            }
+            const int middle = static_cast<int>(across / area);
+            const bool inTheMargin = middle < margin || middle >= w - margin;
+            (inTheMargin ? inMargin : inMiddle)++;
+            if (inTheMargin) {
+                for (const int at : patch) {
+                    mark[at] = 1;
+                }
+            }
+        }
+    }
+
+    void PopInFrame(Machine &machine) {
+        PopIn &p = g_pop;
+        const int margin = machine.WideMargin();
+        const bool composed = machine.StageBoard() && machine.composeNow && machine.composeNow();
+        if (!InMatch() || margin <= 0 || (machine.onlyStage && !composed)) {
+            p.width = 0;
+            return;
+        }
+        const machine::Machine &m = composed ? *machine.StageBoard() : machine.board;
+        const std::string stage = composed ? std::string(kChoices[g.loaded].game->set) + ":" + std::to_string(StageNow())
+                                           : std::string("sfiii3:") + std::to_string(Ram8(sfiii3::kStage));
+        static native::Rasteriser r;
+        r.margin = margin;
+        r.text = false;
+        struct Keep {
+            bool guest;
+            int tilemap; // (-1: the objects, not the tilemaps' lines; -2 all of the stage)
+        } keep{composed, -1};
+        r.keepContext = &keep;
+        r.keep = [](const void *context, const native::Object &o, uint32_t) {
+            const Keep &k = *static_cast<const Keep *>(context);
+            if (!(k.guest ? StageWords(o.words[0], o.words[2]) : OwnStageWords(o.words[0], o.words[2]))) {
+                return false;
+            }
+            const bool line = (o.words[2] & 3) == 0;
+            return k.tilemap == -2 || (k.tilemap == -1 ? !line : line && static_cast<int>((o.words[2] >> 4) & 3) == k.tilemap);
+        };
+        std::vector<uint32_t> objects, tiles[4], whole;
+        int w = 0, h = 0;
+        r.Draw(m.native, m.SpriteRamBytes(), m.SsRam(), objects, w, h);
+        for (int t = 0; t < 4; t++) {
+            keep.tilemap = t;
+            r.Draw(m.native, m.SpriteRamBytes(), m.SsRam(), tiles[t], w, h);
+        }
+        keep.tilemap = -2;
+        r.Draw(m.native, m.SpriteRamBytes(), m.SsRam(), whole, w, h);
+        bool compared = p.width == w && p.height == h && p.stage == stage && p.objects.size() == objects.size();
+        if (compared) {
+            // (not a frame the picture jumped in, further than the checks reach: a round's start, a camera put somewhere at
+            // once; the whole stage lined up with the frame before at least half the same)
+            int wx = 0, wy = 0;
+            PictureShift(p.whole, whole, w, h, wx, wy);
+            int64_t same = 0, all = 0;
+            for (int y = std::max(0, wy); y < h + std::min(0, wy); y += 2) {
+                for (int x = std::max(0, wx); x < w + std::min(0, wx); x += 2) {
+                    same += whole[static_cast<size_t>(y) * w + x] == p.whole[static_cast<size_t>(y - wy) * w + x - wx];
+                    all++;
+                }
+            }
+            compared = same * 2 >= all;
+        }
+        if (compared) {
+            auto it = std::find_if(p.stats.begin(), p.stats.end(), [&](const auto &one) { return one.first == stage; });
+            if (it == p.stats.end()) {
+                p.stats.push_back({stage, {}});
+                it = p.stats.end() - 1;
+            }
+            PopStats &s = it->second;
+            s.frames++;
+            std::vector<uint8_t> mark(static_cast<size_t>(w) * h, 0);
+            const uint64_t before = s.objectsMargin;
+            int ox = 0, oy = 0;
+            PictureShift(p.objects, objects, w, h, ox, oy);
+            Appeared(p.objects, objects, p.whole, whole, w, h, margin, ox, oy, s.objectsMargin, s.objectsMiddle, mark); // (appearing)
+            Appeared(objects, p.objects, whole, p.whole, w, h, margin, -ox, -oy, s.objectsMargin, s.objectsMiddle, mark); // (going)
+            // (each tilemap lined up with the frame before; then its cells that changed, but the columns brought in at the
+            // picture's ends by the move)
+            // (lined up a band of kBand lines at a time, across only (a layer's lines scroll each their own way: the
+            // floor's), the frame's move up taken from the whole layer; a band that does not line up nearly whole, as
+            // when the camera jumps further than kReach, is passed by)
+            const uint64_t cellsBefore = s.cellsMargin;
+            constexpr int kBand = 8, kReach = 16, kCell = 16;
+            for (int t = 0; t < 4; t++) {
+                int gx = 0, dy = 0;
+                PictureShift(p.tiles[t], tiles[t], w, h, gx, dy);
+                for (int by = std::max(0, dy); by + kBand <= h + std::min(0, dy); by += kBand) {
+                    int best = -1, dx = 0, drawn = 0;
+                    for (int sx = -kReach; sx <= kReach; sx++) {
+                        int same = 0;
+                        for (int y = by; y < by + kBand; y += 2) {
+                            const uint32_t *a = &tiles[t][static_cast<size_t>(y) * w], *b = &p.tiles[t][static_cast<size_t>(y - dy) * w];
+                            for (int x = kReach; x < w - kReach; x += 2) {
+                                same += a[x] == b[x - sx] && a[x] != 0;
+                            }
+                        }
+                        if (same > best) {
+                            best = same;
+                            dx = sx;
+                        }
+                    }
+                    for (int y = by; y < by + kBand; y += 2) {
+                        for (int x = kReach; x < w - kReach; x += 2) {
+                            drawn += tiles[t][static_cast<size_t>(y) * w + x] != 0;
+                        }
+                    }
+                    if (drawn < 32 || best * 10 < drawn * 8) {
+                        continue;
+                    }
+                    for (int cx = kPopEdge + kReach; cx + kCell <= w - kPopEdge - kReach; cx += kCell / 2) {
+                        int changed = 0;
+                        for (int y = by; y < by + kBand; y++) {
+                            for (int x = cx; x < cx + kCell; x++) {
+                                const uint32_t a = tiles[t][static_cast<size_t>(y) * w + x], b = p.tiles[t][static_cast<size_t>(y - dy) * w + x - dx];
+                                // (nothing of it there and now something, or the other way, and seen so in the picture: not a colour changing, as
+                                // a neon sign flashes, nor a layer behind another changing where it is covered)
+                                const size_t at = static_cast<size_t>(y) * w + x, was = static_cast<size_t>(y - dy) * w + x - dx;
+                                changed += (a == 0) != (b == 0) && whole[at] != p.whole[was];
+                            }
+                        }
+                        if (changed > kCell * kBand / 2) {
+                            const bool inTheMargin = cx + kCell / 2 < margin || cx + kCell / 2 >= w - margin;
+                            (inTheMargin ? s.cellsMargin : s.cellsMiddle)++;
+                            if (inTheMargin) {
+                                for (int y = by; y < by + kBand; y++) {
+                                    for (int x = cx; x < cx + kCell; x++) {
+                                        mark[static_cast<size_t>(y) * w + x] = 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // (a column at either end with nothing of the stage in it)
+            bool black = false;
+            for (const int x : {0, w - 1}) {
+                bool any = false;
+                for (int y = 0; y < h && !any; y++) {
+                    any = whole[static_cast<size_t>(y) * w + x] != 0;
+                }
+                black = black || !any;
+            }
+            s.blackFrames += black;
+            if ((s.objectsMargin != before || s.cellsMargin != cellsBefore) && getenv("SFIII3_POPIN_LOG")) { // (debugging aid)
+                fprintf(stderr, "popin: frame %llu (the board's %llu), stage %s: objects %llu, cells %llu in the margins\n",
+                        static_cast<unsigned long long>(machine.frame), static_cast<unsigned long long>(m.Frame()), stage.c_str(),
+                        static_cast<unsigned long long>(s.objectsMargin - before), static_cast<unsigned long long>(s.cellsMargin - cellsBefore));
+            }
+            const char *folder = getenv("SFIII3_POPIN_STRIPS");
+            if ((s.objectsMargin != before || s.cellsMargin != cellsBefore || black) && folder && p.strips) {
+                p.strips--;
+                std::vector<uint32_t> strip(static_cast<size_t>(w) * 3 * h);
+                for (int y = 0; y < h; y++) {
+                    for (int x = 0; x < w; x++) {
+                        const size_t at = static_cast<size_t>(y) * w + x, to = static_cast<size_t>(y) * w * 3 + x;
+                        strip[to] = p.whole[at];
+                        strip[to + w] = whole[at];
+                        strip[to + 2 * w] = mark[at] ? 0x0000FFu : (whole[at] >> 2) & 0x3F3F3Fu;
+                    }
+                }
+                char path[600];
+                snprintf(path, sizeof(path), "%s/popin-%s-%06llu.png", folder, stage.c_str(), static_cast<unsigned long long>(machine.frame));
+                for (char *c = path + strlen(folder); *c; c++) {
+                    *c = *c == ':' ? '_' : *c;
+                }
+                WritePng(path, strip.data(), static_cast<uint32_t>(w * 3), static_cast<uint32_t>(h));
+            }
+        }
+        p.objects = std::move(objects);
+        for (int t = 0; t < 4; t++) {
+            p.tiles[t] = std::move(tiles[t]);
+        }
+        p.whole = std::move(whole);
+        p.width = w;
+        p.height = h;
+        p.stage = stage;
+    }
+} // namespace
+
 void StageChecksBeforeFrame(Machine &machine) {
+    if (PopInChecking()) {
+        PopInFrame(machine);
+    }
     // (debugging aid, SFIII3_PRIORITY_STATS=1: over the run, the priorities of each kind of object, on each board: the
     // fighters (6 bits a pixel, palettes below 0x40, not blending), their shadows and the rest of what is not the stage,
     // and the stage's; and the frames with a stage object in front of the frontmost fighter)
@@ -1998,6 +2309,34 @@ void StageChecksBeforeFrame(Machine &machine) {
             }
             flush();
             fprintf(stderr, "\n");
+        }
+    }
+    // (the checks, SFIII3_STAGE_PICTURES=PREFIX:EVERY: every so many frames of a fight, the stage as it is shown, its
+    // layers drawn alone (the stage board's stage when it is composed, else this board's own: no fighters, no panel),
+    // to PREFIX<frame>.png; stagecheck.py names the stage shown from them: checkviewer.sh)
+    static const char *pictures = getenv("SFIII3_STAGE_PICTURES");
+    if (pictures && InMatch()) {
+        const std::string spec = pictures;
+        const size_t colon = spec.rfind(':');
+        const uint64_t each = colon == std::string::npos ? 60 : std::max(1ull, strtoull(spec.c_str() + colon + 1, nullptr, 10));
+        const bool composed = machine.StageBoard() && machine.composeNow && machine.composeNow();
+        // (the stage viewer: only once its stage is shown, not the unseen fight's own before)
+        if (machine.frame % each == 0 && (composed || !machine.onlyStage)) {
+            static native::Rasteriser r;
+            static std::vector<uint32_t> shown;
+            int w = 0, h = 0;
+            r.margin = machine.WideMargin();
+            r.text = false;
+            if (composed) {
+                r.keep = [](const void *, const native::Object &o, uint32_t) { return StageWords(o.words[0], o.words[2]); };
+                r.Draw(machine.StageBoard()->native, machine.StageBoard()->SpriteRamBytes(), machine.StageBoard()->SsRam(), shown, w, h);
+            } else {
+                r.keep = [](const void *, const native::Object &o, uint32_t) { return OwnStageWords(o.words[0], o.words[2]); };
+                r.Draw(machine.board.native, machine.board.SpriteRamBytes(), machine.board.SsRam(), shown, w, h);
+            }
+            char path[600];
+            snprintf(path, sizeof(path), "%s%06llu.png", spec.substr(0, colon).c_str(), static_cast<unsigned long long>(machine.frame));
+            WritePng(path, shown.data(), static_cast<uint32_t>(w), static_cast<uint32_t>(h));
         }
     }
     if (JitterChecking()) {
@@ -2226,6 +2565,18 @@ void StagesBeforeFrame(Machine &machine) {
     g.loaded = choice;
     g_kept.clear();
     machine.SetStageBoard(choice ? LoadSet(*kChoices[choice].game) : nullptr);
+    // (debugging aid, SFIII3_DUMP_STAGE_PROGRAM=PREFIX: the stage game's deciphered program, its first 2 MB (its code) as its CPU
+    // reads them, to PREFIX<set>.program, for finding its routines)
+    if (const char *dump = getenv("SFIII3_DUMP_STAGE_PROGRAM"); dump && machine.StageBoard()) {
+        if (FILE *f = fopen((std::string(dump) + kChoices[choice].game->set + ".program").c_str(), "wb")) {
+            fwrite(machine.StageBoard()->ProgramBytes(), 1, 0x200000, f);
+            fclose(f);
+        }
+        if (FILE *f = fopen((std::string(dump) + kChoices[choice].game->set + ".data").c_str(), "wb")) {
+            fwrite(machine.StageBoard()->ProgramDataBytes(), 1, 0x200000, f); // (as its data reads see it: 2nd Impact's literals)
+            fclose(f);
+        }
+    }
     if (choice && !machine.StageBoard()) {
         g.loaded = 0; // (not there: as without it)
         SetFeatureValue("stages", 0);
@@ -2262,6 +2613,12 @@ void StageBehind(int stage) {
     g_cameraWanted = kFollow;
     g_boardMusic = true;
     g_onlyMusic = false;
+}
+// ... or another game's stage (the stage viewer's New Generation's and 2nd Impact's: GuestStageNames' choice, from 1),
+// made alone as in a fight on it, its own music
+void StageBehindGuest(int choice) {
+    StageBehind(-1);
+    g_choiceWanted = std::clamp(choice, 1, kOpponentsFirst - 1);
 }
 // ... nothing but music heard (the stage viewer)
 void StageBehindOnlyMusic(bool on) {

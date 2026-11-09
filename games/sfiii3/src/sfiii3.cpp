@@ -37,6 +37,8 @@ bool BattleOn();
 void RegisterRingOut(Game &game);
 void RegisterMusic(Game &game);
 void WidescreenBeforeFrame(Machine &m, bool fighting);
+int WidestPicture(); // widescreen.cpp
+void RegisterWidescreen(); // widescreen.cpp
 void TrainingBeforeFrame(Machine &m);
 void AttractBeforeFrame(Machine &m);
 void RegisterAttract(Game &game);
@@ -103,6 +105,8 @@ void RegisterGame() {
                              "16:9: 64 more columns of the stage on each side. In a fight the camera stays 64 columns further from "
                              "the stage's ends, so the corners come that much sooner than on the board.",
                              kFeatureFirstPage});
+    // (the window's shape: the picture's, 16:9 with widescreen, followed when it is switched in the menu)
+    game.widestPicture = WidestPicture;
     game.features.push_back({"widescreen_walls", "Display", "Invisible walls",
                              "With widescreen: fights are still shown in 16:9, but played exactly as on the board. The camera goes "
                              "as far as the board's and the corners are the board's; near a stage's end the view stays on the stage, "
@@ -129,6 +133,7 @@ void RegisterGame() {
     RegisterTraining(game);
     RegisterLifts3rdStrike();
     RegisterStages(game);
+    RegisterWidescreen();
     RegisterMusic(game);
     RegisterBattle(game);
     RegisterModel(game);
