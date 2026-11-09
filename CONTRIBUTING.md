@@ -11,8 +11,9 @@ These aren't negotiable; pull requests that break them are closed.
 1. **Never add anything from a game.** No ROM or part of one, no extracted graphics, sounds or text, no settings
    memory (EEPROM), save states, RAM dumps or video, and nothing generated from a game: the translated C++
    (`work/<id>/gen/`), the block database (`work/<id>/blocks.txt`), disassembly listings. What a game's folder may
-   hold is its own code, its `game.cfg` (the ROM set's file names and checksums), and notes found by playing and
-   watching memory. The README's pictures are made by the program and kept few. The same goes for issues: attach
+   hold is its own code, its `game.cfg` (the ROM set's file names and checksums), its block list
+   (`block_addresses.txt`: addresses and lengths only, no code; `tools/audit.sh` checks) and notes found by playing
+   and watching memory. The README's pictures are made by the program and kept few. The same goes for issues: attach
    logs, not game files.
 2. **Never add a cipher key.** The CPS-3 program cipher's keys are worked out from the player's own ROM set when the
    game starts (`cps3recomp/machine/crypt.cpp`). No key, no number derived from one, and no table of them may be

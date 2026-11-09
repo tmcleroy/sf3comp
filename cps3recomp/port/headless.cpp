@@ -4,6 +4,10 @@
 // The game with no window, for checks and pictures:
 //   <game>-headless ROMSET [--frames N] [--shot FRAME:file.png]... [--shots EVERY:prefix] [--hold FIRST-LAST:BUTTONS]...
 //                   [--hash] [--cpu native|free|interp] [--record-blocks FILE] [--stats] [--check N]
+//   <game>-headless ROMSET --block-code LIST OUT
+//                   the block database tools/recomp.py translates (address, code bytes) made from the tracked block
+//                   list (games/<id>/block_addresses.txt: address, length in instructions) and this ROM set's code as
+//                   the CPU reads it (deciphered at load): written to OUT (under work/: never committed), then stops
 // BUTTONS: a list of coin1 coin2 start1 start2 service test, p1up p1down p1left p1right p1lp p1mp p1hp p1lk p1mk p1hk,
 // and p2 alike, joined with +.
 #include "game_cfg.h"
@@ -124,6 +128,7 @@ int main(int argc, char **argv) {
     std::string cpu = "native";
     Options recompOptions;
     std::string dumpDir;
+    std::string blockList, blockCode;
     for (int i = 2; i < argc; i++) {
         const std::string a = argv[i];
         const char *v = i + 1 < argc ? argv[i + 1] : "";
@@ -164,6 +169,10 @@ int main(int argc, char **argv) {
                 holds.push_back(h);
             }
             i++;
+        } else if (a == "--block-code") {
+            blockList = v;
+            blockCode = i + 2 < argc ? argv[i + 2] : "";
+            i += 2;
         } else if (a == "--dump") {
             dumpDir = v;
             i++;
@@ -271,6 +280,65 @@ int main(int argc, char **argv) {
         };
         dump("bios.bin", rom.bios);
         dump("program.bin", rom.program);
+    }
+    if (!blockList.empty()) {
+        // (each listed block's code read from the set's own program: the cartridge's ROM or the program SIMMs, as
+        // instructions read them (2nd Impact: deciphered where its data is not). Only the ROMs: a block in main RAM
+        // is not listed, its code being whatever the program put there)
+        FILE *in = fopen(blockList.c_str(), "r");
+        FILE *out = blockCode.empty() ? nullptr : fopen(blockCode.c_str(), "w");
+        if (!in || !out) {
+            fprintf(stderr, "--block-code: cannot read %s or write %s\n", blockList.c_str(), blockCode.c_str());
+            return 1;
+        }
+        const std::vector<uint32_t> &program = rom.Opcodes();
+        auto byteAt = [&](uint32_t address, uint8_t &b) {
+            const std::vector<uint32_t> *words = nullptr;
+            uint32_t offset = 0;
+            if (address < rom.bios.size() * 4) {
+                words = &rom.bios;
+                offset = address;
+            } else if (address >= 0x06000000 && address - 0x06000000 < program.size() * 4) {
+                words = &program;
+                offset = address - 0x06000000;
+            }
+            if (!words) {
+                return false;
+            }
+            b = static_cast<uint8_t>((*words)[offset / 4] >> (24 - (offset % 4) * 8));
+            return true;
+        };
+        fprintf(out, "# cps3recomp block database: address, code bytes (derived from the game: never commit)\n");
+        char line[256];
+        size_t count = 0, bad = 0;
+        while (fgets(line, sizeof(line), in)) {
+            unsigned address = 0, length = 0;
+            if (line[0] == '#' || sscanf(line, "%x %u", &address, &length) != 2) {
+                continue;
+            }
+            std::string hex;
+            bool ok = length > 0 && !(address & 1);
+            for (uint32_t k = 0; ok && k < length * 2; k++) {
+                uint8_t b = 0;
+                if (!(ok = byteAt(address + k, b))) {
+                    break;
+                }
+                char two[3];
+                snprintf(two, sizeof(two), "%02X", b);
+                hex += two;
+            }
+            if (!ok) {
+                fprintf(stderr, "--block-code: %08X (%u instructions) is not in the set's ROMs\n", address, length);
+                bad++;
+                continue;
+            }
+            fprintf(out, "%08X %s\n", address, hex.c_str());
+            count++;
+        }
+        fclose(in);
+        fclose(out);
+        fprintf(stderr, "block code: %zu blocks read from the ROM set into %s\n", count, blockCode.c_str());
+        return bad ? 1 : 0;
     }
     machine::Machine m(rom);
     m.Reset();

@@ -8,11 +8,12 @@ You need your own ROM set: `sfiii3nr1.zip` (3rd Strike, Japan 990512). For the d
 Needs CMake, Ninja, a C++20 compiler, Python 3, SDL 3 (3.4.16 or later) and zlib.
 
 ```sh
-# the game's code translated (from your ROM set; a few minutes; work/ is never committed)
-bash cps3recomp/tools/translate.sh path/to/sfiii3nr1.zip
+# the game's code translated: the blocks games/sfiii3/block_addresses.txt lists, their code read from your ROM set
+# (work/ is never committed). 0: no recording; leave it out to record more blocks first (a few minutes)
+bash cps3recomp/tools/translate.sh path/to/sfiii3nr1.zip 0
 # the stage games' code too (optional: without it their boards run in the interpreter, about a fifth the speed)
-GAME=sfiiin bash cps3recomp/tools/translate.sh path/to/sfiiin.zip 8000 "1 2 3 7 8 9"
-GAME=sfiii2n bash cps3recomp/tools/translate.sh path/to/sfiii2n.zip 8000 "1 2 3 7 8 9"
+GAME=sfiiin bash cps3recomp/tools/translate.sh path/to/sfiiin.zip 0
+GAME=sfiii2n bash cps3recomp/tools/translate.sh path/to/sfiii2n.zip 0
 cmake -S . -B build/sfiii3 -G Ninja && ninja -C build/sfiii3
 ./build/sfiii3/sfiii3-launcher
 sh cps3recomp/tools/make_app.sh sfiii3     # macOS: build/sfiii3/Street Fighter III 3rd Strike.app

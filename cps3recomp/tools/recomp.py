@@ -3,7 +3,8 @@
 # Copyright (C) 2026 Tommy McLeroy. Part of cps3recomp (sf3comp); from satrecomp: https://github.com/tmcleroy/satrecomp
 """cps3recomp code generator: turns a block database into C++.
 
-Input:  a block database (address + code bytes per line, written by the game with --record-blocks)
+Input:  a block database (address + code bytes per line: tools/translate.sh makes it from the game's committed block
+        list, games/<id>/block_addresses.txt, and the player's ROM set)
         machine/sh2_ops.h (the instruction set)
 Output: <out>/blocks_NNN.cpp   one function per block (and per function of several blocks joined by branches);
                                with --names, each under the name of the game's routine it is in
