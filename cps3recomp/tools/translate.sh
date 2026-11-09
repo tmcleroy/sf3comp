@@ -50,8 +50,11 @@ case "$GAME" in
     sfiii2n) PREFIX_ARGS="--prefix sfiii2n --index-base 20000" ;;
     *) PREFIX_ARGS="--prefix $GAME --index-base 30000" ;;
 esac
+# (the routines' names in comments, where their table has been fetched: tools/names.py fetch)
+NAMES_ARGS=""
+[ -f "$WORK/functions.tsv" ] && NAMES_ARGS="--names $WORK/functions.tsv"
 # shellcheck disable=SC2086
-python3 "$TOP/cps3recomp/tools/recomp.py" --blocks "$WORK/blocks.txt" --ops "$TOP/cps3recomp/machine/sh2_ops.h" --out "$WORK/gen" $PREFIX_ARGS
+python3 "$TOP/cps3recomp/tools/recomp.py" --blocks "$WORK/blocks.txt" --ops "$TOP/cps3recomp/machine/sh2_ops.h" --out "$WORK/gen" $PREFIX_ARGS $NAMES_ARGS
 cmake -S "$TOP" -B "$BUILD" >/dev/null
 ninja -C "$BUILD" "$GAME-headless" >/dev/null
 echo "built $GAME_BIN with the translated code"

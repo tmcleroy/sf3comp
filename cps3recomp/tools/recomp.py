@@ -5,7 +5,8 @@
 
 Input:  a block database (address + code bytes per line, written by the game with --record-blocks)
         machine/sh2_ops.h (the instruction set)
-Output: <out>/blocks_NNN.cpp   one function per block (and per function of several blocks joined by branches)
+Output: <out>/blocks_NNN.cpp   one function per block (and per function of several blocks joined by branches);
+                               with --names, each under the name of the game's routine it is in
         <out>/blocks_index.cpp the table of all generated files
 
 Nothing here is specific to a game. Generated files are derived from the game's code: never commit them.
@@ -19,6 +20,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import sh2emit  # noqa: E402
+from names import Names  # noqa: E402
 from sh2dis import disasm  # noqa: E402
 
 UNCOND_DELAYED = {"BRA", "BRAF", "BSR", "BSRF", "JMP", "JSR", "RTS", "RTE"}
@@ -279,7 +281,10 @@ def main():
                     help="first BlockSet number (different for each game linked into one program)")
     ap.add_argument("--region", action="append", default=[],
                     help="LO-HI (hex): only generate blocks in these address ranges (default: the ROMs and main RAM)")
+    ap.add_argument("--names", default="",
+                    help="a table of the game's routines' names (tools/names.py): each block's routine in a comment")
     args = ap.parse_args()
+    routines = Names(args.names)
 
     names, decode, nominal = own_tables(args.ops)
     regions = []
@@ -341,6 +346,8 @@ def main():
             instrs += len(code) // 2
             ident = "b%08X_%d" % (pc, len(descs))
             natives += 1
+            if routines.label(pc):
+                out.append("    // %s" % routines.label(pc, True))
             out.append("    static void n%s(SH2 &c, uint64_t target, unsigned start) {" % ident[1:])
             out.extend("        " + line for line in native)
             out.append("    }")

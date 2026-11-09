@@ -23,8 +23,8 @@ check "nothing made from a game (generated code, block databases, listings, memo
 check "every game has its game.cfg" "$(grep -E '^games/[^/]+/' "$LIST" | cut -d/ -f2 | sort -u | while read -r g; do [ -f "games/$g/game.cfg" ] || echo "games/$g"; done)"
 check "no pictures but the README's, no sound or video" "$(grep -iE '\.(png|jpe?g|gif|bmp|ppm|webp|mp4|mov|webm|wav|ogg|mp3|flac)$' "$LIST" | grep -vE '^docs/screenshots/[a-z0-9-]+\.(png|jpg)$' || true)"
 # (the published checksums of the libraries the builds download, and the commits they are pinned to, are not keys;
-# a ROM file's CRC in game.cfg is 8 digits, a fact about the file)
-check "no key-like hex strings (32 digits or more)" "$(grep_files '(^|[^0-9a-fA-F.])[0-9a-fA-F]{32,}([^0-9a-fA-F]|$)' | grep -vE 'URL_HASH SHA256=[0-9a-f]{64}|SHA256=[0-9a-f]{64}|_COMMIT=[0-9a-f]{40}$|^cps3recomp/recomp-common/COMMIT:|^\.github/workflows/' || true)"
+# a ROM file's CRC in game.cfg is 8 digits, a fact about the file; nor is the commit a fetched file is pinned to)
+check "no key-like hex strings (32 digits or more)" "$(grep_files '(^|[^0-9a-fA-F.])[0-9a-fA-F]{32,}([^0-9a-fA-F]|$)' | grep -vE 'URL_HASH SHA256=[0-9a-f]{64}|SHA256=[0-9a-f]{64}|_COMMIT=[0-9a-f]{40}$|raw\.githubusercontent\.com/[^/]+/[^/]+/[0-9a-f]{40}/|^cps3recomp/recomp-common/COMMIT:|^\.github/workflows/' || true)"
 # (a CPS-3 set's cipher key is two 32-bit numbers; the port works them out from the player's set at load
 # (machine/crypt.cpp) and none may be written into the tree: not as numbers given to a key, not as a key table)
 check "no cipher key written out" "$(grep_files -i -e '\b(key[12]?|cipher[a-z_]*key[a-z_]*)[ ]*[=:{(,][ ]*\{?[ ]*0x[0-9a-f]{6,8}' -e 'init_crypt[ ]*\(' -e '\.key[12][ ]*=[ ]*0x' || true)"

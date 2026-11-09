@@ -15,6 +15,12 @@ cps3recomp/tools/check.sh ROMSET [FRAMES] [CHECK_FRAMES] # compare the translati
 following their code through the ROMs, writes `work/<game>/gen/blocks_*.cpp` and builds. Running it again adds to
 `work/<game>/blocks.txt`.
 
+`tools/names.py fetch` downloads the table of a game's routines' names that its `game.cfg` names (`names_source`) to
+`work/<game>/functions.tsv`. With it there, the translated blocks carry their routine's name in a comment, the checks
+print each address with its routine (`check: block 0611962C (Player_move+0x4C) differs`), `names.py lookup` answers
+for one address or name, and `names.py annotate` does the same for any log piped through it. Without it nothing
+changes.
+
 ## The CPU modes (`--cpu`)
 
 | Mode | What runs the SH-2 code |
