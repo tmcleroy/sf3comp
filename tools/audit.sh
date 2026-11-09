@@ -20,6 +20,9 @@ grep_files() { grep -v -e '^tools/audit\.sh$' -e '^cps3recomp/third_party/' -e '
 # A CPS-3 set's files: the cartridge's BIOS (<set>_<region>.29f400.u2) and the SIMMs' flash (<set>-simm<n>.<m>)
 check "no game, key, save or archive file types" "$(grep -iE '\.(zip|7z|rar|key|bin|rom|chd|state|sav|eep|nv|u2|29f400|ic[0-9]+)$|simm[0-9]\.[0-9]$|(^|/)(cps3boot|cps3-roms?)/' "$LIST" || true)"
 check "nothing made from a game (generated code, block databases, listings, memory dumps)" "$(grep -E '(^|/)(work|build)/|(^|/)gen/|(^|/)blocks(_[0-9a-z]+)?\.(cpp|txt)$|(^|/)(game_cfg|game_info)\.h$|\.(dump|ram|lst)$' "$LIST" || true)"
+# (a game's block list, games/<id>/block_addresses.txt, is committed: an address and a length in instructions per
+# line, never code; tools/translate.sh reads the code from the player's own set)
+check "block lists hold addresses and lengths only, no code" "$(grep -E '(^|/)block_addresses\.txt$' "$LIST" | while read -r f; do grep -nvE '^(#.*|[0-9A-F]{8} [0-9]{1,3})$' "$f" | sed "s|^|$f:|"; done)"
 check "every game has its game.cfg" "$(grep -E '^games/[^/]+/' "$LIST" | cut -d/ -f2 | sort -u | while read -r g; do [ -f "games/$g/game.cfg" ] || echo "games/$g"; done)"
 check "no pictures but the README's, no sound or video" "$(grep -iE '\.(png|jpe?g|gif|bmp|ppm|webp|mp4|mov|webm|wav|ogg|mp3|flac)$' "$LIST" | grep -vE '^docs/screenshots/[a-z0-9-]+\.(png|jpg)$' || true)"
 # (the published checksums of the libraries the builds download, and the commits they are pinned to, are not keys;
