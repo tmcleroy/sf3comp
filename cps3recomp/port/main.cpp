@@ -176,6 +176,11 @@ void RegisterPortFeatures() {
                                       kFeatureSession, {"Off", "Player 1", "Player 2", "Both fighters"}});
     }
     // (online play's readout, each player's own: Port::Shown)
+    TheGame().features.push_back({"input_lag", "Display", "Input lag readout",
+                                  "At the bottom of the picture: how many frames the game itself takes to show a press (found in a "
+                                  "fight, by running the next frames with and without one), what run-ahead takes off that, the "
+                                  "port's own time from the press to handing that frame to the screen, and the sum. Your screen's "
+                                  "own delay comes on top of it. Not online."});
     TheGame().features.push_back({"online_ping", "Online", "Ping",
                                   "During an online match, the time a packet takes to the other player and back, at the bottom of "
                                   "the picture (\"PING 42 ms\").",
@@ -893,6 +898,9 @@ void Port::ShownOver(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panel
     // (online: the ping and the input delay, as the Display page has them, or that the other side has gone quiet; and
     // above, until this side's player has pressed Start, that it lets them in)
     int said = told ? 1 : 0;
+    if (const std::string line = LagLine(); !line.empty()) {
+        status(line.c_str(), said++ * 14);
+    }
     for (int which = 0; which < 2; which++) {
         const std::string line = ReplayLine(which);
         if (!line.empty()) {
@@ -1036,7 +1044,7 @@ bool Port::ShownPlain() const {
             return false;
         }
     }
-    if (!Boxes().empty() || replay.playing) {
+    if (!Boxes().empty() || replay.playing || (FeatureOn("input_lag") && !net)) {
         return false;
     }
     const bool hurried = hurry && !paused && !MultiGame().empty();
@@ -1303,6 +1311,104 @@ bool Port::RunsAhead() const {
     // (nor while stopped, stepped a frame at a time or slowed: there the frame shown is the frame)
     return FeatureValue("run_ahead") > 0 && !FastForward() && !hurry && !paused && menu.FullSpeed() && !(replay.playing && !replay.anyTaken()) &&
            !(TheGame().noRunAhead && TheGame().noRunAhead());
+}
+
+void Port::LagMeasure() {
+    const bool on = FeatureOn("input_lag") && !net && !replay.playing && !opt.rollbackTest;
+    if (on != lag.wasOn) {
+        lag = {};
+        lag.wasOn = on;
+    }
+    const Game &game = TheGame();
+    if (!on || lag.tries >= Lag::kTries || frame < lag.nextAt || FastForward() || !game.fighting || !game.fighting()) {
+        return;
+    }
+    lag.nextAt = frame + 240;
+    static std::vector<uint8_t> kept;
+    KeepState(kept, true);
+    const size_t sound = machine->audio.size();
+    uint16_t held[Machine::kMaxPlayers];
+    memcpy(held, machine->players, sizeof(held));
+    const bool gpu = machine->gpuPicture;
+    machine->gpuPicture = false; // (the pictures compared are the CPU's)
+    SetRunningAhead(true);
+    uint32_t plain[Lag::kFrames] = {};
+    int found = 0;
+    for (int way = 0; way < 2 && !found; way++) {
+        if (way) {
+            PutBackState(kept, true);
+        }
+        for (int n = 0; n < Lag::kFrames; n++) {
+            memset(machine->players, 0, sizeof(machine->players));
+            machine->players[0] = way ? kPunch1 : 0;
+            if (game.beforeFrame) {
+                game.beforeFrame(*machine);
+            }
+            machine->RunFrame();
+            if (game.frame) {
+                game.frame(*machine);
+            }
+            const uint32_t picture = static_cast<uint32_t>(
+                crc32(0, reinterpret_cast<const Bytef *>(machine->Picture()), static_cast<uInt>(sizeof(uint32_t) * machine->PictureWidth() * Video::kHeight)));
+            if (!way) {
+                plain[n] = picture;
+            } else if (picture != plain[n]) {
+                found = n + 1;
+                break;
+            }
+        }
+    }
+    PutBackState(kept, true);
+    SetRunningAhead(false);
+    machine->gpuPicture = gpu;
+    machine->audio.resize(sound);
+    memcpy(machine->players, held, sizeof(held));
+    if (found) {
+        lag.game = lag.game ? std::min(lag.game, found) : found;
+        lag.tries++;
+        fprintf(stderr, "input lag: the game shows a press %d frames on (try %d; the least so far %d)\n", found, lag.tries, lag.game);
+    }
+}
+
+void Port::LagPressed(uint64_t ns) {
+    if (!lag.pressedAt && !menu.IsOpen()) {
+        lag.pressedAt = ns;
+    }
+}
+
+void Port::LagShown(bool ran, uint64_t ns) {
+    if (!lag.pressedAt || !ran) {
+        return;
+    }
+    const double ms = static_cast<double>(ns - lag.pressedAt) / 1e6;
+    lag.pressedAt = 0;
+    if (ms < 0 || ms > 250) {
+        return; // (a press while the game was stopped, or the like)
+    }
+    lag.portMs = lag.presses ? lag.portMs * 0.9 + ms * 0.1 : ms;
+    lag.presses++;
+}
+
+std::string Port::LagLine() const {
+    if (!FeatureOn("input_lag") || net || replay.playing) {
+        return {};
+    }
+    const int ahead = RunsAhead() ? FeatureValue("run_ahead") : 0;
+    char text[96];
+    if (!lag.game) {
+        snprintf(text, sizeof(text), "INPUT LAG  GAME ? (IN A FIGHT)  PORT %.0f MS", lag.portMs);
+        return text;
+    }
+    // (the frame the press is first in is the port's time; the game's other frames after it, less run-ahead's)
+    const double frameMs = 1000.0 / 59.6;
+    const int after = std::max(0, lag.game - 1 - ahead);
+    const double port = lag.presses ? lag.portMs : frameMs;
+    if (ahead) {
+        snprintf(text, sizeof(text), "INPUT LAG  GAME %dF  RUN-AHEAD -%d  PORT %.0f MS  = %.0f MS", lag.game, ahead, port, after * frameMs + port);
+    } else {
+        snprintf(text, sizeof(text), "INPUT LAG  GAME %dF  PORT %.0f MS  = %.0f MS", lag.game, port, after * frameMs + port);
+    }
+    return text;
 }
 
 void Port::RunAhead() {
@@ -1818,6 +1924,8 @@ void Port::RunFrame() {
         fprintf(hashFile, "%llu %08x\n", static_cast<unsigned long long>(frame), StateHash());
     }
     if (!net) {
+        memcpy(machine->players, pressed, sizeof(pressed));
+        LagMeasure();
         memcpy(machine->players, pressed, sizeof(pressed));
         RunAhead();
     }

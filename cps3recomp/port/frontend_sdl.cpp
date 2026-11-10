@@ -583,6 +583,9 @@ int RunWindowed(Port &port) {
                 }
                 continue; // (every other key the line's, as text)
             }
+            if ((ev.type == SDL_EVENT_KEY_DOWN && !ev.key.repeat) || ev.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+                port.LagPressed(ev.common.timestamp); // (the input lag readout: Port::Lag)
+            }
             switch (ev.type) {
             case SDL_EVENT_QUIT: running = false; break;
             case SDL_EVENT_KEY_DOWN:
@@ -989,6 +992,7 @@ int RunWindowed(Port &port) {
             const bool isZoomed = port.WindowedPicture(shown, zoomed);
             presenter.Show(shown.data(), port.ShownWidth(), Video::kHeight, where, isZoomed ? &zoomed : nullptr);
         }
+        port.LagShown(ran, SDL_GetTicksNS());
         // (the checks, CPS3RECOMP_WINDOW_SHOT=PREFIX:EVERY: every so many frames what the window was shown, read back, to
         // PREFIX<frame>.png: games/sfiii3/checkwide.sh)
         static const char *windowShot = getenv("CPS3RECOMP_WINDOW_SHOT");

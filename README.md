@@ -15,7 +15,7 @@ stages and music of the other two: one definitive Third Strike.
 **[Get started →](#getting-started)**
 
 **No game files are included.** You need your own arcade ROM sets: `sfiii3nr1` (3rd Strike), `sfiiin` (New
-Generation) and `sfiii2n` (2nd Impact), any of them ([what you need](#what-you-need)). This project cannot help you get them.
+Generation) and `sfiii2n` (2nd Impact), any of them; `sfiii3n` too for 3rd Strike's later revision ([what you need](#what-you-need)). This project cannot help you get them.
 
 | | |
 | --- | --- |
@@ -49,6 +49,12 @@ replay is the game run again from the match's start with what both players held,
 frame at a time, slowed, and watched with the hit boxes, the input display and the frame data on. Go back and forward
 in it, and press Start at any moment to **take over a side and play on from there**; the restart key puts you back
 at that moment to try again.
+
+## 3rd Strike's other revision
+
+The board had two releases a month apart. The definitive version is made from the first, 990512 (`sfiii3nr1`), the one
+tournaments and Fightcade play. The later one, 990608 (`sfiii3n`), is in the launcher as a game of its own, with
+training mode, widescreen, online play and replays, as the two older games have.
 
 ## The definitive version's stages (3rd Strike)
 

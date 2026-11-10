@@ -29,7 +29,7 @@
 #   tech_NN      (2nd Impact) the dummy's throw escape at 100, 50 and 0%
 #   features     the feature list has what the game has, and not what it lacks
 #
-#   games/shared/sf3/checktraining.sh GAME ROM [BUILD]     (GAME: sfiiin or sfiii2n; BUILD: build/GAME)
+#   games/shared/sf3/checktraining.sh GAME ROM [BUILD]     (GAME: sfiiin, sfiii2n or sfiii3n; BUILD: build/GAME)
 GAME=${1:?usage: checktraining.sh GAME ROM [BUILD]}
 ROM=${2:?usage: checktraining.sh GAME ROM [BUILD]}
 BUILD=${3:-build/$GAME}
@@ -57,6 +57,7 @@ throttle() { # (four runs at a time: the other gates and agents run theirs too)
 # number of the Stage row's ninth choice)
 case $GAME in
 sfiiin) STUN=200D993 STAGE=9 ;; # (the ninth choice: Oro's, number 9)
+sfiii3n) STUN=206960B STAGE=8 ;; # (3rd Strike's 990608 revision: player 2's stun record as 3rd Strike's; Elena's, number 8)
 *) STUN=200ED8B STAGE=8 ;;      # (Elena's, number 8)
 esac
 run session 5000 heavies --features damage_readout & throttle

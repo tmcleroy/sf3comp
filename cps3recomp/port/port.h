@@ -239,6 +239,25 @@ struct Port {
     void ReplayControls();
     std::string ReplayLine(int which) const;
     std::vector<Replay::Entry> replayList; // (as the menu last listed them)
+    // The input lag readout (the port's input_lag feature), in three parts. The game's: how many frames after a press
+    // the picture first shows it, found in a fight by running the next frames both ways from one state (nothing held,
+    // and player 1's light punch held: the first frame whose picture is not the same), the least of the tries (a
+    // fighter that cannot move answers nothing). Run-ahead's frames off that. The port's: from a key or button going
+    // down (the event's own time) to the frame that has it handed to the screen, the window's to say (LagPressed,
+    // LagShown). What the screen itself adds is not known here.
+    struct Lag {
+        static constexpr int kFrames = 10, kTries = 3;
+        int game = 0, tries = 0;   // (0: not found yet)
+        uint64_t nextAt = 0;
+        bool wasOn = false;
+        uint64_t pressedAt = 0;    // ns; 0: no press waiting to be shown
+        double portMs = 0;
+        int presses = 0;
+    } lag;
+    void LagMeasure();
+    void LagPressed(uint64_t ns);
+    void LagShown(bool ran, uint64_t ns);
+    std::string LagLine() const;
     std::string PlayerFolder() const; // (the one settings.ini and the saves are in, with a slash; "" if none)
 
     bool Init(std::string &error);

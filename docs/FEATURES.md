@@ -15,6 +15,7 @@ prints them all with their descriptions. Online, the host's choices of the ones 
 | Display | Scaling, picture shape (4:3 or square pixels), RetroArch shaders, zoom on a fighter or both, vsync, window size |
 | Sound | Custom soundtrack (your own files, by song or as a playlist) |
 | Online | Ping and input delay shown, names hidden |
+| Display | Input lag readout |
 | Replays | Keep my matches (the Replays page lists them to watch and to play on from) |
 
 How each part works and what it was checked against: [games/sfiii3/PROGRESS.md](../games/sfiii3/PROGRESS.md),

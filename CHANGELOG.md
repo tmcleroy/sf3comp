@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **3rd Strike's later revision (990608, `sfiii3n`)** as a game of its own in the launcher, with training mode,
+  widescreen, online play and replays. The definitive version stays the 990512 one.
+- **Input lag readout** (Display page): the frames the game itself takes to show a press (measured in a fight),
+  what run-ahead takes off, the port's own time from the press to handing the frame to the screen, and the sum.
 - **Training scenario: Evo Moment 37** (3rd Strike): Ken with a sliver of health against Chun-Li's super art, every
   try by itself; the readout counts the parries and says where a try ended.
 - **Red parry drill** (3rd Strike): a score of the strings you guarded and then parried out of.

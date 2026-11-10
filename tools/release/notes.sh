@@ -41,7 +41,7 @@ An unofficial native port of Capcom's three Street Fighter III arcade games (CPS
    macOS only offers **Done** or **Move to Trash**, choose **Done**, then open **System Settings → Privacy &
    Security**, scroll down and press **Open Anyway**.
 3. In the launcher, **Choose folder…** and show it the folder your ROM sets are in (\`sfiii3nr1.zip\`, \`sfiiin.zip\`,
-   \`sfiii2n.zip\`: as many of the three as you have), or drop a set on the launcher. Press a game's **Play**.
+   \`sfiii2n.zip\`, and \`sfiii3n.zip\` for 3rd Strike's later revision: as many as you have), or drop a set on the launcher. Press a game's **Play**.
 
 ### Windows
 1. Right-click the zip, choose **Extract All…**, and extract it to a folder of your own (for example
