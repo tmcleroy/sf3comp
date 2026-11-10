@@ -18,7 +18,10 @@ is also linked into 3rd Strike's program, for the definitive version's stages.
   combo and stun readouts, hit boxes (projectiles' too), frame data with its meter and log, and the parry readout
   (forward, down, in the air and against jump-ins; no red parry in this game).
 
-Not yet: the alternative modes, widescreen, custom soundtrack, native picture and sound (it is drawn
+Not planned (the user's decision, 2026-11-09): the alternative modes (survival, tag team, ring out, the viewers and the
+rest). This game does not need 3rd Strike's whole feature set: training mode is what matters most for it.
+
+Not yet: widescreen, custom soundtrack, native picture and sound (it is drawn
 and mixed by the board model, which 3rd Strike keeps only as its reference).
 
 ## Facts
