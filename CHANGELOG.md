@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Hit confirm drill** (training, all three games): the dummy guards at random and each attack that touches it is
+  judged by what you did next (gone on after a hit, held back after a guarded one), with a running score.
 - **Match replays.** Every match, offline or online, is kept (the latest 40) and listed on the in-game menu's Replays
   page: watched again with the readouts and hit boxes, stopped, stepped, slowed, gone back and forward in, and played
   on from any moment with Start (the restart key goes back to that moment). In all three games.

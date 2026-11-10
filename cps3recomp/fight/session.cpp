@@ -31,6 +31,65 @@ namespace {
     // what the player is doing as the damage is taken: a game may take a hit's damage a step after its contact, when the
     // player is reeling from that hit already, and then every hit read as part of a combo.)
     bool g_freeSinceHit[2] = {true, true};
+    // The hit confirm drill (hit_confirm_drill): the dummy guards at random, and each of player 1's attacks that
+    // touches it first (nothing had for a moment) is judged by what player 1 did next: gone on to another move after a
+    // hit, or not after a guarded one, is right. Judged when player 1 has been free a few steps (a move that links is
+    // begun by then) or after a second and a half. Not kept in a save state: a state loaded in the middle of one
+    // attack loses that attack's judgement, no more.
+    struct Confirm {
+        static constexpr int kQuiet = 40, kFree = 14, kLongest = 90, kSaid = 150;
+        bool on = false, open = false, guarded = false, followed = false, past = false;
+        int age = 0, free = 0, quiet = kQuiet, said = 0, result = 0; // result: 1 confirmed, 2 held back, 3 hit and no more, 4 guarded and went on
+        int right = 0, tried = 0;
+    } g_confirm;
+    void ConfirmContact(bool guarded) {
+        Confirm &c = g_confirm;
+        if (c.on && !c.open && c.quiet >= Confirm::kQuiet) {
+            c.open = true;
+            c.guarded = guarded;
+            c.followed = c.past = false;
+            c.age = c.free = 0;
+        }
+        c.quiet = 0;
+    }
+    void ConfirmFrame(std::vector<HudLine> &lines) {
+        Confirm &c = g_confirm;
+        const bool on = FeatureOn("hit_confirm_drill");
+        if (on != c.on) {
+            c = {};
+            c.on = on;
+        }
+        if (!on) {
+            return;
+        }
+        c.quiet = std::min(c.quiet + 1, Confirm::kQuiet);
+        if (c.open) {
+            const fight::Doing one = g_frames.Now(0);
+            c.age++;
+            // (another move: one beginning, or one out again once the first was over: a move cancelled into has no
+            // beginning to see)
+            c.followed = c.followed || (c.age > 1 && one == fight::Doing::Startup) || (c.past && one == fight::Doing::Active);
+            c.past = c.past || one == fight::Doing::Recovery || one == fight::Doing::Free;
+            c.free = one == fight::Doing::Free ? c.free + 1 : 0;
+            if (c.followed || c.free >= Confirm::kFree || c.age >= Confirm::kLongest) {
+                c.open = false;
+                c.result = c.guarded ? (c.followed ? 4 : 2) : (c.followed ? 1 : 3);
+                c.tried++;
+                c.right += c.result <= 2;
+                c.said = Confirm::kSaid;
+            }
+        }
+        char text[48];
+        snprintf(text, sizeof(text), "HIT CONFIRM %d / %d", c.right, c.tried);
+        lines.push_back({0.5f, 0.22f, 0, text});
+        if (c.said > 0) {
+            c.said--;
+            static const char *const kResults[5] = {"", "CONFIRMED", "GUARDED: HELD BACK", "HIT: NO FOLLOW-UP", "GUARDED: WENT ON"};
+            const bool right = c.result <= 2;
+            lines.push_back({0.5f, 0.285f, 0, kResults[c.result], static_cast<uint8_t>(right ? 96 : 255), static_cast<uint8_t>(right ? 230 : 110),
+                             static_cast<uint8_t>(right ? 120 : 96)});
+        }
+    }
     // Getting to a session from switching on: coins while there are fewer than two credits (and no free play), then
     // both Start buttons until both players are choosing (the game runs unseen meanwhile)
     bool g_boot = false;
@@ -164,7 +223,7 @@ namespace {
         view.doing = g_frames.Now(1);
         view.onRight = X(1) >= X(0);
         view.sinceHit = g_combos.Since(1);
-        if (view.fighting && FeatureValue("dummy_guard")) {
+        if (view.fighting && (FeatureValue("dummy_guard") || FeatureOn("hit_confirm_drill"))) {
             if (d.guardView) {
                 d.guardView(machine, view.attackInRange, view.guardStanding);
             } else {
@@ -224,6 +283,9 @@ void Step(int player, const fight::StepView &view) {
 }
 void Contact(int victim, bool guarded) {
     g_frames.Contact(victim, guarded);
+    if (victim == 1) {
+        ConfirmContact(guarded);
+    }
 }
 void Hit(int player, unsigned damage, bool chip) {
     // A combo goes on while the player has not got free since the last hit (a guarded hit's chip ends one)
@@ -310,6 +372,7 @@ void Frame(Machine &machine) {
     }
     g_frames.Hud(FeatureOn("frame_data"), FeatureOn("frame_meter"), lines, boxes, d.framesY, d.framesTop, machine.PictureWidth(), 0);
     LogNote(machine, lines);
+    ConfirmFrame(lines);
     if (d.hud) {
         d.hud(machine, lines, boxes);
     }
@@ -387,8 +450,12 @@ void Register(const Description &description) {
                              "A row of cells for each player, one for every step of the game: green before a move can hit, red while it "
                              "can, blue after; yellow reeling from a hit, light blue from a guarded one; grey in the air."});
     game.features.push_back({"health_refill", kPage, "Health refills", "A player's health comes back when they have not been hit for a moment."});
+    game.features.push_back({"hit_confirm_drill", kPage, "Hit confirm drill",
+                             "The dummy guards about half your attacks, at random. Each attack that touches it is judged by "
+                             "what you did next: going on into another move after a hit, or holding back after a guarded one, "
+                             "is right. The score is at the top of the screen; switching the drill off and on starts it again."});
     fight::RegisterDummy(d.dummy);
-    for (const char *name : {"damage_readout", "input_display", "frame_data", "frame_log", "frame_meter", "health_refill"}) {
+    for (const char *name : {"damage_readout", "input_display", "frame_data", "frame_log", "frame_meter", "health_refill", "hit_confirm_drill"}) {
         TrainingAids({name});
     }
     for (const char *name : d.ownAids) {

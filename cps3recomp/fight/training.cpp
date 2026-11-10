@@ -342,7 +342,8 @@ void Dummy::BeforeFrame(uint16_t &one, uint16_t &two, const DummyView &view) {
 
     // Guarding: when the game's own test says something is near enough to guard: away from player 1, standing or
     // crouching as the attack needs. (Holding away all the time would walk it into the corner.)
-    const int guard = FeatureValue("dummy_guard"); // 1 always, 2 after the first hit, 3 at random
+    // (1 always, 2 after the first hit, 3 at random; the hit confirm drill: at random, whatever is chosen)
+    const int guard = FeatureOn("hit_confirm_drill") ? 3 : FeatureValue("dummy_guard");
     const bool inRange = guard && !busy && view.attackInRange;
     if (inRange && !m_g.inRange) {
         m_g.guardThis = guard == 1 || (guard == 2 && view.sinceHit < kGuardAfterHit) || (guard == 3 && (Random() & 0x100));
