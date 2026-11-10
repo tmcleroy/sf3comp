@@ -30,13 +30,19 @@ namespace {
 } // namespace
 
 void Menu::Open(bool withStates) {
+    if (onOpen) {
+        onOpen();
+    }
     const cps3recomp::Game &game = cps3recomp::TheGame();
     recomp::MenuConfig config;
     // Online, Display and Game first (issue #196), then the game's pages that belong at the head; then three groups
     // with a line between them: the save states, what the game offers, and leaving. Under Game: the speed, Mute, and
     // the Board, Cheats and Sound pages (a first page of fewer rows).
-    config.groups.push_back({{recomp::MenuRow::Page, 0, "Online"}, {recomp::MenuRow::Page, 0, "Display"},
-                             {recomp::MenuRow::Page, 0, "Game"}});
+    config.groups.push_back({{recomp::MenuRow::Page, 0, "Online"}, {recomp::MenuRow::Page, 0, "Display"}, {recomp::MenuRow::Page, 0, "Game"}});
+    if (replaysPage) {
+        config.groups.back().push_back({recomp::MenuRow::Page, 0, "Replays"});
+        config.pages.push_back({"Replays", "", "Your matches, kept as you play them, to watch again and to play on from.", false});
+    }
     config.pages.push_back({"Game", "", "", true, {recomp::MenuRow::Speed, recomp::MenuRow::Mute}});
     for (const char *under : {"Board", "Cheats", "Sound"}) {
         config.pages.push_back({under, "Game"});
@@ -82,6 +88,10 @@ void Menu::Open(bool withStates) {
             continue;
         }
         config.commands.push_back({command.category, command.title, command.description});
+    }
+    // (the replays' rows: commands after the game's, Press tells them by their place)
+    for (const ReplayRow &row : replays) {
+        config.commands.push_back({"Replays", row.title, row.detail});
     }
     config.value = [](size_t feature) { return cps3recomp::FeatureSetting(cps3recomp::TheGame().features[feature].name); };
     config.setValue = [](size_t feature, int value) { cps3recomp::SetFeatureValue(cps3recomp::TheGame().features[feature].name, value); };
@@ -166,6 +176,10 @@ Menu::Action Menu::Press(unsigned buttons) {
     case recomp::Menu::Chosen::Quit: return Action::Quit;
     case recomp::Menu::Chosen::Command:
         m_command = static_cast<size_t>(chosen.id);
+        if (m_command >= cps3recomp::TheGame().commands.size()) {
+            m_replay = m_command - cps3recomp::TheGame().commands.size();
+            return Action::Replay;
+        }
         return Action::Command;
     case recomp::Menu::Chosen::Action:
         return chosen.id == kCoin           ? Action::Coin

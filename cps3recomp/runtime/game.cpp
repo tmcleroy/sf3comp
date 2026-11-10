@@ -62,6 +62,7 @@ uint8_t *Ram(uint32_t address) {
 
 namespace {
     std::map<std::string, int> g_on;
+    bool g_watching = false; // (SetWatching)
     std::set<std::string> g_aids; // the features marked kFeatureTraining (LoadFeatures)
     bool g_fastForward = false;
     bool g_runningAhead = false;
@@ -137,9 +138,21 @@ int FeatureValue(const char *name) {
     }
     // (a training aid, outside a training session: off)
     if (TheGame().inTraining && g_aids.count(it->first) && !TheGame().inTraining()) {
-        return 0;
+        // (... but for those that only show things, while a replay is watched)
+        static const std::set<std::string> kShown = {"damage_readout", "input_display", "frame_data", "frame_meter", "hit_boxes",
+                                                     "parry_readout", "stun_readout"};
+        if (!g_watching || !kShown.count(it->first)) {
+            return 0;
+        }
     }
     return it->second;
+}
+
+void SetWatching(bool on) {
+    g_watching = on;
+}
+bool Watching() {
+    return g_watching;
 }
 
 void TrainingAids(std::initializer_list<const char *> names) {

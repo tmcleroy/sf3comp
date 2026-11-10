@@ -128,7 +128,7 @@ namespace {
         if (category == "Cheats") {
             return Share::Off; // (a fair match: no damage for the host's player, say, is not)
         }
-        if (category == "Display" || category == "Sound" || category == "Online") {
+        if (category == "Display" || category == "Sound" || category == "Online" || category == "Replays") {
             return Share::Own; // (how each player sees and hears it, and what their screen says of the match)
         }
         if (feature.flags & kFeatureOwn) {
@@ -1335,6 +1335,12 @@ void Netplay::Frame(Port &port, uint16_t controls) {
             pads[local] = localInput[at % kInputs];
             pads[remote] = remoteInput[at % kInputs];
             port.recMovie.changes[at] = pads;
+        }
+        {
+            uint16_t pads[Machine::kMaxPlayers] = {};
+            pads[local] = localInput[at % kInputs];
+            pads[remote] = remoteInput[at % kInputs];
+            port.ReplayConfirmed(at, pads); // (match replays: replay.h)
         }
         if (port.hashFile) {
             fprintf(port.hashFile, "%llu %08x\n", static_cast<unsigned long long>(at + 1), k.hash);

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Match replays.** Every match, offline or online, is kept (the latest 40) and listed on the in-game menu's Replays
+  page: watched again with the readouts and hit boxes, stopped, stepped, slowed, gone back and forward in, and played
+  on from any moment with Start (the restart key goes back to that moment). In all three games.
 - **SF3comp: the three Street Fighter III games in one app.** New Generation and 2nd Impact play as games of their own
   beside 3rd Strike, picked in one launcher (`SF3comp.app`, `sf3comp-launcher`), each with training mode, widescreen
   and online play with rollback. 3rd Strike's settings, saves and ROM set carry over from the single-game launcher.

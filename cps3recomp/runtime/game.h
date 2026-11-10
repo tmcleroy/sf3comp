@@ -111,6 +111,9 @@ struct Game {
     // A training session is on (the game's own idea of one): the training aids (kFeatureTraining) work only then.
     // Not given: they work everywhere.
     bool (*inTraining)() = nullptr;
+    // A round is being fought now (the port's match replays begin with one and end a while after the last). Not
+    // given: no replays are kept.
+    bool (*fighting)() = nullptr;
     // With the board's timing (the port's arcade_timing feature) the game's own code runs in place of the readable
     // rewrites, whose time is only what their originals' takes without the board's waits: unless this says the
     // rewrites are needed now (training mode, a mode of the sources' own, widescreen, a cheat that works inside
@@ -151,6 +154,10 @@ void ResetFeatures();
 // What the player has chosen for a feature, whether it works now or not (the menu shows this; FeatureValue gives
 // 0 for a training aid outside a training session)
 int FeatureSetting(const char *name);
+// A match replay is being watched (port/replay.h): the training aids that only show things (the readouts, the input
+// display, frame data and its meter, hit boxes) work then too, as the player has them set
+void SetWatching(bool on);
+bool Watching();
 // The game's sources mark features of theirs as training aids (kFeatureTraining), by name
 void TrainingAids(std::initializer_list<const char *> names);
 // ... and as their own (kFeatureOwn), by name

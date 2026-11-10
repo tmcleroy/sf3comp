@@ -14,13 +14,15 @@
 #include "../recomp-common/menu.h"
 
 #include <cstdint>
+#include <functional>
+#include <vector>
 #include <string>
 
 namespace port {
 
 class Menu {
 public:
-    enum class Action { None, Save, Load, Coin, Start2, Test, Reset, ResetOptions, Command, Quit };
+    enum class Action { None, Save, Load, Coin, Start2, Test, Reset, ResetOptions, Command, Replay, Quit };
 
     Menu();
     // withStates: show the save state rows
@@ -42,6 +44,18 @@ public:
     Action Press(unsigned buttons);
     // The "Sound" row: the frontend plays nothing while this is set (--mute starts with it set)
     bool muted = false;
+    // The Replays page's rows after the game's commands' (the port's match replays): a title and what it says for
+    // each, set before the menu is opened; Action::Replay with Replay(): which. `replayPlaying`: the first is the
+    // row that stops the one being played
+    struct ReplayRow {
+        std::string title, detail;
+    };
+    std::vector<ReplayRow> replays;
+    bool replaysPage = false;      // (the game keeps replays: the page is there)
+    std::function<void()> onOpen;  // (before the menu is made, each time it opens: the port lists the replays)
+    size_t Replay() const {
+        return m_replay;
+    }
     bool hosting = false; // (a match hosted from the Online page, waited for: its row is Stop hosting)
     int Slot() const {
         return m_menu.Slot();
@@ -78,7 +92,7 @@ private:
     static void Speeds(recomp::MenuConfig &config);
 
     recomp::Menu m_menu;
-    size_t m_command = 0;
+    size_t m_command = 0, m_replay = 0;
 };
 
 } // namespace port

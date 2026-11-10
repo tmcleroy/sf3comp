@@ -39,6 +39,14 @@ Two players on two machines, with **rollback**. Host from the launcher's Online 
 match's code, or find each other in the lobby or the waiting room; nothing needs setting up on either router. The
 match has the host's board settings. Any mix of macOS, Linux, the Steam Deck and Windows can play each other.
 
+## Replays
+
+Every match you play, offline or online, is kept as a small file and listed on the in-game menu's Replays page. A
+replay is the game run again from the match's start with what both players held, so it can be stopped, stepped a
+frame at a time, slowed, and watched with the hit boxes, the input display and the frame data on. Go back and forward
+in it, and press Start at any moment to **take over a side and play on from there**; the restart key puts you back
+at that moment to try again.
+
 ## The definitive version's stages (3rd Strike)
 
 With New Generation's and 2nd Impact's ROM sets beside 3rd Strike's, a fight can be on any of their stages, or on

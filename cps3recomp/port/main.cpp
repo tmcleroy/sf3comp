@@ -180,6 +180,13 @@ void RegisterPortFeatures() {
                                   "During an online match, the time a packet takes to the other player and back, at the bottom of "
                                   "the picture (\"PING 42 ms\").",
                                   kFeatureEnhanced});
+    if (TheGame().fighting) {
+        TheGame().features.push_back({"match_replays", "Replays", "Keep my matches",
+                                      "Every match you play, offline or online, is kept as a small file (the latest 40), and "
+                                      "listed here to watch again: with the readouts and hit boxes if you like, stopped, a frame "
+                                      "at a time or slowed, and to play on from any moment. Not in training.",
+                                      kFeatureEnhanced});
+    }
     TheGame().commands.push_back({"online_host", "Online", "Host a match",
                                   "Others can join you online while you play on as you like (modes, the menu, save states): "
                                   "the match's code is at the bottom of the screen to give them, and with your name from the "
@@ -249,6 +256,20 @@ bool Port::Init(std::string &error) {
     SetMachine(machine.get());
     RegisterGame();
     RegisterPortFeatures();
+    if (TheGame().fighting) {
+        menu.replaysPage = true;
+        replay.folder = PlayerFolder().empty() ? "" : PlayerFolder() + "replays/"; // (online, the joining side's eepromPath goes)
+        menu.onOpen = [this] {
+            replayList = Replay::List(ReplayFolder());
+            menu.replays.clear();
+            if (replay.playing) {
+                menu.replays.push_back({"Stop the replay", "Back to your own game, as it was when the replay began."});
+            }
+            for (const Replay::Entry &entry : replayList) {
+                menu.replays.push_back({entry.title, entry.detail});
+            }
+        };
+    }
     LoadFeatures(opt.settingsPath, opt.features);
     // The game's SH-2 code: translated (native), the interpreter run the same way block by block (free: the
     // translation's reference), or the interpreter an instruction at a time (interp)
@@ -388,6 +409,10 @@ void Port::SoundtrackFollow() {
 
 // What the game's state comes to, for comparing runs: the CPU, its memory, the video and object memory, the
 // registers and the picture
+uint32_t Port::StateVersion() {
+    return kStateVersion;
+}
+
 uint32_t Port::StateHash() const {
     Machine &m = *machine;
     uLong h = crc32(0, nullptr, 0);
@@ -429,7 +454,22 @@ void Port::MenuAct(Menu::Action action) {
         menu.SetFullSpeed();
         menu.Note("Every option is back as it first was.");
         return;
+    case Menu::Action::Replay: {
+        size_t which = menu.Replay();
+        if (replay.playing && which-- == 0) {
+            ReplayStop(true);
+            menu.Close();
+            return;
+        }
+        if (which < replayList.size() && ReplayPlay(replayList[which].path, error)) {
+            menu.Close();
+            return;
+        }
+        break;
+    }
     case Menu::Action::Reset:
+        ReplayEnd();
+        ReplayStop(false);
         EndSessionFeatures();
         machine->Reset();
         menu.Close();
@@ -455,6 +495,8 @@ void Port::MenuAct(Menu::Action action) {
         }
         break;
     case Menu::Action::Load:
+        ReplayEnd(); // (a match being kept ends here: the game goes another way)
+        ReplayStop(false);
         if (LoadState(path, error)) {
             menu.Close();
             return;
@@ -516,6 +558,9 @@ void Port::Key(char key, unsigned n) {
         }
         break;
     case 'k':
+        if (n == kKeyRestart && ReplayRetry()) {
+            break; // (a replay played on from: the moment it was taken over at, again)
+        }
         for (size_t i = 0; i < TheGame().commands.size(); i++) {
             if (TheGame().commands[i].key == n && n != kKeyNone) {
                 RunCommand(i);
@@ -697,6 +742,16 @@ bool Port::Tick() {
         }
         return true;
     }
+    ReplayControls();
+    if (replay.playing && replay.skip > 0) {
+        // (on the way to a place in a replay: unheard, some frames a tick)
+        for (int n = 0; n < Replay::kSkipATick && replay.skip > 0; n++) {
+            replay.skip--;
+            RunFrame();
+            machine->audio.clear();
+        }
+        return true;
+    }
     int frames = 1;
     if (paused) {
         if (steps == 0) {
@@ -838,6 +893,12 @@ void Port::ShownOver(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panel
     // (online: the ping and the input delay, as the Display page has them, or that the other side has gone quiet; and
     // above, until this side's player has pressed Start, that it lets them in)
     int said = told ? 1 : 0;
+    for (int which = 0; which < 2; which++) {
+        const std::string line = ReplayLine(which);
+        if (!line.empty()) {
+            status(line.c_str(), said++ * 14);
+        }
+    }
     // (hosting from the in-game menu, the game the player's own meanwhile: the match's code; or why it stopped)
     if (waitingHost) {
         const std::string code = waitingHost->code;
@@ -975,7 +1036,7 @@ bool Port::ShownPlain() const {
             return false;
         }
     }
-    if (!Boxes().empty()) {
+    if (!Boxes().empty() || replay.playing) {
         return false;
     }
     const bool hurried = hurry && !paused && !MultiGame().empty();
@@ -1240,7 +1301,7 @@ void Port::RollbackFrame(const uint16_t *real) {
 // shows what a press does a frame or two sooner. Not done for a frame a spare machine ran in (runtime/spare.h).
 bool Port::RunsAhead() const {
     // (nor while stopped, stepped a frame at a time or slowed: there the frame shown is the frame)
-    return FeatureValue("run_ahead") > 0 && !FastForward() && !hurry && !paused && menu.FullSpeed() &&
+    return FeatureValue("run_ahead") > 0 && !FastForward() && !hurry && !paused && menu.FullSpeed() && !(replay.playing && !replay.anyTaken()) &&
            !(TheGame().noRunAhead && TheGame().noRunAhead());
 }
 
@@ -1449,6 +1510,7 @@ void Port::StopHosting() {
 }
 
 void Port::BackToSolo(bool stillHosting) {
+    ReplayEnd();
     Netplay::Settings settings = opt.net;
     if (net) {
         if (!net->code.empty()) {
@@ -1521,6 +1583,7 @@ bool Port::StartOnline(std::string &error) {
 }
 
 void Port::Again(const std::string &why) {
+    ReplayEnd();
     Netplay::Settings settings = opt.net;
     if (net && net->Hosting()) {
         // (the same code for them to come back with; and the game from the board's reset, which the other side is sent)
@@ -1575,6 +1638,12 @@ void Port::Matched() {
     roundCounted = false;
     rejoin.clear();
     frame = 0; // (the match's frames count from its start, on both sides)
+    ReplayStop(false);
+    ReplayEnd();
+    if (FeatureOn("match_replays")) {
+        ReplayBegin(true);
+        replay.made.label = "Online" + (net->Name(1 - net->Local()).empty() ? std::string() : " vs " + net->Name(1 - net->Local()));
+    }
     // (the hashes compared leave out the picture: frames run again are not drawn)
     opt.hashNoPicture = true;
     if (net->Local() != 0) {
@@ -1602,6 +1671,13 @@ void Port::RapidFire() {
 }
 
 void Port::RunFrame() {
+    if (!opt.replayPlay.empty() && frame == 0 && !replay.playing) {
+        std::string why;
+        if (!ReplayPlay(opt.replayPlay, why)) {
+            fprintf(stderr, "replay: %s\n", why.c_str());
+        }
+        opt.replayPlay.clear();
+    }
     if (!opt.moviePlay.empty()) {
         auto it = playMovie.changes.find(frame);
         if (it != playMovie.changes.end()) {
@@ -1691,7 +1767,9 @@ void Port::RunFrame() {
     } else if (opt.rollbackTest) {
         RollbackFrame(pressed);
     } else {
+        ReplayBefore(pressed);
         Step(pressed);
+        ReplayAfter();
     }
     machine->StepStage(); // (the stage board, if the game's sources have one: once a shown frame)
     frame++;
@@ -1750,6 +1828,7 @@ void Port::RunFrame() {
 }
 
 void Port::Finish() {
+    ReplayEnd();
     if (net && !connecting) {
         net->Leave();
         net->Report(true);
@@ -1845,6 +1924,8 @@ void Usage() {
                         "  --cpu-speed N          the 68000 N times as fast as the board's: the game is never short of time\n"
             "  --movie FILE           replay an input movie\n"
             "  --record FILE          record an input movie\n"
+            "  --replay FILE          play a match replay (the Replays page's files) from the first frame; a movie's\n"
+            "                         controls then work it (left, right, down, up, Start)\n"
             "  --auto SEED[:FROM[:N[:UNTIL]]] made-up input (from frame FROM; for N players, 2 unless said;\n"
             "                         none from frame UNTIL on: the players idle)\n"
             "  --rollback-test SEED   each frame run as online play's rollback would: the other players' controls late\n"
@@ -1918,6 +1999,8 @@ bool ParseArgs(int argc, char **argv, port::Options &o) {
             if (const size_t colon = v.find(':'); colon != std::string::npos) {
                 o.soundTestEvery = std::max(1u, static_cast<unsigned>(strtoul(v.c_str() + colon + 1, nullptr, 10)));
             }
+        } else if (a == "--replay") {
+            o.replayPlay = next();
         } else if (a == "--sound") {
             o.sound = next();
         } else if (a == "--scale") {

@@ -8,6 +8,7 @@
 #include "menu.h"
 #include "netplay.h"
 #include "present.h"
+#include "replay.h"
 #include "soundtrack.h"
 #include "zoom.h"
 
@@ -39,6 +40,7 @@ struct Options {
     std::string eepromPath;    // the board's settings memory (created when missing)
     std::string moviePlay;     // input movie to replay
     std::string movieRecord;   // input movie to write
+    std::string replayPlay;    // --replay FILE: a match replay (replay.h) played from the first frame
     std::string shotPrefix;    // PNG prefix for --shot-every
     std::string hashLog;       // per-frame state hash log
     std::string recordEntries; // entries file to add to (tools/recomp.py reads it)
@@ -217,6 +219,26 @@ struct Port {
         return machine->PictureWidth();
     }
     std::string StatePath(int slot) const;
+    static uint32_t StateVersion(); // (a state's, as this build writes it)
+    // Match replays (replay.h): a match kept as it is played (ReplayBefore and ReplayAfter around each of the port's
+    // own frames; online, ReplayBegin as the match starts and ReplayConfirmed for each frame that has both sides' real
+    // controls), ended and written (ReplayEnd); one played back (ReplayPlay; ReplayBefore then gives the frame its
+    // controls), gone about in (ReplaySeek, ReplayControls each tick, ReplayRetry for the restart key) and stopped
+    // (ReplayStop: the player's own game back as it was, or not). ReplayLine: what the bottom of the screen says.
+    Replay replay;
+    std::string ReplayFolder() const;
+    void ReplayBegin(bool online);
+    void ReplayEnd(bool keep = true);
+    void ReplayConfirmed(uint64_t at, const uint16_t *pads);
+    void ReplayBefore(uint16_t *pressed);
+    void ReplayAfter();
+    bool ReplayPlay(const std::string &path, std::string &error);
+    void ReplayStop(bool putBack);
+    void ReplaySeek(int64_t to);
+    bool ReplayRetry();
+    void ReplayControls();
+    std::string ReplayLine(int which) const;
+    std::vector<Replay::Entry> replayList; // (as the menu last listed them)
     std::string PlayerFolder() const; // (the one settings.ini and the saves are in, with a slash; "" if none)
 
     bool Init(std::string &error);

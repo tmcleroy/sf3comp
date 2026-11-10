@@ -395,6 +395,7 @@ void Register(const Description &description) {
         TrainingAids({name});
     }
     game.inTraining = [] { return InSession(); };
+    game.fighting = [] { return d.fighting && d.fighting(); };
 }
 
 } // namespace cps3recomp::session
