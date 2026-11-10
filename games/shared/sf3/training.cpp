@@ -12,6 +12,7 @@
 // once a frame; a game offers only what its facts give (an offset or address of 0: the game lacks it, or it is not
 // known, and its feature is not registered).
 #include "training.h"
+#include "widescreen.h"
 
 #include "facts.h"
 #include "fight.h"
@@ -198,7 +199,7 @@ namespace {
             records.push_back(base);
         }
         for (const uint32_t base : records) {
-            const int px = Signed16(base + R().x) - cameraX + middle;
+            const int px = Signed16(base + R().x) - cameraX + middle - WorldShift(); // (widescreen.cpp: invisible walls)
             const int py = Video::kHeight - (Signed16(base + R().y) - cameraY) - 23;
             const bool flipped = Ram8(base + R().facing) != 0;
             for (const sf3::BoxList &list : f.boxes) {

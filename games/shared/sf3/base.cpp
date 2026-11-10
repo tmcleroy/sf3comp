@@ -7,6 +7,7 @@
 // board.cpp, training.cpp), from before the others were games of their own.
 #include "facts.h"
 #include "training.h"
+#include "widescreen.h"
 
 #include "game.h"
 #include "session.h"
@@ -116,7 +117,12 @@ namespace {
                 }
             }
         }
+        WidescreenBeforeFrame(m);
         TrainingBeforeFrame(m);
+    }
+    void State(Archive &ar) {
+        TrainingState(ar);
+        WidescreenState(ar);
     }
 } // namespace
 
@@ -160,7 +166,8 @@ void RegisterGame() {
                              0, {"As the board has it", "On", "Off"}});
     game.beforeFrame = BeforeFrame;
     game.frame = TrainingAfterFrame;
-    game.state = TrainingState;
+    game.state = State;
+    RegisterWidescreen(game);
     RegisterTraining(game);
 }
 
