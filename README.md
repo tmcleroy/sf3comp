@@ -1,4 +1,4 @@
-# sf3comp
+# SF3comp
 
 [![CI](https://github.com/tmcleroy/sf3comp/actions/workflows/ci.yml/badge.svg)](https://github.com/tmcleroy/sf3comp/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/tmcleroy/sf3comp?include_prereleases)](https://github.com/tmcleroy/sf3comp/releases)
@@ -6,16 +6,16 @@
 
 ![Ken against Ryu in widescreen](docs/screenshots/widescreen.jpg)
 
-**An unofficial native port of Capcom's Street Fighter III: 3rd Strike (arcade, CPS-3) for macOS, Linux (Steam Deck
-and Steam Machine included) and Windows.** The game's SH-2 program is translated ahead of time into C++ and runs on a
-machine written for this project, not an emulator. It adds a full training mode, online play with rollback,
-widescreen, new modes, and the stages and music of **New Generation** and **2nd Impact**: one definitive Third
-Strike.
+**SF3comp is an unofficial native port of Capcom's three Street Fighter III arcade games (CPS-3), New Generation, 2nd
+Impact and 3rd Strike, in one app for macOS, Linux (Steam Deck and Steam Machine included) and Windows.** The games'
+SH-2 programs are translated ahead of time into C++ and run on a machine written for this project, not an emulator.
+All three get a full training mode, online play with rollback and widescreen. 3rd Strike also gets new modes and the
+stages and music of the other two: one definitive Third Strike.
 
 **[Get started →](#getting-started)**
 
-**No game files are included.** You need your own arcade ROM set of 3rd Strike, `sfiii3nr1`, and for the other games'
-stages your own `sfiiin` and `sfiii2n` ([what you need](#what-you-need)). This project cannot help you get them.
+**No game files are included.** You need your own arcade ROM sets: `sfiii3nr1` (3rd Strike), `sfiiin` (New
+Generation) and `sfiii2n` (2nd Impact), any of them ([what you need](#what-you-need)). This project cannot help you get them.
 
 | | |
 | --- | --- |
@@ -24,7 +24,7 @@ stages your own `sfiiin` and `sfiii2n` ([what you need](#what-you-need)). This p
 
 ## Training mode
 
-From the in-game menu, a fight with no clock that nobody loses:
+In all three games, from the in-game menu, a fight with no clock that nobody loses:
 
 - **Hit boxes** (projectiles' too), **frame data** (startup, active, recovery, advantage) with a **frame meter** and a
   log to a file, an **input display**, and combo, damage, stun and parry readouts.
@@ -39,13 +39,13 @@ Two players on two machines, with **rollback**. Host from the launcher's Online 
 match's code, or find each other in the lobby or the waiting room; nothing needs setting up on either router. The
 match has the host's board settings. Any mix of macOS, Linux, the Steam Deck and Windows can play each other.
 
-## The definitive version's stages
+## The definitive version's stages (3rd Strike)
 
 With New Generation's and 2nd Impact's ROM sets beside 3rd Strike's, a fight can be on any of their stages, or on
 each opponent's own, with that game's music: in arcade fights, training, the stage viewer and the modes. Their stages
 are drawn by their own games' stage code, run beside 3rd Strike's.
 
-## Alternative modes
+## Alternative modes (3rd Strike)
 
 The in-game menu's first row has ways to play the board never had: **survival**, **endless battle** (the game plays
 both fighters on stages that scroll or fade one into the next; touch the controls to take one over), **ring out**,
@@ -75,15 +75,15 @@ playable by either player.
 
 1. Download the build for your system from the [releases page](https://github.com/tmcleroy/sf3comp/releases) and
    unpack it.
-2. Open the launcher (`Street Fighter III 3rd Strike.app`, `sfiii3-launcher`, `sfiii3-launcher.exe`) and choose your
-   `sfiii3nr1.zip` (or drop it on the launcher). Put `sfiiin.zip` and `sfiii2n.zip` beside it for the other games'
-   stages. Your ROM sets are only ever read.
+2. Open the launcher (`SF3comp.app`, `sf3comp-launcher`, `sf3comp-launcher.exe`), pick a game and choose its ROM set
+   (or drop it on the launcher). With `sfiiin.zip` and `sfiii2n.zip` beside `sfiii3nr1.zip`, 3rd Strike has the
+   other games' stages too. Your ROM sets are only ever read.
 3. Press **Play**.
 
 - **macOS:** the app isn't notarized: the first time, right-click it and choose Open.
 - **Windows:** the programs aren't signed: if Windows says it protected your PC, press More info, then Run anyway.
 - **Steam Deck and Steam Machine:** in Desktop Mode, unpack the Linux download somewhere it can stay, open
-  `sfiii3-launcher`, choose your ROM set, and press **Add to Steam**; the game is then in Game Mode under
+  `sf3comp-launcher`, choose your ROM sets, and press **Add to Steam**; the game is then in Game Mode under
   **Non-Steam**.
 
 Settings, save states and the board's settings memory are kept in your user folder.
@@ -93,8 +93,8 @@ Settings, save states and the board's settings memory are kept in your user fold
 - **`sfiii3nr1`**: Street Fighter III 3rd Strike: Fight for the Future (Japan 990512, NO CD), as a zip or a folder of
   its files. The launcher checks every file and says which is missing or different. Other revisions don't work: the
   port is made from this one's program.
-- For the other games' stages (optional): **`sfiiin`** (New Generation, Asia 970204, NO CD) and **`sfiii2n`** (2nd
-  Impact, Asia 970930, NO CD), beside it.
+- **`sfiiin`**: New Generation (Asia 970204, NO CD), and **`sfiii2n`**: 2nd Impact (Asia 970930, NO CD). Each plays
+  as a game of its own, and beside `sfiii3nr1` gives 3rd Strike its stages.
 - macOS 13 or later (Apple silicon or Intel), Linux x86_64 (SteamOS included) or Windows 10 or 11, 64-bit.
 - A gamepad or stick is recommended (six buttons).
 
@@ -119,9 +119,9 @@ toolkit is in [`cps3recomp/`](cps3recomp/), the game's code in [`games/sfiii3/`]
 With CMake, Ninja, a C++20 compiler, Python 3, SDL 3 and zlib, and your own ROM sets:
 
 ```sh
-bash cps3recomp/tools/translate.sh path/to/sfiii3nr1.zip 0    # once: the game's code translated (work/, never committed)
-cmake -S . -B build/sfiii3 -G Ninja && ninja -C build/sfiii3
-./build/sfiii3/sfiii3-launcher
+bash cps3recomp/tools/translate.sh path/to/sfiii3nr1.zip 0    # once for each set: its code translated (work/, never committed)
+sh cps3recomp/tools/collection.sh                             # the three games and the one launcher, in build/collection
+./build/collection/sf3comp-launcher
 ```
 
 [docs/BUILDING.md](docs/BUILDING.md) has the other games' stages, the release builds for each system and the checks;
