@@ -19,9 +19,11 @@ NAME="SF3comp"                       # the collection: the launcher's window, th
 EXE=sf3comp                          # the launcher: sf3comp-launcher (cps3recomp/port/port.h, kCollectionLauncher)
 ARCHIVE=SF3comp                      # the downloads: SF3comp-macOS.zip and the rest
 APP_ID=io.github.tmcleroy.sf3comp
-# The launcher updates itself from this repository's releases (the manifests update_files writes) when this is set:
-# UPDATE_REPO=tmcleroy/sf3comp. Not set while the repository is private: the check would fail for every player.
-UPDATE_REPO="${UPDATE_REPO:-}"
+# The launcher updates itself from this repository's releases (the manifests update_files writes), as cps2recomp's
+# does: UPDATE_REPO=tmcleroy/sf3comp unless set otherwise (UPDATE_REPO= empty builds a launcher with no updates).
+# While the repository is private the check finds nothing: the Updates card says it couldn't check, and nothing
+# else is shown or changed.
+UPDATE_REPO="${UPDATE_REPO-tmcleroy/sf3comp}"
 SDL_VERSION=3.4.16
 SDL_SHA256=7322236cd12090c3eb40b9728be4d49c76f66ad17d04369584d4ecad5cf77c68
 SDL_MINGW_SHA256=c7ef65bd72eabac6e5b535411dbd8d5824d0aab24fd62ff8812666b336f18a9c

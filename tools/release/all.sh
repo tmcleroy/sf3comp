@@ -15,8 +15,8 @@ docker image inspect cps2recomp-build >/dev/null 2>&1 || {
     exit 1
 }
 tools/release/macos.sh
-docker run --rm --platform linux/amd64 -e CMAKE_BUILD_PARALLEL_LEVEL="${JOBS:-2}" -e UPDATE_REPO="${UPDATE_REPO:-}" -v "$ROOT":"$ROOT" -w "$ROOT" cps2recomp-build tools/release/linux.sh
-docker run --rm --platform linux/amd64 -e CMAKE_BUILD_PARALLEL_LEVEL="${JOBS:-2}" -e UPDATE_REPO="${UPDATE_REPO:-}" -v "$ROOT":"$ROOT" -w "$ROOT" cps2recomp-build tools/release/windows.sh
+docker run --rm --platform linux/amd64 -e CMAKE_BUILD_PARALLEL_LEVEL="${JOBS:-2}" -e UPDATE_REPO="${UPDATE_REPO-tmcleroy/sf3comp}" -v "$ROOT":"$ROOT" -w "$ROOT" cps2recomp-build tools/release/linux.sh
+docker run --rm --platform linux/amd64 -e CMAKE_BUILD_PARALLEL_LEVEL="${JOBS:-2}" -e UPDATE_REPO="${UPDATE_REPO-tmcleroy/sf3comp}" -v "$ROOT":"$ROOT" -w "$ROOT" cps2recomp-build tools/release/windows.sh
 cd build/release
 shasum -a 256 SF3comp-macOS.zip SF3comp-linux-x86_64.tar.gz SF3comp-windows-x64.zip > SHA256SUMS.txt
 cat SHA256SUMS.txt

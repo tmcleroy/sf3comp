@@ -53,10 +53,11 @@ them and attaches them to the draft that the tag opens.
 ## The launcher's own update
 
 Each script also writes `build/release/update-<system>.txt`: the download and every file in it, with checksums, as
-the launcher's self-update reads them (`cps3recomp/recomp-common/launcher/src/update.h`). The launcher only looks for
-updates when it is built with the repository to ask: `UPDATE_REPO=tmcleroy/sf3comp tools/release/all.sh`. That is
-left off while the repository is private (the check would fail for every player), and no version released so far
-has it. Once it is on, upload the `update-*.txt` files with every release, beside the downloads. A launcher updates
+the launcher's self-update reads them (`cps3recomp/recomp-common/launcher/src/update.h`). The release scripts build
+the launcher to ask `tmcleroy/sf3comp` (`UPDATE_REPO`, in `tools/release/lib.sh`; `UPDATE_REPO=` empty builds one
+that never asks), as cps2recomp's does. Versions up to 0.1.0-beta.2 have no self-update. While the repository is
+private GitHub answers "not found": the launcher's Updates card says it couldn't check, and nothing else is shown or
+changed. Upload the `update-*.txt` files with every release, beside the downloads. A launcher updates
 only a copy whose launcher is where the manifest has it (`sf3comp-launcher`).
 
 ## Coming from the versions before the collection
