@@ -187,7 +187,7 @@ launcher::Description describe_game(const GameInfo& game) {
         }
         if (!others.empty()) {
             intro += "\n\nWith " + others + " ROM set chosen on its own page too (or beside this one), it can show that game's stages: the "
-                     "Stages option.";
+                     "menu's Stage.";
         }
     }
 #else

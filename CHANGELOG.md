@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Stage on the menu's first page**, in every game: one choice of where the next fight is, in the arcade game,
+  training and the modes that have no stage of their own to say (3rd Strike: its own stages and the other games').
+  It replaces the Training page's Stage row and the Display page's "Stages (experiment)". Online, the host's choice.
 - **3rd Strike's later revision (990608, `sfiii3n`)** as a game of its own in the launcher, with training mode,
   widescreen, online play and replays. The definitive version stays the 990512 one.
 - **Input lag readout** (Display page): the frames the game itself takes to show a press (measured in a fight),

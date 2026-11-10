@@ -203,7 +203,8 @@ port/headless.cpp): Ken and Oro fought 3rd Strike's fight on 2nd Impact's harbou
 - Both seen working: 3rd Strike's fight on New Generation's London stage, and on 2nd Impact's street stage chosen by
   its number (`--stage-number 4`).
 
-- In the game: the Display page's "Stages (experiment)" (games/sfiii3/src/stages.cpp, runtime/system.h's stage
+- In the game: the menu's Stage page (since 2026-11-10: one choice for every mode, in place of the Display page's
+  "Stages (experiment)" and the Training page's Stage row) (games/sfiii3/src/stages.cpp, runtime/system.h's stage
   board): every stage of New Generation (numbers 0-12) and 2nd Impact (0-14; 15 repeats 14), named by whose stage each is
   (below), from the
   sets beside the player's 3rd Strike set. Seen in pictures only.

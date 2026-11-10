@@ -126,7 +126,7 @@ if [ -n "$SFIII3_CHECK_VERSUS" ]; then
     ARGS=("--auto 7:300" "--auto 11:300" "--auto 23:300" "--auto 37:300")
     POKES=("" "" "" "")
     # Training sessions started again every 800 frames (each fought from about 250 frames after its start), each on the
-    # next stage (training_stage: 3rd Strike's stage numbers plus one), seven to nine a run: every stage's routines met.
+    # next stage (stage: 3rd Strike's stage numbers plus one), seven to nine a run: every stage's routines met.
     # In the first, player 2 is Gill (kChosen), for his entrance's pan on his stage; in the second, player 1 is Oro, for
     # his entrance from the sky on his stage, and from the board's frame 1200 (in that session's fight: a session's start
     # runs the board fast) his win's pan up begun by hand (0x02068C6A, win_sp_flag, 2: it comes only with Oro winning on
@@ -134,7 +134,7 @@ if [ -n "$SFIII3_CHECK_VERSUS" ]; then
     stages() {
         local s=$1 f out=""
         for ((f = 30; f < FRAMES - 600; f += 800)); do
-            out+="$f:ftraining_stage=$s,$f:ctraining_start,"
+            out+="$f:fstage=$s,$f:ctraining_start,"
             s=$((s % 21 + 1))
         done
         echo "$out"

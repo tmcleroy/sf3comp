@@ -67,7 +67,7 @@ run nogauge 3000 supers & throttle
 # (the command's key by the screen's ticks: the session's start runs some 500 frames unseen in its first)
 KEYS=30:ctraining_start,1700:ctraining_restart run restart_left 2900 idle --features restart_at=2 & throttle
 KEYS=30:ctraining_start,1700:ctraining_restart run restart_right 2900 idle --features restart_at=5 & throttle
-run stage 1800 idle --features training_stage=9 & throttle
+run stage 1800 idle --features stage=9 & throttle
 run crouch 2000 idle --features dummy_crouch & throttle
 run jump 2000 idle --features dummy_jump & throttle
 run stand 2000 idle --features dummy_stand & throttle
@@ -130,10 +130,10 @@ judge parrykind parrykind "$OUT/parrykind.log"
 judge parry_100 parryrate 70 130 "$OUT/parry_100.log" "$OUT/parry_50.log" "$OUT/parry_0.log"
 if [ "$GAME" = sfiii2n ]; then
     judge tech_100 techrate 70 130 "$OUT/tech_100.log" "$OUT/tech_50.log" "$OUT/tech_0.log"
-    judge features features "$OUT/features.txt" training_stage hit_boxes gauge_refill stun_readout parry_readout dummy_parry dummy_tech dummy_getup \
+    judge features features "$OUT/features.txt" stage hit_boxes gauge_refill stun_readout parry_readout dummy_parry dummy_tech dummy_getup \
         dummy_stun_mash dummy_computer frame_log -dummy_guard_action -dummy_level
 else
-    judge features features "$OUT/features.txt" training_stage hit_boxes gauge_refill stun_readout parry_readout dummy_parry dummy_getup \
+    judge features features "$OUT/features.txt" stage hit_boxes gauge_refill stun_readout parry_readout dummy_parry dummy_getup \
         dummy_stun_mash dummy_computer frame_log -dummy_tech -dummy_guard_action -dummy_level
 fi
 [ $status = 0 ] && echo "checktraining: all the same"
