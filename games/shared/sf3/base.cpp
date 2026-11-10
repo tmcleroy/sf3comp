@@ -164,6 +164,7 @@ void RegisterGame() {
                              0, {"As the board has it", "Yes", "No"}});
     game.features.push_back({"board_demo_sound", "Board", "Demo sound", "Whether the attract mode plays sound. Takes effect when the game is reset.",
                              0, {"As the board has it", "On", "Off"}});
+    game.boardSound = true; // (no sound driver of these games' own feeds the native mixer: it played nothing)
     game.beforeFrame = BeforeFrame;
     game.frame = TrainingAfterFrame;
     game.state = State;

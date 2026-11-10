@@ -697,7 +697,7 @@ bool Netplay::Introduce(uint64_t now, std::string &error) {
     };
     const auto answered = [&] { return asking.valid() && asking.wait_for(std::chrono::seconds(0)) == std::future_status::ready; };
     const std::string about = "\"game\":\"" GAME_ID "\",\"title\":\"" GAME_NAME "\",\"version\":\"" RECOMP_VERSION "\",\"protocol\":" +
-                              std::to_string(kProtocol) +
+                              std::to_string(Netplay::kLobbyProtocol) +
                               ",\"build\":\"" + std::to_string(build) + "\"";
     if (getenv("CPS3RECOMP_NET_DEBUG")) {
         static int last = -1;

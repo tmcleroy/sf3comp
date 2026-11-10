@@ -40,6 +40,9 @@ struct GameInfo {
     // says, with || between two of them (the game leaves these out of the list it gives for the Features page:
     // runtime/game.h, kFeatureFirstPage)
     const char *display;
+    // The game's name on the collection launcher's pages, when it is not `name` (game.cfg's launcher_name; empty:
+    // `name`). Its folder stays `name`'s: a player's settings and saves from before are still its own.
+    const char *launcher_name;
 };
 
 // (the words made for each game, kept for as long as the launcher runs: the descriptions point into them)
@@ -142,6 +145,29 @@ std::vector<std::filesystem::path> rom_set_candidates(const GameInfo& game, cons
     return list;
 }
 
+// A set in a "rom" folder beside the launcher or above it (an unpacked release with the sets put in rom/, or a build
+// inside the source tree): the set's zip or a folder of its files there, or rom/ itself
+std::string rom_set_nearby(const GameInfo& game, const std::filesystem::path& program_folder) {
+    std::filesystem::path folder = program_folder;
+    std::error_code error;
+    for (int up = 0; up < 8 && !folder.empty(); up++, folder = folder.parent_path()) {
+        const std::filesystem::path rom = folder / "rom";
+        if (std::filesystem::is_directory(rom, error)) {
+            std::vector<std::filesystem::path> tries = rom_set_candidates(game, rom);
+            tries.push_back(rom);
+            for (const std::filesystem::path& one : tries) {
+                if (std::filesystem::exists(one, error) && check_rom_set(game, one.u8string()).usable()) {
+                    return one.u8string();
+                }
+            }
+        }
+        if (folder == folder.parent_path()) {
+            break;
+        }
+    }
+    return {};
+}
+
 // What a launcher is told about one game
 launcher::Description describe_game(const GameInfo& game) {
     launcher::Description d;
@@ -176,6 +202,7 @@ launcher::Description describe_game(const GameInfo& game) {
     d.file_key = "rom";
     d.check = [game](const std::string& path) { return check_rom_set(game, path); };
     d.check_on_thread = true; // (reading 80 MB and finding the cipher's keys takes a moment)
+    d.find_nearby = [game](const std::filesystem::path& folder) { return rom_set_nearby(game, folder); };
     d.candidates = [game](const std::filesystem::path& folder) { return rom_set_candidates(game, folder); };
     const std::vector<FeatureSwitch> switches = feature_switches(game.display);
     const std::string guests = game.guests ? game.guests : "";
@@ -218,7 +245,7 @@ launcher::Description describe_game(const GameInfo& game) {
                 "Two players, each on their own machine with the game, anywhere: one hosts and gives the other the code their game "
                 "shows; the other joins with it. Each presses Start to come in. The match has the host's settings and the "
                 "features that change play."};
-    d.online.lobby = keep(std::string(port::Netplay::kService) + "/v1/lobby/" + game.id + "?protocol=" + std::to_string(port::Netplay::kProtocol));
+    d.online.lobby = keep(std::string(port::Netplay::kService) + "/v1/lobby/" + game.id + "?protocol=" + std::to_string(port::Netplay::kLobbyProtocol));
     d.online.list_argument = "--net-list";
     d.online.name_argument = "--net-name";
     d.online.arcade_argument = "--net-arcade";
@@ -228,7 +255,7 @@ launcher::Description describe_game(const GameInfo& game) {
     // (the waiting room: the players whose Online page is open, to invite to a match; a collection's is its own)
     static const std::string room = std::string(port::Netplay::kService) + "/v1/room";
     d.online.room = room.c_str();
-    d.online.room_protocol = port::Netplay::kProtocol;
+    d.online.room_protocol = port::Netplay::kLobbyProtocol;
     d.online.game = game.id;
     d.online_page = true; // (hosting, joining, the lobby and the waiting room on a page of their own, after Game)
 #endif
@@ -276,19 +303,19 @@ const launcher::Collection& launcher::describe_collection() {
         for (const GameInfo& game : kGames) {
             // (each game's folder is named by its name, as its own launcher's was: what a player had before the
             // collection, its settings, saves and the ROM set chosen, is still its own)
-            c.games.push_back({game.id, game.name, game.id, "", describe_game(game), nullptr});
+            c.games.push_back({game.id, *game.launcher_name ? game.launcher_name : game.name, game.id, "", describe_game(game), nullptr, game.name});
         }
         // (the keys and buttons every game shares: the three have the same six buttons)
         c.bindings = port::MakeBoundTable(2, "", true).table;
-        // (online play's lobby, every game's: Netplay::kService, kProtocol)
-        static const std::string lobby = std::string(port::Netplay::kService) + "/v1/lobby?protocol=" + std::to_string(port::Netplay::kProtocol);
+        // (online play's lobby, every game's: Netplay::kService, kLobbyProtocol, so this collection's own)
+        static const std::string lobby = std::string(port::Netplay::kService) + "/v1/lobby?protocol=" + std::to_string(port::Netplay::kLobbyProtocol);
         c.lobby = lobby.c_str();
         static const std::string lookup = std::string(port::Netplay::kService) + "/v1/code/";
         c.code_lookup = lookup.c_str();
         // (the waiting room: the players whose Online page is open, to invite to a match)
         static const std::string room = std::string(port::Netplay::kService) + "/v1/room";
         c.room = room.c_str();
-        c.room_protocol = port::Netplay::kProtocol;
+        c.room_protocol = port::Netplay::kLobbyProtocol;
         c.file_name = "ROM set";
         c.online_features = "Online"; // (the ping and the input delay on the screen: port/main.cpp)
         c.online_intro = "Play someone on another machine: join a match a player is hosting, or host one in any of your games for others to "
@@ -313,7 +340,7 @@ const launcher::Description& launcher::describe() {
     static const Description about = describe_game({LAUNCHER_GAME_EXE, LAUNCHER_GAME_NAME, LAUNCHER_ROM_SET, LAUNCHER_ROM_PARENT, LAUNCHER_ROM_NAME,
                                                     LAUNCHER_ROM_BIOS, LAUNCHER_ROM_SIMM1, LAUNCHER_ROM_SIMM2, LAUNCHER_ROM_SIMM3, LAUNCHER_ROM_SIMM4,
                                                     LAUNCHER_ROM_SIMM5, LAUNCHER_ROM_SIMM6, LAUNCHER_PROGRAM_ENCIPHERED, LAUNCHER_EXTRA_SETS_WORDS, "",
-                                                    LAUNCHER_DISPLAY_SWITCHES});
+                                                    LAUNCHER_DISPLAY_SWITCHES, ""});
     return about;
 }
 

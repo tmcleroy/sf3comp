@@ -64,6 +64,10 @@ public:
     static constexpr int kProtocol = 6; // (3: the version said in the hello and to the service; 4: the welcome's flags;
                                         // 5: the welcome's program words, so two regions' sets play together;
                                         // 6: each player's name in the hello and the welcome, and the chat)
+    // The number said to the introduction service for kProtocol, which lists a lobby's matches and a waiting room's
+    // players by it: this toolkit's own (3000 and up), so that its lobby and waiting room are its games' alone and
+    // not the other toolkits' that use the same service (cps2recomp says its kProtocol as it is)
+    static constexpr int kLobbyProtocol = 3000 + kProtocol;
     static constexpr int kMostAhead = 8;   // frames run on guessed controls at most
     static constexpr int kKept = 16;       // states kept (more than the most a rollback goes back)
     static constexpr int kInputs = 128;    // controls kept, each side's

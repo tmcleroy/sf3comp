@@ -8,7 +8,8 @@
 // walls the camera's ends are left the game's, and the picture is kept on the stage by drawing the world off centre.
 // The stages' things need no wider range here: these games' own range_x_check (0x060796CA, 0x0609FABC) keeps them
 // within 272 columns of their layer's middle, past the wide picture's 256.
-// Open: on a few stages a far layer ends short of the wider picture at the stage's ends (checkwide.sh lists them).
+// On a few stages a far layer ends short of the wider picture at the stage's ends (its art is only as wide as the
+// board's picture needs): there the renderer shows the layer's own end again, mirrored (Machine::SetWideFill).
 #include "facts.h"
 #include "widescreen.h"
 
@@ -65,6 +66,7 @@ void WidescreenBeforeFrame(Machine &m) {
     const bool on = FeatureOn("widescreen");
     const bool fighting = Fighting() && Ram8(f.matchState) == 2;
     m.SetWideMargin(on ? kMargin : 0);
+    m.SetWideFill(on); // (the far layers that end short of the wider picture at a stage's ends)
     m.worldShiftNow = WorldShift;
     const bool walls = FeatureOn("widescreen_walls");
     if (walls && fighting && g.setLeft && Word(f.cameraLeft) == g.setLeft && Word(f.cameraRight) == g.setRight) {

@@ -45,6 +45,10 @@ Machine::Machine(const RomSet &rom)
     m_picture.assign(static_cast<size_t>(Video::kWidth) * Video::kHeight, 0);
 }
 
+void Machine::SetWideFill(bool on) {
+    native::SetFillEnds(on);
+}
+
 void Machine::SetBoardSound(bool on) {
     m_boardSound = on;
     board.mixNative = !on || board.nativeCheck;

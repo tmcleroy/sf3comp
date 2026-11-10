@@ -96,6 +96,9 @@ struct Game {
     // For a game whose sources can ask for a wider picture (video.h, Video::wide): how many columns the
     // widest will have with the player's choices as they are, so that the window starts in its shape
     int (*widestPicture)() = nullptr;
+    // The sound heard is the board's mixer's (the chip's registers as the game's code writes them), not the native
+    // mixer's: for a game with no sound driver of its own feeding that one (which would be silent)
+    bool boardSound = false;
     // For the port's camera (its zoom, port/zoom.h): where to look to see player `player`'s fighter (0: player 1's
     // side), in the picture's pixels; false when there is none to look at now (no fight on). Not given: no zoom.
     bool (*focus)(int player, int &x, int &y) = nullptr;

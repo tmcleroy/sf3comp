@@ -3,6 +3,7 @@
 #include "raster.h"
 
 #include <algorithm>
+#include <cstring>
 #include <cstdio>
 #include <cstdlib>
 #include <tuple>
@@ -186,6 +187,26 @@ static bool MakeTile(const Clip &clip, uint32_t code, uint32_t colour, int granu
     return true;
 }
 
+namespace {
+    bool g_fillEnds = false;
+    // A tilemap's tile with nothing in it (every pixel the transparent one)
+    bool EmptyTile(const uint8_t *textures, uint32_t code) {
+        const uint8_t *p = textures + (code & 0x7FFF) * 256;
+        for (int n = 0; n < 256; n += 8) {
+            uint64_t eight;
+            memcpy(&eight, p + n, 8);
+            if (eight) {
+                return false;
+            }
+        }
+        return true;
+    }
+} // namespace
+
+void SetFillEnds(bool on) {
+    g_fillEnds = on;
+}
+
 void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift, Frame &f, KeepObject keep, const void *keepContext, int shiftY, int front) {
     const FrameRegisters &r = v.registers;
     f.screen = ScreenOf(r);
@@ -218,6 +239,13 @@ void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift,
         BuildDrawList(v.objects, r, f.screen, f.items);
     }
     Tile t;
+    // (SetFillEnds: the tiles that fill a layer's end in the added columns, drawn under everything else)
+    static thread_local std::vector<Tile> fill;
+    static thread_local std::vector<uint8_t> fillPriority;
+    fill.clear();
+    fillPriority.clear();
+    const bool fillEnds = g_fillEnds && margin > 0 && f.screen.zoomX == 0x40;
+    const uint8_t *textures = fillEnds ? v.textures.Pixels() : nullptr;
     for (const DrawItem &d : f.items) {
         // (in front of the fighters: the game's things a guest's pieces in front go under, Frame::front)
         const int producer = InFront(d.priority, front) ? 3 : 0;
@@ -255,8 +283,10 @@ void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift,
         }
         scrollX -= margin - shift; // (the columns added at the left show the map further left)
         const Clip row = {clip.left, clip.right, line, line};
-        for (int x = clip.left / 16; x < clip.right / 16 + 2; x++) {
-            const uint32_t tile = Long(spriteRam, mapBase + ((tileLine & 63) << 6) + (((x + (scrollX >> 4)) & 63) ^ xFlipMask));
+        const auto entry = [&](int x) { return Long(spriteRam, mapBase + ((tileLine & 63) << 6) + (((x + (scrollX >> 4)) & 63) ^ xFlipMask)); };
+        const int first = clip.left / 16, last = clip.right / 16 + 1;
+        for (int x = first; x <= last; x++) {
+            const uint32_t tile = entry(x);
             const bool flipX = (((tile >> 12) & 1) ^ (xFlipMask & 1)) != 0;
             if (MakeTile(row, tile >> 17, tile & 0x1FF, ((tile >> 9) & 1) ? 64 : 256, flipX, (tile >> 11) & 1, x * 16 - (scrollX & 15), line - subLine,
                          (tile >> 10) & 1, 0x10000, 0x10000, t)) {
@@ -265,6 +295,56 @@ void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift,
                 f.tilePriority.push_back(d.priority);
             }
         }
+        if (!fillEnds) {
+            continue;
+        }
+        // A layer that ends within the added columns (a far layer's art is only as wide as the board's picture needs
+        // at the stage's ends; the wider picture shows past it): each of its line's tiles there with nothing in it is
+        // given the line's own tiles again, as a mirror at the layer's end shows them (the nearest tile inward with
+        // something, then on inward; a short run of them back and forth). Under everything (`fill`): whatever the
+        // frame draws there itself is over it, so only what would have been empty shows it.
+        const auto empty = [&](int x) { return EmptyTile(textures, entry(x) >> 17); };
+        const int boardLeft = margin - shift + (scrollX & 15), boardRight = boardLeft + f.screen.width - 1; // (in the line's own columns)
+        const int inLeft = boardLeft >> 4, inRight = boardRight >> 4;
+        for (int side = 0; side < 2; side++) {
+            const int step = side ? 1 : -1, edge = side ? inRight : inLeft, far = side ? inLeft : inRight, end = side ? last : first;
+            int stop = 0, run = 0; // (the layer's end found for the last tile: the first tile past it, and the tiles with something inward of it)
+            for (int x = edge + step; x != end + step; x += step) {
+                if (!empty(x)) {
+                    run = 0;
+                    continue;
+                }
+                if (!run) {
+                    int has = x - step;
+                    while (has != far - step && empty(has)) {
+                        has -= step;
+                    }
+                    if (has == far - step) {
+                        break; // (nothing in the line's part of the board's picture)
+                    }
+                    stop = has + step;
+                    while (has != far - step && !empty(has)) {
+                        has -= step;
+                        run++;
+                    }
+                }
+                const int k = ((x - stop) * step) % (2 * run); // (0: the tile at the end, mirrored; `run` on: the run again as it is)
+                const bool mirrored = k < run;
+                const int from = mirrored ? stop - step * (1 + k) : stop - step * (2 * run - k);
+                const uint32_t tile = entry(from);
+                const bool flipX = ((((tile >> 12) & 1) ^ (xFlipMask & 1)) != 0) != mirrored;
+                if (MakeTile(row, tile >> 17, tile & 0x1FF, ((tile >> 9) & 1) ? 64 : 256, flipX, (tile >> 11) & 1, x * 16 - (scrollX & 15), line - subLine,
+                             (tile >> 10) & 1, 0x10000, 0x10000, t)) {
+                    t.producer = 0;
+                    fill.push_back(t);
+                    fillPriority.push_back(d.priority);
+                }
+            }
+        }
+    }
+    if (!fill.empty()) {
+        f.tiles.insert(f.tiles.begin(), fill.begin(), fill.end());
+        f.tilePriority.insert(f.tilePriority.begin(), fillPriority.begin(), fillPriority.end());
     }
     // The text layer's settings
     f.textScrollY = (-static_cast<int>((r.text[0x11] << 8) | r.text[0x10])) & 0x100;

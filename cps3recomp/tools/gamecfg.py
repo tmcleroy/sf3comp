@@ -34,7 +34,7 @@ def load(game=None):
 
 # What the collection's launcher is told of each game (launcher/src/description.cpp, GameInfo), in its order
 COLLECTION_KEYS = ["id", "name", "rom_set", "rom_parent", "rom_name", "bios", "simm1", "simm2", "simm3", "simm4", "simm5", "simm6",
-                   "program_enciphered", "launcher_extra_sets", "guests", "display"]
+                   "program_enciphered", "launcher_extra_sets", "guests", "display", "launcher_name"]
 
 
 def collection_order(game):

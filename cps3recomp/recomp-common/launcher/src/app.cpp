@@ -184,7 +184,7 @@ const launcher::Description& the_description() {
 // Who a game is, as the launcher keeps it: a port's one game, or one of a collection's.
 struct Target {
     const launcher::Description* about = nullptr;
-    std::string id, name, exe, series, file_section = "game", video_section = "video";
+    std::string id, name, folder_name, exe, series, file_section = "game", video_section = "video"; // (folder_name: its folder's, a collection's game's)
     std::filesystem::path folder;
 };
 
@@ -198,6 +198,7 @@ std::vector<Target> targets() {
             target.about = &game.description;
             target.id = game.id;
             target.name = game.name;
+            target.folder_name = game.folder && *game.folder ? game.folder : game.name;
             target.exe = game.exe;
             target.series = game.series ? game.series : "";
             target.file_section = std::string("game.") + game.id;
@@ -205,7 +206,7 @@ std::vector<Target> targets() {
             const char* own = game.home_env && *game.home_env ? std::getenv(game.home_env) : nullptr;
             target.folder = own && *own ? std::filesystem::path(own)
                             : home && *home ? std::filesystem::path(home) / game.id
-                                            : player_folder(game.name, nullptr);
+                                            : player_folder(target.folder_name.c_str(), nullptr);
             list.push_back(target);
         }
         return list;
@@ -318,7 +319,7 @@ bool prepare_folders(bool ask) {
     };
     consider(LAUNCHER_GAME_NAME);
     for (const Target& target : targets()) {
-        consider(target.name.c_str());
+        consider(target.folder_name.empty() ? target.name.c_str() : target.folder_name.c_str());
     }
     if (copies.empty()) {
         return true;

@@ -460,10 +460,22 @@ namespace {
         }
     }
 
-    void Hud(Machine &, std::vector<HudLine> &lines, std::vector<HudBox> &boxes) {
+    void Hud(Machine &machine, std::vector<HudLine> &lines, std::vector<HudBox> &boxes) {
         const sf3::Facts &f = TheFacts();
         if (f.boxes[0].offset && FeatureOn("hit_boxes")) {
-            Boxes(boxes);
+            // The picture a frame shows is of the fighters as the frame before left them (these games draw a frame's
+            // sprites from the records before they step them: an attack's box was there a frame before the limb was
+            // out), so the boxes drawn are those of the frame before too, through that frame's camera. (Not a state's:
+            // after a state is loaded the first frame has none.)
+            static std::vector<HudBox> held;
+            static uint64_t heldAt = 0;
+            const uint64_t now = machine.frame;
+            if (heldAt + 1 == now) {
+                boxes.insert(boxes.end(), held.begin(), held.end());
+            }
+            held.clear();
+            Boxes(held);
+            heldAt = now;
         }
         if (HasParries() && FeatureOn("parry_readout")) {
             static const char *const kKinds[4] = {"FORWARD", "DOWN", "AIR", "ANTI-AIR"};

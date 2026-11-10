@@ -90,6 +90,10 @@ using KeepObject = bool (*)(const void *context, const Object &o, uint32_t index
 // (`front`: Frame::front, for a guest's layers to be added)
 void BuildFrame(const Video &v, const uint8_t *spriteRam, int margin, int shift, Frame &f, KeepObject keep = nullptr, const void *keepContext = nullptr,
                 int shiftY = 0, int front = 0);
+// Widescreen's added columns filled where a tilemap's layer ends within them (a far layer whose art is only as wide as
+// the board's picture needs): the layer's own tiles again, mirrored about its end, under everything the frame draws.
+// Off unless asked (a game whose stages need it: games/shared/sf3/widescreen.cpp); every frame built after has it
+void SetFillEnds(bool on);
 // Whether an object of this priority is in front of the fighters whose frontmost priority is `front` (Frame::front)
 inline bool InFront(uint8_t priority, int front) {
     return priority != kNoPriority && static_cast<int>(priority) < front;

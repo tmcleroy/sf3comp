@@ -108,6 +108,8 @@ public:
         }
         m_renderer.margin = margin;
     }
+    // ... and whether those columns are filled where a stage's layer ends within them (native::SetFillEnds)
+    void SetWideFill(bool on);
     // For a wide picture played as on the board (the game's camera unchanged): how far the world is drawn from centred,
     // asked as each picture is drawn (Renderer::shift; none: 0)
     int (*worldShiftNow)() = nullptr;

@@ -274,7 +274,7 @@ bool Port::Init(std::string &error) {
         cps3recomp::Attach(machine->board, recomp);
     }
     // (the native mixer is fed by the game's sound driver's rewrites and hooks: with none of them, the board's)
-    machine->SetBoardSound(opt.board || opt.cpu == "interp" || getenv("CPS3RECOMP_NO_LIFTS") != nullptr);
+    machine->SetBoardSound(opt.board || opt.cpu == "interp" || getenv("CPS3RECOMP_NO_LIFTS") != nullptr || TheGame().boardSound);
     if (!opt.moviePlay.empty() && !playMovie.Load(opt.moviePlay)) {
         error = "cannot read the movie " + opt.moviePlay;
         return false;

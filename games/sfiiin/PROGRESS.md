@@ -21,8 +21,14 @@ is also linked into 3rd Strike's program, for the definitive version's stages.
 Not planned (the user's decision, 2026-11-09): the alternative modes (survival, tag team, ring out, the viewers and the
 rest). This game does not need 3rd Strike's whole feature set: training mode is what matters most for it.
 
-Not yet: widescreen, custom soundtrack, native picture and sound (it is drawn
-and mixed by the board model, which 3rd Strike keeps only as its reference).
+Not yet: custom soundtrack, native sound (the board's mixer is what is heard: `Game::boardSound`; the native mixer has
+no sound driver of this game's feeding it, and played nothing).
+
+Widescreen (`games/shared/sf3/widescreen.cpp`, `checkwide.sh`): where a far layer's art ends short of the wider picture at a
+stage's end, the renderer shows the layer's own end again, mirrored, under everything else (`native::SetFillEnds`).
+checkwide.sh still names a few pictures: 2 to 5 columns on New Generation's stage 13 and 2nd Impact's 3 and 4 with the
+invisible walls, 24 on 2nd Impact's stage 4 (its pieces there are objects, not a tilemap), and 2nd Impact's stage 9, whose
+cliff is black art (not a fault).
 
 ## Facts
 
@@ -80,5 +86,6 @@ at a time, dumps, pictures with the boxes drawn). `src/facts.cpp` has each with 
   gives the same hashes (with the default features, and without free play and the straight start).
 
 Not checked by a person: nobody has played it in a window yet. Training mode's pictures were read from headless runs only; the hit boxes are
-drawn from the records as each frame leaves them, which is a frame ahead of the fighters' pictures (an attack's box shows a
-frame before the limb is out). Not tried: a super art whose gauge is a timer, other characters than Ryu and Ken.
+those of the frame before (the picture a frame shows is of the fighters as the frame before left them: drawn from the frame's own
+records an attack's box showed a frame before the limb was out; seen frame by frame, a standing heavy punch's box is now on the arm for
+its three frames). Not tried: a super art whose gauge is a timer, other characters than Ryu and Ken.

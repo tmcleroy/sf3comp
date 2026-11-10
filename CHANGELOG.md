@@ -5,8 +5,11 @@
 - **SF3comp: the three Street Fighter III games in one app.** New Generation and 2nd Impact play as games of their own
   beside 3rd Strike, picked in one launcher (`SF3comp.app`, `sf3comp-launcher`), each with training mode, widescreen
   and online play with rollback. 3rd Strike's settings, saves and ROM set carry over from the single-game launcher.
-  Known: in the two older games' widescreen, a far background layer ends a few columns short at the ends of about
-  seven stages.
+  Where a far background layer's art ends short of the wider picture at a stage's end, its own end is shown again,
+  mirrored. Hit boxes sit on the fighters' pictures (they were a frame early).
+- Online play has a lobby and a waiting room of its own (they were shared with another collection's players).
+- The launcher finds ROM sets in a `rom` folder beside it, and shows 3rd Strike as "Street Fighter III 3rd Strike
+  Definitive" (its folder of settings and saves is the one it had).
 - Board page: each setting now sets its own (Difficulty set the damage level and Damage level the difficulty, Timer
   speed did nothing, and the rounds, Event and Bonus games were crossed).
 - Stage viewer: New Generation's and 2nd Impact's stages, each with its own music; "Q's" gone (Q has no stage of his
