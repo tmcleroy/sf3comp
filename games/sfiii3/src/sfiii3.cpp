@@ -40,6 +40,9 @@ void WidescreenBeforeFrame(Machine &m, bool fighting);
 int WidestPicture(); // widescreen.cpp
 void RegisterWidescreen(); // widescreen.cpp
 void TrainingBeforeFrame(Machine &m);
+void ScenarioBeforeFrame(Machine &m);
+void RegisterScenarios(Game &game);
+std::string MatchLabel();
 void AttractBeforeFrame(Machine &m);
 void RegisterAttract(Game &game);
 void BonusBeforeFrame(Machine &m);
@@ -91,6 +94,7 @@ namespace {
         MusicBeforeFrame(m);
         StagesBeforeFrame(m);
         TrainingBeforeFrame(m);
+        ScenarioBeforeFrame(m); // (after the session's: its controls for player 2 are the last word)
         BattleBeforeFrame(m);
         BonusBeforeFrame(m);
         ModelBeforeFrame(m);
@@ -131,6 +135,8 @@ void RegisterGame() {
     game.beforeFrame = BeforeFrame;
     game.frame = TrainingAfterFrame;
     RegisterTraining(game);
+    RegisterScenarios(game);
+    game.matchLabel = MatchLabel;
     RegisterLifts3rdStrike();
     RegisterStages(game);
     RegisterWidescreen();

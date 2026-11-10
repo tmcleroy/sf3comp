@@ -22,6 +22,11 @@
 
 namespace cps3recomp {
 
+// (scenario.cpp: a scenario is told the parries and the hits, and has its lines of the readout)
+void ScenarioParried(int p);
+void ScenarioStruck(int p);
+void ScenarioHud(std::vector<HudLine> &lines);
+
 int WorldShift(); // widescreen.cpp
 void StageForSession(int choice);                    // stages.cpp
 std::vector<const char *> GuestStageNames(); // stages.cpp
@@ -257,6 +262,45 @@ namespace {
     // The parry readout. A parry in a window says which of its frames it came on; a hit or guard arriving while a window
     // is open but not parried, the wrong window; a hit within 20 frames after a window closed, too early by so many; a
     // window opened within 20 frames after a hit, too late by so many.
+    // The red parry drill (red_parry_drill): each time player 1 guards a hit, a try, until it is free again: a parry
+    // meanwhile (out of the guard: a red parry) makes it. Not kept in a save state.
+    struct RedParry {
+        bool on = false, open = false, made = false;
+        int right = 0, tried = 0, said = 0, result = 0; // result: 1 a red parry, 2 none
+    } g_red;
+    void RedParryStep(bool parried, bool guarded) {
+        RedParry &r = g_red;
+        const bool on = FeatureOn("red_parry_drill");
+        if (on != r.on) {
+            r = {};
+            r.on = on;
+        }
+        if (!on) {
+            return;
+        }
+        if (r.open && parried && !r.made) {
+            r.made = true;
+            r.right++;
+            r.result = 1;
+            r.said = 150;
+        }
+        if (guarded && !r.open) {
+            r.open = true;
+            r.made = false;
+        }
+        if (r.open && session::Now(0) == fight::Doing::Free) {
+            r.open = false;
+            r.tried++;
+            if (!r.made) {
+                r.result = 2;
+                r.said = 150;
+            }
+        }
+        if (r.said > 0) {
+            r.said--;
+        }
+    }
+
     void ReadParries(bool hit[2], bool guarded[2]) {
         static const char *const kKinds[4] = {"forward", "down", "air", "anti-air"};
         static const bool log = getenv("SFIII3_PARRIES") != nullptr;
@@ -294,6 +338,13 @@ namespace {
             }
             if (struck) {
                 parry.lastHit = g.frame;
+                ScenarioStruck(p);
+            }
+            if (parried) {
+                ScenarioParried(p);
+            }
+            if (p == 0) {
+                RedParryStep(parried, guarded[0]);
             }
             if (parried && parry.kind >= 0) {
                 // (which parry it was, as the game made it: the defender's reaction, 31 high or 32 high against an
@@ -644,9 +695,20 @@ void RegisterTraining(Game &game) {
             return;
         }
         BattleHud(m, lines);
+        ScenarioHud(lines);
         ModelHud(lines, boxes);
         if (FeatureOn("hit_boxes")) {
             Boxes(boxes);
+        }
+        if (g_red.on) {
+            char text[48];
+            snprintf(text, sizeof(text), "RED PARRY %d / %d", g_red.right, g_red.tried + (g_red.open ? 1 : 0));
+            lines.push_back({0.5f, 0.22f, 0, text});
+            if (g_red.said > 0) {
+                const bool right = g_red.result == 1;
+                lines.push_back({0.5f, 0.285f, 0, right ? "RED PARRY" : "GUARDED, NO PARRY", static_cast<uint8_t>(right ? 96 : 255),
+                                 static_cast<uint8_t>(right ? 230 : 110), static_cast<uint8_t>(right ? 120 : 96)});
+            }
         }
         if (FeatureOn("parry_readout")) {
             static const char *const kKinds[4] = {"FORWARD", "DOWN", "AIR", "ANTI-AIR"};
@@ -706,6 +768,10 @@ void RegisterTraining(Game &game) {
         {"parry_readout", session::kPage, "Parry readout",
          "When a parry window opens (the stick forward, down, in the air, or up against a jump-in): whether the parry came, on which "
          "frame of the window, or how long after the window opened the hit came instead."},
+        {"red_parry_drill", session::kPage, "Red parry drill",
+         "Counts your red parries: each time you guard a hit, the next hit of the same string has to be parried (tap forward, or "
+         "down, out of the guard) before you are free again. Give the dummy something of two hits or more to do: record it "
+         "and have it replay, or let the game play it. The score is at the top of the screen."},
         {"stun_readout", session::kPage, "Stun readout",
          "Under each health bar: how much stun the player has taken, and how much stuns them (it drains when they are left alone)."},
         {"gauge_refill", session::kPage, "Gauge refills", "Both players' super art gauge kept full, filled again after a super art."},
@@ -732,7 +798,7 @@ void RegisterTraining(Game &game) {
         start.id = Ram16(base + sfiii3::kAnimation + 2);
         return start;
     };
-    d.ownAids = {"hit_boxes", "dummy_parry", "dummy_stun_mash", "dummy_computer", "dummy_level", "training_watch", "parry_readout", "stun_readout", "gauge_refill"};
+    d.ownAids = {"hit_boxes", "dummy_parry", "dummy_stun_mash", "dummy_computer", "dummy_level", "training_watch", "parry_readout", "red_parry_drill", "stun_readout", "gauge_refill"};
     // The dummy's guard: player 1's move starting or able to hit, near enough (280 across: the distance a move can hit
     // from is not known; nearer missed more, farther no fewer); standing against an attack from the air (made-up play,
     // three seeds: 25 hits taken to 43 with the toolkit's own, which crouches always)

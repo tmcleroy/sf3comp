@@ -310,6 +310,9 @@ void Port::ReplayBegin(bool online) {
     for (const Feature &feature : TheGame().features) {
         r.made.features.push_back({feature.name, FeatureSetting(feature.name)});
     }
+    if (TheGame().matchLabel && !online) {
+        r.made.label = TheGame().matchLabel();
+    }
     KeepState(r.made.state);
     r.lastFought = 0;
     r.lastHeld = {};

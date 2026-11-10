@@ -2037,4 +2037,13 @@ void RegisterBattle(Game &game) {
                              0, {"Off", "Co-op vs. computer", "2 vs 2"}});
 }
 
+// What a replay's row says of a match (Game::matchLabel): the two characters on, by their records
+std::string MatchLabel() {
+    const unsigned one = Ram16(sfiii3::kPlayer[0] + 0x3C0), two = Ram16(sfiii3::kPlayer[1] + 0x3C0);
+    if (one >= static_cast<unsigned>(kCharacterCount) || two >= static_cast<unsigned>(kCharacterCount)) {
+        return {};
+    }
+    return std::string(kCharacters[one]) + " vs " + kCharacters[two];
+}
+
 } // namespace cps3recomp

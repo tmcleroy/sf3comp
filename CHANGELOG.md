@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Training scenario: Evo Moment 37** (3rd Strike): Ken with a sliver of health against Chun-Li's super art, every
+  try by itself; the readout counts the parries and says where a try ended.
+- **Red parry drill** (3rd Strike): a score of the strings you guarded and then parried out of.
 - **Hit confirm drill** (training, all three games): the dummy guards at random and each attack that touches it is
   judged by what you did next (gone on after a hit, held back after a guarded one), with a running score.
 - **Match replays.** Every match, offline or online, is kept (the latest 40) and listed on the in-game menu's Replays

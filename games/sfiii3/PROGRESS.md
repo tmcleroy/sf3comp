@@ -129,6 +129,13 @@
   out" puts health back to full below a quarter (no hook on the game's knock-out yet). The player records, boxes, camera and meter places are facts from Grouflon's 3rd_training_lua (no licence:
   facts only, no code), made for the 990512 set; life and positions checked on this 990608 set, the rest seen to
   work in a fight's pictures only.
+- Training's drills (2026-11-10): the hit confirm drill (the toolkit's session: every game's), the red parry drill
+  (training.cpp: a guarded hit opens a try, a parry before player 1 is free makes it) and the scenario "Evo Moment 37"
+  (scenario.cpp: the character choice steered to Ken and Chun-Li with her second super art, player 2's controls the
+  scenario's, player 1's health one point, the round started over after each try). Checked headless: the scenario's
+  super comes out every try (17 hits when none is parried), scripted taps that parried one and two hits read as 1 and 2
+  and then "hit after"; guarding the computer's strings without parrying read as 46 tries, none made. Not checked: a
+  whole super parried, a red parry made (nobody has played them).
 - Training's play-test fixes (2026-11-06; `games/sfiii3/checktraining.sh ROM BUILD`, headless, player 1's play scripted
   movies, judged by trainingcheck.py from SFIII3_TRAINING_LOG's frames, SFIII3_PARRIES and CPS3RECOMP_HUD_LOG's HUD
   lines; each check fails on the code before and passes after):

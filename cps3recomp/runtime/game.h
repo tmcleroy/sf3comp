@@ -114,6 +114,8 @@ struct Game {
     // A round is being fought now (the port's match replays begin with one and end a while after the last). Not
     // given: no replays are kept.
     bool (*fighting)() = nullptr;
+    // ... and what a replay's row says of the match, asked as it begins ("Ken vs Chun-Li"). Not given: its time alone.
+    std::string (*matchLabel)() = nullptr;
     // With the board's timing (the port's arcade_timing feature) the game's own code runs in place of the readable
     // rewrites, whose time is only what their originals' takes without the board's waits: unless this says the
     // rewrites are needed now (training mode, a mode of the sources' own, widescreen, a cheat that works inside

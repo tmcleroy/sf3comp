@@ -1643,6 +1643,9 @@ void Port::Matched() {
     if (FeatureOn("match_replays")) {
         ReplayBegin(true);
         replay.made.label = "Online" + (net->Name(1 - net->Local()).empty() ? std::string() : " vs " + net->Name(1 - net->Local()));
+        if (TheGame().matchLabel) {
+            replay.made.label += "  " + TheGame().matchLabel();
+        }
     }
     // (the hashes compared leave out the picture: frames run again are not drawn)
     opt.hashNoPicture = true;

@@ -32,6 +32,8 @@ In all three games, from the in-game menu, a fight with no clock that nobody los
   attacks, escapes throws, gets up quickly, mashes out of stun, **records and replays** what you show it, answers
   with the recording, or is played by the game's own computer at the level you choose.
 - A **hit confirm drill**: the dummy guards at random and scores whether you went on only when the attack hit.
+- In 3rd Strike, a **red parry drill**, and the **Evo Moment 37** scenario: Ken on a sliver of health against
+  Chun-Li's super art, try after try, with your parries counted.
 - Health and super art gauges refilled, any stage (the other games' too), and save states.
 
 ## Online play
