@@ -2,27 +2,33 @@
 // Copyright (C) 2026 Tommy McLeroy
 //
 // What every Street Fighter III game's port has, from the game's facts (facts.h): free play, straight to the opening,
-// the cheats that are a byte kept (the clock, health), and the Board page. New Generation and 2nd Impact are built
-// from this; 3rd Strike has the same in its own sources (games/sfiii3/src/sfiii3.cpp, board.cpp), from before the
-// others were games of their own.
+// the cheats that are a byte kept (the clock, health), the Board page, and training mode (training.cpp). New Generation
+// and 2nd Impact are built from this; 3rd Strike has the same in its own sources (games/sfiii3/src/sfiii3.cpp,
+// board.cpp, training.cpp), from before the others were games of their own.
 #include "facts.h"
+#include "training.h"
 
 #include "game.h"
+#include "session.h"
+#include "state.h"
 #include "system.h"
 
 #include <cstdint>
 
+namespace sf3 {
+bool InRound() {
+    const Facts &f = TheFacts();
+    return (cps3recomp::Ram8(f.locked[0]) == 0xFF || cps3recomp::Ram8(f.locked[1]) == 0xFF) && cps3recomp::Ram8(f.matchState) == 2;
+}
+} // namespace sf3
+
 namespace cps3recomp {
 
 namespace {
+    using sf3::InRound;
     using sf3::TheFacts;
 
     bool g_skipping = false; // (follows the frame number alone: nothing a save state need hold)
-
-    bool InRound() {
-        const sf3::Facts &f = TheFacts();
-        return (Ram8(f.locked[0]) == 0xFF || Ram8(f.locked[1]) == 0xFF) && Ram8(f.matchState) == 2;
-    }
 
     // The settings EEPROM's bytes (the game's bytes are kept high first in each word; a block and its copy 0x30 on)
     void SetByte(Machine &m, uint32_t offset, uint8_t value) {
@@ -79,35 +85,38 @@ namespace {
     void BeforeFrame(Machine &m) {
         const sf3::Facts &f = TheFacts();
         Board(m);
-        if (FeatureOn("skip_intro") && m.frame < f.opening) {
+        // (a training session's start runs unseen too, to the character choice: the fast forward is then its own)
+        if (FeatureOn("skip_intro") && m.frame < f.opening && !session::Booting()) {
             if (!g_skipping) {
                 g_skipping = true;
                 SetFastForward(true);
             }
         } else if (g_skipping) {
             g_skipping = false;
-            SetFastForward(false);
+            if (!session::Booting()) {
+                SetFastForward(false);
+            }
         }
         if (FeatureOn("free_play") && Ram8(f.credits) < 2) {
             SetRam8(f.credits, 2); // (two: a second player can always join)
         }
-        if (!InRound()) {
-            return;
-        }
-        const uint8_t clock = Ram8(f.clock);
-        if (FeatureOn("infinite_time") && clock > 0 && clock < 99) {
-            SetRam8(f.clock, 99);
-        }
-        for (int p = 0; p < 2; p++) {
-            const uint32_t life = f.player[p] + f.life;
-            // (one hit: health below full in a round is none)
-            if (FeatureOn("one_hit") && Ram8(life) < f.fullLife && Ram8(life) > 0) {
-                SetRam8(life, 0);
+        if (InRound()) {
+            const uint8_t clock = Ram8(f.clock);
+            if (FeatureOn("infinite_time") && clock > 0 && clock < 99) {
+                SetRam8(f.clock, 99);
             }
-            if (FeatureOn(p == 0 ? "no_damage" : "no_damage_2")) {
-                SetRam8(life, static_cast<uint8_t>(f.fullLife));
+            for (int p = 0; p < 2; p++) {
+                const uint32_t life = f.player[p] + f.life;
+                // (one hit: health below full in a round is none)
+                if (FeatureOn("one_hit") && Ram8(life) < f.fullLife && Ram8(life) > 0) {
+                    SetRam8(life, 0);
+                }
+                if (FeatureOn(p == 0 ? "no_damage" : "no_damage_2")) {
+                    SetRam8(life, static_cast<uint8_t>(f.fullLife));
+                }
             }
         }
+        TrainingBeforeFrame(m);
     }
 } // namespace
 
@@ -150,6 +159,9 @@ void RegisterGame() {
     game.features.push_back({"board_demo_sound", "Board", "Demo sound", "Whether the attract mode plays sound. Takes effect when the game is reset.",
                              0, {"As the board has it", "On", "Off"}});
     game.beforeFrame = BeforeFrame;
+    game.frame = TrainingAfterFrame;
+    game.state = TrainingState;
+    RegisterTraining(game);
 }
 
 } // namespace cps3recomp
