@@ -4,6 +4,8 @@
 
 - **New defaults** (the Enhanced preset, and Reset all options): arcade timing, invisible walls in widescreen, and
   Scaling's whole-pixel choice, now called Integer. A player whose settings already say otherwise keeps them.
+- Widescreen: the black screen before a round (and the striped wipes either side of it) left the added columns at the
+  left uncovered. The text layer, which the game fills for them, now wraps into those columns as it does on the board.
 - **3rd Strike's later revision (990608, `sfiii3n`)** as a game of its own in the launcher, with training mode,
   widescreen, online play and replays. The definitive version stays the 990512 one.
 - **Input lag readout** (Display page): the frames the game itself takes to show a press (measured in a fight),
