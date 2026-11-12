@@ -167,7 +167,9 @@ void Renderer::DrawText(const Machine &m, uint32_t *pixels, int width, int heigh
             const bool flipY = (data >> 14) & 1, flipX = (data >> 15) & 1;
             const uint8_t *chr = ss + 0x4000 + tile * 32 + (flipY ? 7 - sub : sub) * 4;
             const uint32_t base = (colour * 16) & 0x1FFFF;
-            for (int copy = 0; copy < 2; copy++) {
+            // (its copies 512 columns apart: the one to the left shows only in widescreen's added columns at the left,
+            // as the layer wraps there; without it a black screen the game fills the layer with left them uncovered)
+            for (int copy = -1; copy < 2; copy++) {
                 const int sx = copy * 512 + x * 8 - rowScroll + margin;
                 for (int px = 0; px < 8; px++) {
                     const int dx = sx + px;

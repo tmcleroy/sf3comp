@@ -86,33 +86,24 @@ void main() {
         colour = rgb[c & 0x1FFFFu];
     }
 
-    // The text layer: of the two copies, the characters under this pixel, in the order the CPU draws them (by column,
-    // then copy)
+    // The text layer: the characters under this pixel. Its copies are 512 columns apart, so a pixel is under one of them
+    // at most: the board's two, and in widescreen one more to the left for the added columns there (the layer wraps; a
+    // black screen the game fills the layer with left them uncovered)
     const int line = p.y, scrollY = params.textScrollY;
     const int sub = line - line / 8 * 8;
     const int offset = ((line + scrollY) / 8 * 128) & 0x1FFF;
     const int rowScroll = int(SsByte(uint(((line + scrollY - 1) & 0x1FF) * 2 + 0x2000)));
-    int column[2], px[2];
-    for (int copy = 0; copy < 2; copy++) {
-        const int rel = p.x - params.margin + rowScroll - copy * 512;
-        column[copy] = rel >= 0 && rel < 512 ? rel / 8 : -1;
-        px[copy] = rel - (rel / 8) * 8;
-    }
-    // (the one drawn first: the lower column, or copy 0 at the same column)
-    const int first = column[0] >= 0 && (column[1] < 0 || column[0] <= column[1]) ? 0 : 1;
-    for (int n = 0; n < 2; n++) {
-        const int copy = n == 0 ? first : 1 - first;
-        const int x = column[copy];
-        if (x < 0) {
-            continue;
-        }
+    const int across = p.x - params.margin + rowScroll;
+    if (across >= -512 && across < 1024) {
+        const int rel = across < 0 ? across + 512 : (across >= 512 ? across - 512 : across);
+        const int x = rel / 8, px = rel - x * 8;
         const uint at = uint(offset + x * 2);
         const uint data = SsByte(at) | (SsByte(at + 1u) << 8);
         const uint tile = data & 0x1FFu;
         const uint pal = ((data >> 9) & 0x1Fu) + (params.textPalette << 5);
         const bool flipY = ((data >> 14) & 1u) != 0u, flipX = ((data >> 15) & 1u) != 0u;
         const uint chr = 0x4000u + tile * 32u + uint(flipY ? 7 - sub : sub) * 4u;
-        const int q = flipX ? 7 - px[copy] : px[copy];
+        const int q = flipX ? 7 - px : px;
         const uint t = (SsByte(chr + uint(q >> 1)) >> uint((q & 1) * 4)) & 0xFu;
         if (t != 0u) {
             colour = rgb[(((pal * 16u) & 0x1FFFFu) + t) & 0x1FFFFu];

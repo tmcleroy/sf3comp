@@ -1,7 +1,7 @@
 # The board's timing
 
 The CPS-3's SH-2 does not run every instruction in one cycle: its memory takes time, its cache misses, and its
-pipeline stalls. The port's **arcade timing** (the Game page's "Arcade timing", off unless chosen)
+pipeline stalls. The port's **arcade timing** (the Game page's "Arcade timing", on by default)
 charges the processor that time, so the game does as much work in a frame as the board's processor does. With it
 off every access is instant, as the port has always run it, and the game gets through about twice the board's work
 in a frame.

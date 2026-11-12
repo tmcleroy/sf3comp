@@ -78,10 +78,10 @@ playable by either player.
   against. Sharp or smooth scaling, 4:3 or square pixels, RetroArch shaders, and a zoom that follows the fighters.
 - **An in-game menu** (Esc or F1; on a gamepad the left stick's click, or Start and Select together): save states,
   speed, the cheats, the board's own settings and test menu, every feature. Pure plays exactly as the board does;
-  Enhanced (the default) adds free play.
+  Enhanced (the default) adds free play, arcade timing, integer scaling and, in widescreen, invisible walls.
 - **Controls**: keyboard, gamepad or arcade stick, every button changeable per player.
 - **A custom soundtrack**: your own music in place of the board's, by song or as a playlist.
-- **Arcade timing** (off unless chosen): the processor slows down where the real board does, checked frame by frame
+- **Arcade timing** (on by default): the processor slows down where the real board does, checked frame by frame
   against a cycle-accurate model of it ([docs/TIMING.md](docs/TIMING.md)).
 - **A launcher** that checks your ROM set, sets every feature and both players' controls, hosts and joins online
   matches, and adds the game to Steam.

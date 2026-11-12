@@ -101,7 +101,8 @@ void RegisterWidescreen(Game &game) {
     game.features.push_back({"widescreen_walls", "Display", "Invisible walls",
                              "With widescreen: fights are still shown in 16:9, but played exactly as on the board. The camera goes "
                              "as far as the board's and the corners are the board's; near a stage's end the view stays on the stage, "
-                             "so the fight is then to one side of the picture. Nothing without widescreen."});
+                             "so the fight is then to one side of the picture. Nothing without widescreen.",
+                             kFeatureEnhanced});
     game.widestPicture = WidestPicture;
 }
 
