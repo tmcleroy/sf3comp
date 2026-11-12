@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Online play has its own service** (`online/`, sf3comp-online), no longer cps2recomp's: codes, the lobby and the
+  waiting room are this collection's alone, with a stats page for whoever runs it. Both players need this build or
+  later; an older one still finds only the old service's lobby.
 - **Stage on the menu's first page**, in every game: one choice of where the next fight is, in the arcade game,
   training and the modes that have no stage of their own to say (3rd Strike: its own stages and the other games').
   It replaces the Training page's Stage row and the Display page's "Stages (experiment)". Online, the host's choice.

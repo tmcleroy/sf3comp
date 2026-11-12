@@ -1,0 +1,36 @@
+# The introduction service for online play (online/README.md): `wrangler deploy` from this folder
+name = "sf3comp-online"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[[durable_objects.bindings]]
+name = "MATCHES"
+class_name = "Match"
+
+[[durable_objects.bindings]]
+name = "LOBBIES"
+class_name = "Lobby"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Match"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["Lobby"]
+
+[[durable_objects.bindings]]
+name = "STATS"
+class_name = "Stats"
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "Room"
+
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["Room"]
+
+[[migrations]]
+tag = "v4"
+new_sqlite_classes = ["Stats"]
