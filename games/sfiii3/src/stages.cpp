@@ -374,6 +374,7 @@ namespace {
                                           // shown only after them)
     int g_choiceWanted = 0;
     int g_sessionChoice = 0; // (a training session's Stage row's choice of another game's stage: StageForSession)
+    int g_modeChoice = 0;    // (a mode's Stage row's choice of another game's stage: StageForMode, battle.cpp)
     bool g_onlyMusic = false; // (the stage viewer: nothing of 3rd Strike's own heard but music: StageBehindOnlyMusic)
     bool g_boardMusic = true; // (the modes' stage behind: its own music, or 3rd Strike's fight's: StageBehindMusic)
     int g_cameraWanted = kFollow;
@@ -2504,7 +2505,15 @@ void StagesBeforeFrame(Machine &machine) {
                 music ? "the stage's music" : "3rd Strike's own", silenced);
     }
     const int menu = std::clamp(FeatureValue("stages"), 0, static_cast<int>(std::size(kNames)) - 1);
-    const int choice = g_choiceWanted ? g_choiceWanted : g_sessionChoice ? g_sessionChoice : menu;
+    const int choice = g_choiceWanted ? g_choiceWanted : g_sessionChoice ? g_sessionChoice : g_modeChoice ? g_modeChoice : menu;
+    // (debugging aid, SFIII3_GUEST_LOG=1: every 300 frames, the guest stage wanted, the one whose board is there and
+    // whether a fight is on it; games/sfiii3/checkguestmodes.sh reads it)
+    static const bool guestLog = getenv("SFIII3_GUEST_LOG") != nullptr;
+    if (guestLog && machine.frame % 300 == 0) {
+        fprintf(stderr, "guest stage: frame %llu, wanted %d (mode %d, session %d), loaded %d, fought %d, on stage %d\n",
+                static_cast<unsigned long long>(machine.frame), choice, g_modeChoice, g_sessionChoice, g.loaded, g.fought ? 1 : 0,
+                OnStage() ? 1 : 0);
+    }
     MakeOn(machine);
     // (between fights; or in one on 3rd Strike's own stage, when the board is idle and may preload)
     const bool idle = !OnStage() || (g_pre.on ? g_pre.live.stage : g.stage) < 0;
@@ -2598,6 +2607,12 @@ void StagesBeforeFrame(Machine &machine) {
 // the Display page's choice.)
 void StageForSession(int choice) {
     g_sessionChoice = std::clamp(choice, 0, kOpponentsFirst - 1);
+}
+// ... and a mode's (battle.cpp: the tag team battle's and the endless battle's Stage rows), the same choices, while the
+// mode is on (0: none). (Until 2026-11-11 those rows had 3rd Strike's stages only: the play-test's "can't select guest
+// stages in tag team battle".)
+void StageForMode(int choice) {
+    g_modeChoice = std::clamp(choice, 0, kOpponentsFirst - 1);
 }
 // (the names of those choices, in order)
 std::vector<const char *> GuestStageNames() {

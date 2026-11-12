@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Guest stages in the modes** (3rd Strike): the tag team battle's and the endless battle's Stage rows have New
+  Generation's and 2nd Impact's stages too, as training's Stage row has them (they had 3rd Strike's only).
 - **3rd Strike's later revision (990608, `sfiii3n`)** as a game of its own in the launcher, with training mode,
   widescreen, online play and replays. The definitive version stays the 990512 one.
 - **Input lag readout** (Display page): the frames the game itself takes to show a press (measured in a fight),
