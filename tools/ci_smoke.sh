@@ -25,7 +25,7 @@ EXE=""
 for game in $GAMES; do
     features="$("$BIN/$game$EXE" --list-features | tr -d '\r')"
     need="run_ahead display_scaling online_delay"
-    [ "$game" != sfiii3 ] || need="free_play widescreen_walls stages training_stage dummy_parry"
+    [ "$game" != sfiii3 ] || need="free_play widescreen_walls stage stages_preload dummy_parry"
     for f in $need; do
         echo "$features" | grep -q "^$f	" || { echo "$game: the program's feature list has no $f"; exit 1; }
     done

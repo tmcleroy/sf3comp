@@ -122,7 +122,7 @@ namespace {
         if (name == "run_ahead" || name == "custom_colours") {
             return Share::Off; // (custom colours: each player's own library, which the other side has not)
         }
-        if (name.rfind("widescreen", 0) == 0 || category == "Game" || category == "Board") {
+        if (name.rfind("widescreen", 0) == 0 || category == "Game" || category == "Board" || name == "stage") {
             return Share::Host;
         }
         if (category == "Cheats") {

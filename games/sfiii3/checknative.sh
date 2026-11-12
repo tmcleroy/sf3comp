@@ -55,7 +55,7 @@ NAMES=(attract cpu7 versus training stage-ng stage-2i)
 # (the guest stages: the stage games' sets beside ROM, sfiiin.zip and sfiii2n.zip; src/stages.cpp's choices 12, New
 # Generation's Ken's, and 20, 2nd Impact's Hugo's: its market has pieces in front of the fighters)
 ARGS=("" "--auto 7:300:1" "--auto 31:300:2 --features widescreen,widescreen_walls" "--keys 30:ctraining_start --auto 3:300:1"
-    "--auto 7:300:1 --features stages=12" "--auto 31:300:2 --features stages=20,widescreen,widescreen_walls")
+    "--auto 7:300:1 --features stage=33" "--auto 31:300:2 --features stage=41,widescreen,widescreen_walls")
 status=0
 JOBS=${CHECKNATIVE_JOBS:-6}
 run() { # name kind args...
@@ -111,18 +111,18 @@ if [ -z "$CHECKNATIVE_NO_GPU" ]; then
     keys=""
     f=2000
     for c in $(seq 1 28) 0 3; do
-        keys+="$f:fstages=$c,"
+        keys+="$f:fstage=$((c + 21)),"
         f=$((f + 330))
     done
     wkeys=""
     f=2000
     for c in $(seq 28 -1 1) 0 25; do
-        wkeys+="$f:fstages=$c,"
+        wkeys+="$f:fstage=$((c + 21)),"
         f=$((f + 330))
     done
     PRESENTS=(present-stages present-stages-wide)
-    run present-stages present --auto 7:300:1 --features stages=3 --keys "${keys%,}"
-    run present-stages-wide present --auto 31:300:1 --features stages=25,widescreen,widescreen_walls --keys "${wkeys%,}"
+    run present-stages present --auto 7:300:1 --features stage=24 --keys "${keys%,}"
+    run present-stages-wide present --auto 31:300:1 --features stage=46,widescreen,widescreen_walls --keys "${wkeys%,}"
 fi
 run lifts-attract lifts
 run lifts-cpu7 lifts --auto 7:300:1

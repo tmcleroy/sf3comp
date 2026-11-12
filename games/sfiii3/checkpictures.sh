@@ -42,12 +42,12 @@ run() { # name env frames args...
         echo $? > "$OUT/$name.status"
     ) &
 }
-# (training sessions started again every EVERY frames, each on the next stage: training_stage, 3rd Strike's stage
+# (training sessions started again every EVERY frames, each on the next stage: stage, 3rd Strike's stage
 # numbers plus one; its fight from about 600 frames after its start)
 sessions() { # first last every
     local keys="" f=30 s
     for s in $(seq "$1" "$2"); do
-        keys+="$f:ftraining_stage=$s,$f:ctraining_start,"
+        keys+="$f:fstage=$s,$f:ctraining_start,"
         f=$((f + $3))
     done
     echo "${keys%,}"

@@ -6,7 +6,7 @@
 # Impact's stages chosen on the tag team battle's and the endless battle's Stage rows, each fought on. Until 2026-11-11
 # those rows had 3rd Strike's stages only (the play-test's "can't select guest stages in tag team battle").
 #
-#   1. The rows: the launcher's feature list (--list-features) has every guest stage, by training's names and in its
+#   1. The rows: the launcher's feature list (--list-features) has every guest stage, by the menu Stage's names and in its
 #      order, on team_stage and endless_stage.
 #   2. In play, headless (SFIII3_GUEST_LOG=1: every 300 frames, the stage wanted and the one whose board is there): a
 #      tag team battle (the tag style) and a knock-out team battle, of made-up play against the computer, on a 2nd Impact
@@ -32,16 +32,17 @@ for line in open(sys.argv[1]):
     if len(fields) >= 6:
         rows[fields[0]] = fields[-1].split("|")
 guest = lambda c: c.startswith(("New Generation:", "2nd Impact:"))
-guests = [c for c in rows.get("training_stage", []) if guest(c)]
+# (the menu Stage's own guest stages: not its last two, each game's "the opponent's", which the modes' rows have not)
+guests = [c for c in rows.get("stage", []) if guest(c) and not c.endswith("the opponent's")]
 bad = len(guests) < 28
 if bad:
-    print(f"rows: training_stage has {len(guests)} guest stages")
+    print(f"rows: stage has {len(guests)} guest stages")
 for row in ("team_stage", "endless_stage"):
     tail = [c for c in rows.get(row, []) if guest(c)]
     if tail != guests:
-        print(f"rows: {row} has {len(tail)} guest stages, not training's {len(guests)} in its order")
+        print(f"rows: {row} has {len(tail)} guest stages, not the menu Stage's {len(guests)} in its order")
         bad = True
-print("rows: " + ("FAILED" if bad else f"team_stage and endless_stage have training's {len(guests)} guest stages, in its order"))
+print("rows: " + ("FAILED" if bad else f"team_stage and endless_stage have the menu Stage's {len(guests)} guest stages, in its order"))
 sys.exit(1 if bad else 0)
 EOF
 
