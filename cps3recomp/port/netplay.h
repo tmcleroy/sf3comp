@@ -66,7 +66,7 @@ public:
                                         // 6: each player's name in the hello and the welcome, and the chat)
     // The number said to the introduction service for kProtocol, which lists a lobby's matches and a waiting room's
     // players by it: this toolkit's own (3000 and up), so that its lobby and waiting room are its games' alone and
-    // not the other toolkits' that use the same service (cps2recomp says its kProtocol as it is)
+    // not cps2recomp's (until 2026-11-12 the two shared cps2recomp's service; now this collection has its own, online/)
     static constexpr int kLobbyProtocol = 3000 + kProtocol;
     static constexpr int kMostAhead = 8;   // frames run on guessed controls at most
     static constexpr int kKept = 16;       // states kept (more than the most a rollback goes back)
@@ -75,7 +75,7 @@ public:
     static constexpr int kDefaultDelay = 2; // frames a player's own controls are held back (fewer rollbacks)
     // The introduction service (online/): a host gets a code from it, and a player joining by the code is told where
     // the host is, and the host where they are; the two then reach each other directly
-    static constexpr const char *kService = "https://cps2recomp-online.tmcleroy.workers.dev";
+    static constexpr const char *kService = "https://sf3comp-online.tmcleroy.workers.dev";
 
     // What --host, --join and the --net-* options asked for
     struct Settings {
