@@ -544,9 +544,9 @@ void TrainingBeforeFrame(Machine &m) {
             }
         }
     }
-    // (a session's stage: set while no round is on, so the next fight's is the one chosen)
-    if (f.stage && session::InSession() && !inRound) {
-        const int stage = FeatureValue("training_stage");
+    // (the menu's Stage, in any mode: set while no round is on, so the next fight's is the one chosen)
+    if (f.stage && !inRound) {
+        const int stage = FeatureValue("stage");
         if (stage > 0 && stage <= f.stages) {
             SetRam8(f.stage, f.stageNumbers[stage - 1]);
         }
@@ -656,7 +656,11 @@ void RegisterTraining(Game &) {
     if (f.stage) {
         std::vector<const char *> names = {"The game's choice"};
         names.insert(names.end(), f.stageNames, f.stageNames + f.stages);
-        d.features.push_back({"training_stage", session::kPage, "Stage", "The stage a training session is fought on: one of the game's own.", 0, names});
+        // (a page of its own at the head of the menu: base.cpp's)
+        d.features.push_back({"stage", "Stage", "Stage",
+                              "Where the next fight is, in the arcade game and in a training session: one of the game's stages. "
+                              "Online, the host's choice.",
+                              0, names});
     }
     if (R().computer) {
         d.features.push_back({"training_watch", session::kPage, "Watch the game play itself",

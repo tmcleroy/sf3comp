@@ -164,6 +164,7 @@ void RegisterGame() {
     // (with arcade timing: the readable rewrites where the port's own features work inside them)
     game.rewritesNeeded = [] { return BattleOn() || session::InSession(); };
     // The menu's pages for the ways of playing beyond the board's own (as the CPS-2 ports have them)
+    game.pages.push_back({"Stage", "", "Where the fights are: 3rd Strike's stages, and New Generation's and 2nd Impact's.", true});
     game.pages.push_back({"Alternative modes", "", "Ways to play beyond the arcade game: training, attract mode, viewers for the stages "
                                                    "and the characters, the colour editor, survival, endless and team battles, ring out, the bonus games.", true});
     game.pages.push_back({"Training mode", "Alternative modes", "A fight with no clock that nobody loses, and the aids for practising in it."});
@@ -212,7 +213,8 @@ void RegisterGame() {
     };
     order("Game", {"play_as_gill", "free_play", "skip_intro"});
     order("Cheats", {"no_damage", "no_damage_2", "one_hit", "full_gauge", "full_gauge_2", "infinite_time", "no_stun", "no_stun_2"});
-    order("Training mode", {"restart_at", "training_stage", "damage_readout", "stun_readout", "parry_readout", "input_display", "hit_boxes",
+    order("Stage", {"stage", "stages_preload"});
+    order("Training mode", {"restart_at", "damage_readout", "stun_readout", "parry_readout", "input_display", "hit_boxes",
                             "frame_data", "frame_log", "frame_meter", "health_refill", "gauge_refill"});
     order("Dummy", {"dummy_stand", "dummy_crouch", "dummy_jump", "dummy_record", "dummy_replay", "dummy_replay_any", "dummy_slot",
                     "dummy_guard", "dummy_guard_action", "dummy_parry", "dummy_reversal", "dummy_reversal_random", "dummy_tech",

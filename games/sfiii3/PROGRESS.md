@@ -209,6 +209,10 @@
   page (recomp-common's single-game Online page, PR #48 there, merged with main for this copy).
 - (old note) Online play compiles but has never been tried (its service is cps2recomp's; the lobby is keyed by `sfiii3`).
 - The VS screen shows horizontal stripes: probably the game's wipe, not checked against the board.
+- 2026-11-11: the tag team battle's and the endless battle's Stage rows have the guest stages (New Generation's and
+  2nd Impact's, the menu Stage's list; battle.cpp GuestWanted -> stages.cpp StageForMode, before the menu Stage's StageChosen).
+  checkguestmodes.sh: tag, knock-out and endless battles of made-up play each on a guest stage from their first
+  fight, headless; nobody has played one in a window, and no tag battle on a guest stage has run to its end.
 
 ## Custom soundtrack
 

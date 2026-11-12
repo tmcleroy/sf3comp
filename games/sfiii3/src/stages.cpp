@@ -373,7 +373,8 @@ namespace {
     constexpr uint32_t kBannersFor = 200; // (3rd Strike's own board: its "ROUND 1" and "FIGHT!" drawn as its stage is, so it is
                                           // shown only after them)
     int g_choiceWanted = 0;
-    int g_sessionChoice = 0; // (a training session's Stage row's choice of another game's stage: StageForSession)
+    int g_sessionChoice = 0; // (the menu's Stage's choice of another game's stage, or its opponent's stages: StageChosen)
+    int g_modeChoice = 0;    // (a mode's Stage row's choice of another game's stage: StageForMode, battle.cpp)
     bool g_onlyMusic = false; // (the stage viewer: nothing of 3rd Strike's own heard but music: StageBehindOnlyMusic)
     bool g_boardMusic = true; // (the modes' stage behind: its own music, or 3rd Strike's fight's: StageBehindMusic)
     int g_cameraWanted = kFollow;
@@ -2503,8 +2504,16 @@ void StagesBeforeFrame(Machine &machine) {
         fprintf(stderr, "stage sound: frame %llu, %s, %d of 3rd Strike's voices left out as music\n", static_cast<unsigned long long>(machine.frame),
                 music ? "the stage's music" : "3rd Strike's own", silenced);
     }
-    const int menu = std::clamp(FeatureValue("stages"), 0, static_cast<int>(std::size(kNames)) - 1);
-    const int choice = g_choiceWanted ? g_choiceWanted : g_sessionChoice ? g_sessionChoice : menu;
+    // (a mode's own Stage row before the menu's Stage: the menu's is for the modes that have no stage of their own to say)
+    const int choice = g_choiceWanted ? g_choiceWanted : g_modeChoice ? g_modeChoice : g_sessionChoice;
+    // (debugging aid, SFIII3_GUEST_LOG=1: every 300 frames, the guest stage wanted, the one whose board is there and
+    // whether a fight is on it; games/sfiii3/checkguestmodes.sh reads it)
+    static const bool guestLog = getenv("SFIII3_GUEST_LOG") != nullptr;
+    if (guestLog && machine.frame % 300 == 0) {
+        fprintf(stderr, "guest stage: frame %llu, wanted %d (mode %d, session %d), loaded %d, fought %d, on stage %d\n",
+                static_cast<unsigned long long>(machine.frame), choice, g_modeChoice, g_sessionChoice, g.loaded, g.fought ? 1 : 0,
+                OnStage() ? 1 : 0);
+    }
     MakeOn(machine);
     // (between fights; or in one on 3rd Strike's own stage, when the board is idle and may preload)
     const bool idle = !OnStage() || (g_pre.on ? g_pre.live.stage : g.stage) < 0;
@@ -2585,7 +2594,7 @@ void StagesBeforeFrame(Machine &machine) {
     }
     if (choice && !machine.StageBoard()) {
         g.loaded = 0; // (not there: as without it)
-        SetFeatureValue("stages", 0);
+        SetFeatureValue("stage", 0);
     } else if (choice && Alone(*kChoices[choice].game)) {
         g.stage = kChoices[choice].stage == kOpponents ? -1 : g.stage;
         TripFromStart(machine);
@@ -2596,8 +2605,14 @@ void StagesBeforeFrame(Machine &machine) {
 // (its 0-12), then 2nd Impact's (0-14), in place of the Display page's choice while the session is on (0: none, that
 // choice again). (Until 2026-11-06 the row had 3rd Strike's stages only: another game's stage in a session came only from
 // the Display page's choice.)
-void StageForSession(int choice) {
-    g_sessionChoice = std::clamp(choice, 0, kOpponentsFirst - 1);
+void StageChosen(int choice) {
+    g_sessionChoice = std::clamp(choice, 0, kOwnFirst - 1);
+}
+// ... and a mode's (battle.cpp: the tag team battle's and the endless battle's Stage rows), the same choices, while the
+// mode is on (0: none). (Until 2026-11-11 those rows had 3rd Strike's stages only: the play-test's "can't select guest
+// stages in tag team battle".)
+void StageForMode(int choice) {
+    g_modeChoice = std::clamp(choice, 0, kOpponentsFirst - 1);
 }
 // (the names of those choices, in order)
 std::vector<const char *> GuestStageNames() {
@@ -2738,14 +2753,22 @@ void StageBehindSwitch(Machine &machine) {
 }
 
 void RegisterStages(Game &game) {
-    game.features.push_back({"stages", "Display", "Stages (experiment)",
-                             "The definitive version's stages, an early form: a fight drawn on one of New Generation's or 2nd "
-                             "Impact's stages, by running that game beside this one (its set chosen in the launcher, or beside this one's: sfiiin.zip or sfiii2n.zip). "
-                             "In a fight its music plays in place of 3rd Strike's. It takes a few seconds to reach its stage after it is chosen. "
-                             "The opponent's: each fight on that game's stage of the character whose stage 3rd Strike chose (its own "
-                             "for the characters that game has not).",
-                             kFeatureMenuChoices, {std::begin(kNames), std::end(kNames)}});
-    game.features.push_back({"stages_preload", "Display", "Stages: load ahead",
+    // The menu's Stage (its own page, at the head of the menu): the game's choice, 3rd Strike's 21 by their stage numbers,
+    // then the other games' (kNames from 1: each stage, and "the opponent's"). training.cpp's frame takes it, in any mode
+    static const char *const kOwn[] = {"Gill's", "Alex's", "Ryu's", "Yun's", "Dudley's", "Necro's", "Hugo's", "Ibuki's", "Elena's", "Oro's", "Yang's",
+                                       "Ken's", "Sean's", "Urien's", "Akuma's", "Akuma's (red)", "Chun-Li's", "Makoto's", "Q's", "Twelve's", "Remy's"};
+    std::vector<const char *> names = {"The game's choice"};
+    names.insert(names.end(), std::begin(kOwn), std::end(kOwn));
+    names.insert(names.end(), std::begin(kNames) + 1, std::end(kNames));
+    game.features.push_back({"stage", "Stage", "Stage",
+                             "Where the next fight is, in the arcade game, a training session and the modes that have no stage "
+                             "of their own to say: one of 3rd Strike's stages, or one of New Generation's or 2nd Impact's, drawn by "
+                             "running that game beside this one (its set chosen in the launcher, or beside this one's: sfiiin.zip "
+                             "or sfiii2n.zip), with its music in place of 3rd Strike's; it takes a few seconds to reach its stage "
+                             "after it is chosen. The opponent's: each fight on that game's stage of the character whose stage "
+                             "3rd Strike chose (its own for the characters that game has not). Online, the host's choice.",
+                             kFeatureMenuChoices, names});
+    game.features.push_back({"stages_preload", "Stage", "Load ahead",
                              "With the opponent's stages: between fights, the game's other stages are taken to their fights one by "
                              "one and kept, so that each opponent's is there at once. It takes the processor's time while no fight "
                              "is on (the stage game run fast), and about 150 MB of memory.",

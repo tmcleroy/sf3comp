@@ -51,10 +51,10 @@ if [ "${CHECKPOPIN_ONLY:-fights}" = fights ]; then
     n=0
     while IFS= read -r name; do
         if [ $n -gt 0 ]; then
-            run "fight-$n" 3000 --features "widescreen,training_stage=$n" --keys 30:ctraining_start --auto $((n + 3)):300:1
+            run "fight-$n" 3000 --features "widescreen,stage=$n" --keys 30:ctraining_start --auto $((n + 3)):300:1
         fi
         n=$((n + 1))
-    done < <(choices training_stage)
+    done < <(choices stage)
 fi
 wait
 status=0

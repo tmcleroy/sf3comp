@@ -48,6 +48,7 @@ namespace cps3recomp {
 void StageBehind(int stage);
 void StageBehindGuest(int choice);
 std::vector<const char *> GuestStageNames();
+void StageForMode(int choice);
 void StageBehindCamera(int x);
 int StageBehindFollow();
 bool StageBehindEnds(int &left, int &right);
@@ -276,8 +277,8 @@ namespace {
     // The stage of the next match: endless's one stage, or (shuffled, scrolling: a stage drawn behind) the game's
     int StageWanted() {
         if (b.mode == kTeam) {
-            const int chosen = FeatureValue("team_stage"); // (0: random, the game's own choice each match)
-            return chosen > 0 ? chosen - 1 : -1;
+            const int chosen = FeatureValue("team_stage"); // (0: random, the game's own choice each match; past 3rd Strike's
+            return chosen > 0 && chosen <= kCharacterCount ? chosen - 1 : -1; // own, another game's: GuestWanted)
         }
         if (b.mode != kEndless) {
             return -1;
@@ -287,7 +288,18 @@ namespace {
             return b.infinite ? 0 : b.stage;
         }
         const int choice = FeatureValue("endless_stage");
-        return choice <= kStageShuffle ? -1 : choice - 2;
+        return choice <= kStageShuffle || choice - 2 >= kCharacterCount ? -1 : choice - 2;
+    }
+    // ... and another game's stage (the Stage rows' choices after 3rd Strike's: GuestStageNames' from 1), drawn in place
+    // of 3rd Strike's as a training session's is (stages.cpp, StageForMode); 0 none
+    int GuestWanted() {
+        int choice = 0;
+        if (b.mode == kTeam) {
+            choice = FeatureValue("team_stage") - kCharacterCount;
+        } else if (b.mode == kEndless && !b.viewer) {
+            choice = FeatureValue("endless_stage") - 2 - kCharacterCount + 1;
+        }
+        return choice > 0 && choice <= static_cast<int>(GuestStageNames().size()) ? choice : 0;
     }
     bool Behind() {
         return b.mode == kEndless && (b.viewer || FeatureValue("endless_stage") <= kStageShuffle);
@@ -440,7 +452,7 @@ namespace {
         if (b.tagStyle) {
             // (the stage of every fight, the first's too, known now: the tags' fights are made on it before the first)
             const int chosen = FeatureValue("team_stage");
-            b.stageNow = static_cast<uint8_t>(chosen > 0 ? chosen - 1 : Next() % kCharacterCount);
+            b.stageNow = static_cast<uint8_t>(chosen > 0 && chosen <= kCharacterCount ? chosen - 1 : Next() % kCharacterCount);
             b.preparing = !getenv("SFIII3_TAG_NO_PREPARE"); // (debugging aid: the fights made only as they are needed)
         }
         if (getenv("SFIII3_BATTLE_LOG")) { // (debugging aid; checkmodes.sh reads it)
@@ -1607,6 +1619,7 @@ void ModesFrame(Machine &m) {
         b.mode = kNone; // (a training session started: the mode is over)
         StageBehind(-1);
     }
+    StageForMode(b.mode != kNone ? GuestWanted() : 0);
     if (b.mode == kNone || session::Booting()) {
         return;
     }
@@ -1955,9 +1968,13 @@ void RegisterBattle(Game &game) {
     for (const std::string &name : stageNames) {
         stages.push_back(name.c_str());
     }
+    for (const char *name : GuestStageNames()) { // (then New Generation's and 2nd Impact's, as training's Stage row has them)
+        stages.push_back(name);
+    }
     game.features.push_back({"endless_stage", "Endless battle", "Stage",
                              "Where they fight. Scroll: the stages go by, one after another, and the fighters are carried along. "
-                             "Shuffle: a stage that fades into another every so often. Or one stage.",
+                             "Shuffle: a stage that fades into another every so often. Or one stage: 3rd Strike's, or New "
+                             "Generation's or 2nd Impact's (their sets beside this one's, sfiiin.zip and sfiii2n.zip).",
                              kFeatureMenuChoices, stages});
     game.features.push_back({"endless_shuffle", "Endless battle", "Shuffle every", "Shuffle: how long they fight on a stage before it fades "
                              "into another.", 0, {"1 minute", "2 minutes", "3 minutes", "5 minutes", "10 minutes"}});
@@ -2014,7 +2031,8 @@ void RegisterBattle(Game &game) {
     {
         static std::vector<const char *> teamStages = {"Random"};
         teamStages.insert(teamStages.end(), stages.begin() + 2, stages.end());
-        game.features.push_back({"team_stage", kTeamPage, "Stage", "Where the teams fight, from the first fight to the last.",
+        game.features.push_back({"team_stage", kTeamPage, "Stage", "Where the teams fight, from the first fight to the last: "
+                                 "3rd Strike's, or New Generation's or 2nd Impact's (their sets beside this one's, sfiiin.zip and sfiii2n.zip).",
                                  kFeatureMenuChoices, teamStages});
     }
     static const char *const kOrder[kMost] = {"first", "second", "third"};

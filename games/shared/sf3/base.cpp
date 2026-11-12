@@ -168,6 +168,9 @@ void RegisterGame() {
     game.beforeFrame = BeforeFrame;
     game.frame = TrainingAfterFrame;
     game.state = State;
+    if (TheFacts().stage) {
+        game.pages.push_back({"Stage", "", "Where the fights are: any of the game's stages.", true});
+    }
     RegisterWidescreen(game);
     RegisterTraining(game);
 }

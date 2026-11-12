@@ -32,8 +32,8 @@ run() { # NAME FEATURES: a session, started over in a corner once its round is o
 }
 for stage in $(seq 1 $STAGES); do
     for corner in 2 5; do # (restart_at: the left corner, the right with the sides swapped)
-        run "wide-$stage-$corner" "widescreen,training_stage=$stage,restart_at=$corner" & throttle
-        run "walls-$stage-$corner" "widescreen,widescreen_walls,training_stage=$stage,restart_at=$corner" & throttle
+        run "wide-$stage-$corner" "widescreen,stage=$stage,restart_at=$corner" & throttle
+        run "walls-$stage-$corner" "widescreen,widescreen_walls,stage=$stage,restart_at=$corner" & throttle
     done
 done
 for way in none off; do

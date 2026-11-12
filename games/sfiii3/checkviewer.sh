@@ -45,13 +45,13 @@ while IFS= read -r name; do
         mkdir -p "$dir"
         (
             SFIII3_STAGE_PICTURES="$dir/p:50" nice -n 20 $LIMITED -k 10 300 "$REFBUILD/sfiii3" --rom "$ROM" --headless --frames 1700 \
-                --settings "$OUT/r$n.ini" --eeprom "$OUT/r$n.bin" --features "training_stage=$n" --keys 30:ctraining_start \
+                --settings "$OUT/r$n.ini" --eeprom "$OUT/r$n.bin" --features "stage=$n" --keys 30:ctraining_start \
                 --auto 3:300:1 > /dev/null 2> "$OUT/r$n.log"
             echo $? > "$OUT/r$n.status"
         ) &
     fi
     n=$((n + 1))
-done < <(choices "$REFBUILD/sfiii3" training_stage)
+done < <(choices "$REFBUILD/sfiii3" stage)
 # The viewer on each entry (but Infinite): its pictures and its sound; with "None" on each game's first, silence
 n=0
 quiet=""

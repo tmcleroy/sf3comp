@@ -77,7 +77,7 @@ for wide in "" wide; do
     for choice in $(seq 1 28); do
         name="play-$choice${wide:+-wide}"
         PLAYS+=("$name")
-        run "$name" "SFIII3_STAGE_COMPARE=play SFIII3_LAYER_CHECK=1" "$PLAY_FRAMES" --features "stages=$choice$features"
+        run "$name" "SFIII3_STAGE_COMPARE=play SFIII3_LAYER_CHECK=1" "$PLAY_FRAMES" --features "stage=$((choice + 21))$features"
     done
 done
 # (each stage chosen again every 550 frames from 2000: the game's every stage, then the other game's first, none, and
@@ -85,24 +85,24 @@ done
 switches() { # first last other
     local keys="" f=2000 c
     for c in $(seq "$1" "$2") "$3" 0 "$1"; do
-        keys+="$f:fstages=$c,"
+        keys+="$f:fstage=$((c + 21)),"
         f=$((f + 550))
     done
     echo "${keys%,}"
 }
 REALS=(real-ng real-2i real-ng-wide real-2i-wide real-opp-ng real-opp-2i)
-run real-ng SFIII3_STAGE_CHECK=1 "$FRAMES" --auto 7:300:1 --features stages=1 --keys "$(switches 1 13 14)"
-run real-2i SFIII3_STAGE_CHECK=1 "$FRAMES" --auto 11:300:1 --features stages=14 --keys "$(switches 14 28 1)"
-run real-ng-wide SFIII3_STAGE_CHECK=1 "$FRAMES" --auto 23:300:1 --features stages=1,widescreen,widescreen_walls --keys "$(switches 1 13 14)"
-run real-2i-wide SFIII3_STAGE_CHECK=1 "$FRAMES" --auto 31:300:1 --features stages=14,widescreen,widescreen_walls --keys "$(switches 14 28 1)"
-run real-opp-ng SFIII3_STAGE_CHECK=1 "$FRAMES" --auto 7:300:1 --features stages=29
-run real-opp-2i SFIII3_STAGE_CHECK=1 "$FRAMES" --auto 13:300:1 --features stages=30,widescreen,widescreen_walls
+run real-ng SFIII3_STAGE_CHECK=1 "$FRAMES" --auto 7:300:1 --features stage=22 --keys "$(switches 1 13 14)"
+run real-2i SFIII3_STAGE_CHECK=1 "$FRAMES" --auto 11:300:1 --features stage=35 --keys "$(switches 14 28 1)"
+run real-ng-wide SFIII3_STAGE_CHECK=1 "$FRAMES" --auto 23:300:1 --features stage=22,widescreen,widescreen_walls --keys "$(switches 1 13 14)"
+run real-2i-wide SFIII3_STAGE_CHECK=1 "$FRAMES" --auto 31:300:1 --features stage=35,widescreen,widescreen_walls --keys "$(switches 14 28 1)"
+run real-opp-ng SFIII3_STAGE_CHECK=1 "$FRAMES" --auto 7:300:1 --features stage=50
+run real-opp-2i SFIII3_STAGE_CHECK=1 "$FRAMES" --auto 13:300:1 --features stage=51,widescreen,widescreen_walls
 # (3: the jitter: a training session from frame 30, its fight from about 300; each game's stages chosen in turn, a stage
 # every 1000 frames, its 7 places held 130 frames each)
 inturn() { # first last
     local keys="" f=300 c
     for c in $(seq "$1" "$2"); do
-        keys+="$f:fstages=$c,"
+        keys+="$f:fstage=$((c + 21)),"
         f=$((f + 1000))
     done
     echo "${keys%,}"
@@ -112,13 +112,13 @@ run jitter-ng SFIII3_JITTER_CHECK=1 14000 --keys "30:ctraining_start,$(inturn 1 
 run jitter-2i SFIII3_JITTER_CHECK=1 16000 --keys "30:ctraining_start,$(inturn 14 28)" --auto 3:300:1
 run jitter-ng-wide SFIII3_JITTER_CHECK=1 14000 --keys "30:ctraining_start,$(inturn 1 13)" --auto 3:300:1 --features widescreen,widescreen_walls
 run jitter-2i-wide SFIII3_JITTER_CHECK=1 16000 --keys "30:ctraining_start,$(inturn 14 28)" --auto 3:300:1 --features widescreen,widescreen_walls
-# (3: the training session's Stage row: training_stage 22-34 New Generation's stages 0-12, 35-49 2nd Impact's 0-14; a
+# (3: the training session's Stage row: stage 22-34 New Generation's stages 0-12, 35-49 2nd Impact's 0-14; a
 # session started on each in turn, every 1000 frames of the keys' count, seven a run: each fought for some 450 frames
 # before the next; a run's frames count the session's way to its fight, run fast, too: twice as many)
 sessions() { # first last
     local keys="" f=30 c
     for c in $(seq "$1" "$2"); do
-        keys+="$f:ftraining_stage=$c,$f:ctraining_start,"
+        keys+="$f:fstage=$c,$f:ctraining_start,"
         f=$((f + 1000))
     done
     echo "${keys%,}"
