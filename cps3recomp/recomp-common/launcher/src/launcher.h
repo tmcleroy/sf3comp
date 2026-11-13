@@ -8,6 +8,7 @@
 // compile definitions set by launcher.cmake: LAUNCHER_GAME_NAME, LAUNCHER_GAME_EXE, LAUNCHER_APP_ID,
 // LAUNCHER_HOME_ENV, LAUNCHER_DISCLAIMER.
 #pragma once
+#define RECOMP_LAUNCHER_SPECTATORS 1
 
 #include <SDL3/SDL.h>
 
@@ -97,11 +98,23 @@ struct Online {
     // The game's id as the online service knows it (the invitations a game hosts say it), for a launcher of one game:
     // its game in the waiting room. A collection's games have theirs (CollectionGame::id).
     const char *game = nullptr;
+    const char *watch_argument = nullptr; // watch a running match by code
+    const char *spectators_argument = nullptr; // host opt-in to spectators
 };
 
 struct InfoRow {
     const char *label;
     const char *text;
+};
+
+// Something the player should do before playing and might not know of (a file of the port's that an earlier release
+// built, to build again, say): a card at the top of the Game page, in the accent, as an invitation's is
+struct Notice {
+    std::string heading; // over the card, in capitals ("REBUILD NEEDED")
+    std::string title;   // "" for none: no card
+    std::string detail;
+    std::string button;  // a button that opens the port's own page named `page`; "" for none
+    std::string page;
 };
 
 // What a page of the port's own is drawn with (ui.h and layout.h are the launcher's look)
@@ -143,6 +156,8 @@ struct Description {
     bool online_page = false;
     // The port's own pages after Game (and Online), before Features, rather than first
     bool own_pages_after_game = false;
+    // Optional: the Game page's notice (Notice above), asked each time the page is drawn, with the player's folder
+    std::function<Notice(const std::filesystem::path &folder)> notice;
     // false: no Game page (and no game file, check or Display card): the port's pages have Play
     bool game_page = true;
 
@@ -165,6 +180,10 @@ struct Description {
     const char *file_key = "file";            // its key in launcher.ini, under [game]
     std::function<FileCheck(const std::string &path)> check;
     bool check_on_thread = false;             // for a check that reads a large file
+    // Optional: whether a feature is offered with the game file chosen (one that only some releases of the game
+    // have, say); false leaves it off the Features page (and a collection's game page). `file` is the chosen file
+    // once its check found it good, else "". Called while drawing: keep it quick (remember what `check` found).
+    std::function<bool(const std::string &feature, const std::string &file)> feature_shown;
     // Optional: a game file near the program (a build inside the source tree), or ""
     std::function<std::string(const std::filesystem::path &program_folder)> find_nearby;
     // Optional, for a collection: where in a folder the player chose this game's file may be (the names a
@@ -226,6 +245,11 @@ struct CollectionGame {
     // Its folder's name, when that is not `name` (a game given another name on the page, whose folder, with the
     // player's settings and saves in it, stays the one it had); nullptr: `name`.
     const char *folder = nullptr;
+    // When it came out, as "YYYY-MM-DD" (or "YYYY-MM", "YYYY"), for sorting the games by it; nullptr: not known (last)
+    const char *released = nullptr;
+    // The hardware it ran on, as the player reads it ("CV1000"), or nullptr. When the games name two or more, the
+    // Games page has a choice of which to list (all, or one of them), and the sidebar follows it.
+    const char *hardware = nullptr;
 };
 
 // A choice of a multi-game mode's: a row of its card on the Multi game page, kept in launcher.ini under

@@ -25,6 +25,7 @@ struct OpenMatch {
     std::string code;
     std::string name;
     int waiting = 0; // (seconds)
+    bool watching = false; // running match: Watch instead of Join
 };
 // The lobby's list, fetched from `url` with the system's curl (blocks: for another thread); false if there was no
 // answer
