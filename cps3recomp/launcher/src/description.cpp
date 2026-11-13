@@ -173,8 +173,14 @@ launcher::Description describe_game(const GameInfo& game) {
     launcher::Description d;
     d.original = "in the arcade";
     d.file_heading = "ROM SET";
+#ifdef __ANDROID__
+    // (Android: the set is copied into the app's folder; the screen's controls have a Menu button, and Back opens it)
+    std::string intro = std::string("Choose your own copy of the game: the arcade ROM set ") + game.rom_set + " (" + game.rom_name +
+                        "). Only this version works. It is copied into the app's folder.";
+#else
     std::string intro = std::string("Choose your own copy of the game: the arcade ROM set ") + game.rom_set + " (" + game.rom_name +
                         "). Only this version works. It stays where it is: the launcher only reads it.";
+#endif
 #ifdef LAUNCHER_COLLECTION
     // (a game that uses other games' sets: the ones chosen on those games' pages are given to it)
     {
@@ -193,10 +199,17 @@ launcher::Description describe_game(const GameInfo& game) {
 #else
     intro += game.extra_sets_words;
 #endif
+#ifdef __ANDROID__
+    intro += "\n\nWhile playing, Back or the screen's Menu button, or the left stick's click (or Start and Select together) on a gamepad, "
+             "opens the in-game menu: save states, speed, and every feature.";
+    d.file_intro = keep(intro);
+    d.file_empty = keep(std::string("None chosen. Choose ") + game.rom_set + ".zip.");
+#else
     intro += "\n\nWhile playing, Esc or F1 on the keyboard, or the left stick's click (or Start and Select together) on a gamepad, opens the "
              "in-game menu: save states, speed, and every feature.";
     d.file_intro = keep(intro);
     d.file_empty = keep(std::string("None chosen. Drop ") + game.rom_set + ".zip or its folder here, or choose the zip.");
+#endif
     d.file_not_set_up = "The game isn't set up yet. Open the launcher (without --play) once to choose your ROM set.";
     d.file_filter = {"ROM set (zip)", "zip"};
     d.file_key = "rom";
@@ -294,12 +307,23 @@ const launcher::Collection& launcher::describe_collection() {
     static const Collection about = [] {
         Collection c;
         c.subtitle = "Street Fighter III, the three arcade games, native";
+#ifdef __ANDROID__
+        // (Android: the sets are chosen with the system's picker and copied into the app's folder: recomp-common's
+        // launcher, App::choose_folder)
+        c.intro = "Each game needs your own copy of it: its arcade ROM set. Add the sets from your phone or a drive: they are copied "
+                  "into the app's folder.\n\n"
+                  "While playing, Back or the screen's Menu button, or the left stick's click (or Start and Select together) on a gamepad, "
+                  "opens the in-game menu.";
+        c.find_title = "Add your sets";
+        c.find_detail = "Choose the ROM sets, as many as you like at once, by the set's name (sfiii3nr1.zip, say). Each goes to its game.";
+#else
         c.intro = "Each game needs your own copy of it: its arcade ROM set. Show the launcher the folder you keep them in, or drop a set "
                   "(or the folder) on this window. The sets stay where they are: the launcher only reads them.\n\n"
                   "While playing, Esc or F1 on the keyboard, or the left stick's click (or Start and Select together) on a gamepad, "
                   "opens the in-game menu.";
         c.find_title = "Look in a folder";
         c.find_detail = "Finds each game's ROM set in a folder of them, by the set's name (sfiii3nr1.zip, say).";
+#endif
         for (const GameInfo& game : kGames) {
             // (each game's folder is named by its name, as its own launcher's was: what a player had before the
             // collection, its settings, saves and the ROM set chosen, is still its own)

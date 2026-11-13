@@ -31,6 +31,7 @@ An unofficial native port of Capcom's three Street Fighter III arcade games (CPS
 | macOS 13 or later, Apple silicon or Intel | **SF3comp-macOS.zip** |
 | Windows 10 or 11, 64-bit | **SF3comp-windows-x64.zip** |
 | Linux x86_64, Steam Deck, Steam Machine | **SF3comp-linux-x86_64.tar.gz** |
+| Android 9 or later, 64-bit ARM phones and tablets | **SF3comp-android.apk** |
 
 ## Install
 
@@ -57,6 +58,13 @@ An unofficial native port of Capcom's three Street Fighter III arcade games (CPS
    is built in).
 3. Choose your ROM sets as above. **Add to Steam** on a game's page puts it in your Steam library (under
    **Non-Steam**) for Game Mode.
+
+### Android
+1. Download the APK on your phone or tablet and open it to install it (allow installs from your browser or file
+   manager when asked).
+2. Copy your ROM sets to the phone (USB, or any file manager). In the app, on the **Games** page, press **Add ROM
+   sets…** and choose them. Press **Play** beside a game. While playing, Back or the screen's **Menu** button opens
+   the in-game menu.
 
 In the game, Esc or F1 (on a gamepad, a click of the left stick, or Start and Select together) opens the in-game
 menu. Your settings, save states and each board's settings memory are in your own user folder, a folder for each game;

@@ -42,7 +42,8 @@ check "no file over 512 KB (the README's pictures: 2 MB; the third-party decoder
 # is public: one pattern per line in .git/private-names, or in the file AUDIT_PRIVATE_NAMES names, on the
 # maintainer's machine; without either, only the generic forms are looked for)
 names="${AUDIT_PRIVATE_NAMES:-$(git rev-parse --git-common-dir)/private-names}"
-check "no names of ports that are still private, or of private machines" "$(grep_files -i -e '[a-z0-9]-archive\b' -e '[a-z0-9]-private\b' || true
+# (an APK's type, application/vnd.android.package-archive, is not a name)
+check "no names of ports that are still private, or of private machines" "$(grep_files -i -e '[a-z0-9]-archive\b' -e '[a-z0-9]-private\b' | grep -v 'vnd\.android\.package-archive' || true
     if [ -f "$names" ]; then grep -v -e '^#' -e '^$' "$names" | while read -r n; do grep_files -i -e "$n"; done; fi)"
 check "no words that point to where game files or keys are found" "$(grep_files -i -e 'archive\.org' -e 'internet archive' -e 'rom ?sites?\b' -e 'emuparadise' -e 'vimm' -e 'romsfun' -e 'torrent' -e 'download (the|a|an) (rom|rom set|key|key file)' || true)"
 check "no submodules" "$(git ls-files -s | awk '$1 == "160000" {print $4}'; [ ! -f .gitmodules ] || echo .gitmodules)"

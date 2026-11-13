@@ -13,7 +13,7 @@
 
 
 **SF3comp is an unofficial native port of Capcom's three Street Fighter III arcade games (CPS-3), New Generation, 2nd
-Impact and 3rd Strike, in one app for macOS, Linux (Steam Deck and Steam Machine included) and Windows.** The games'
+Impact and 3rd Strike, in one app for macOS, Linux (Steam Deck and Steam Machine included), Windows and Android.** The games'
 SH-2 programs are translated ahead of time into C++ and run natively on your machine.
 All three get a full training mode, online play with rollback and widescreen. 3rd Strike also gets new modes and the
 stages and music from New Generation and Second Impact.
@@ -113,7 +113,7 @@ playable by either player.
 
 1. Download the build for your system from the [releases page](https://github.com/tmcleroy/sf3comp/releases) and
    unpack it.
-2. Open the launcher (`SF3comp.app`, `sf3comp-launcher`, `sf3comp-launcher.exe`), pick a game and choose its ROM set
+2. Open the launcher (`SF3comp.app`, `sf3comp-launcher`, `sf3comp-launcher.exe`, the SF3comp app), pick a game and choose its ROM set
    (or drop it on the launcher). With `sfiiin.zip` and `sfiii2n.zip` beside `sfiii3nr1.zip`, 3rd Strike has the
    other games' stages too. Your ROM sets are only ever read.
 3. Press **Play**.
@@ -123,6 +123,9 @@ playable by either player.
 - **Steam Deck and Steam Machine:** in Desktop Mode, unpack the Linux download somewhere it can stay, open
   `sf3comp-launcher`, choose your ROM sets, and press **Add to Steam**; the game is then in Game Mode under
   **Non-Steam**.
+- **Android:** install `SF3comp-android.apk` (64-bit ARM, Android 9 or later) and add your ROM sets from the phone:
+  they are copied into the app's folder. Touch controls are on the screen until you use a gamepad; Back or the
+  screen's Menu button opens the in-game menu.
 
 Settings, save states and the board's settings memory are kept in your user folder.
 
@@ -133,7 +136,8 @@ Settings, save states and the board's settings memory are kept in your user fold
   port is made from this one's program.
 - **`sfiiin`**: New Generation (Asia 970204, NO CD), and **`sfiii2n`**: 2nd Impact (Asia 970930, NO CD). Each plays
   as a game of its own, and beside `sfiii3nr1` gives 3rd Strike its stages.
-- macOS 13 or later (Apple silicon or Intel), Linux x86_64 (SteamOS included) or Windows 10 or 11, 64-bit.
+- macOS 13 or later (Apple silicon or Intel), Linux x86_64 (SteamOS included), Windows 10 or 11, 64-bit, or
+  Android 9 or later on a 64-bit ARM phone or tablet.
 - A gamepad or stick is recommended (six buttons).
 
 The CPS-3's program is enciphered; the port works out each set's cipher key from the set itself when the game starts.
@@ -142,7 +146,7 @@ No key is in this repository or in a release.
 **Status:** early (beta). The whole game plays, and its translated code is checked against an interpreter
 instruction by instruction. Played on macOS, a Steam Machine and a Steam Deck (online between a Mac and a Deck).
 The Windows build runs the game exactly as the Mac's (checked frame by frame) but has not yet been played on a
-Windows PC.
+Windows PC. The Android app has been played in Android's emulator, not yet on a phone.
 
 ## How it works
 

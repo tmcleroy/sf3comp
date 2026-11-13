@@ -1,0 +1,64 @@
+// The Android app of SF3comp: the launcher and every game, in one APK. Built by tools/release/android.sh,
+// which builds the native libraries (the launcher's, each game's, SDL's) with the NDK and stages
+// them outside the repository, then passes their place here: this file only compiles the Java and packs the APK.
+plugins {
+    id 'com.android.application'
+}
+
+def repo = rootProject.projectDir.parentFile
+def stagedDir = project.findProperty('stagedDir') ?: "${repo}/build/android/staged"
+def sdlDir = project.findProperty('sdlDir') ?: "${repo}/build/deps/SDL3-3.4.16"
+
+android {
+    namespace 'io.github.tmcleroy.sf3comp'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'io.github.tmcleroy.sf3comp'
+        minSdk 28
+        targetSdk 34
+        versionCode((project.findProperty('versionCode') ?: '1') as int)
+        versionName new File(repo, 'VERSION').text.trim()
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+    }
+    signingConfigs {
+        // An optional key of your own (-PkeyStore=... -PkeyStorePassword=... -PkeyAlias=... -PkeyPassword=...);
+        // without one the build is signed with the Android debug key, which is fine for sideloading.
+        release {
+            if (project.hasProperty('keyStore')) {
+                storeFile file(project.property('keyStore'))
+                storePassword project.property('keyStorePassword')
+                keyAlias project.property('keyAlias')
+                keyPassword project.property('keyPassword')
+            }
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig project.hasProperty('keyStore') ? signingConfigs.release : signingConfigs.debug
+        }
+    }
+    sourceSets {
+        main {
+            // SDL's Java half comes straight from the SDL source the native half was built from.
+            java.srcDirs = ['src/main/java', "${sdlDir}/android-project/app/src/main/java"]
+            jniLibs.srcDirs = ["${stagedDir}/jniLibs"]
+            assets.srcDirs = ["${stagedDir}/assets"]
+        }
+    }
+    packagingOptions {
+        jniLibs {
+            // Compressed libraries, unpacked when the app is installed: a smaller APK, and the launcher finds each
+            // game's library as a file (recomp-common/launcher/src/game_process.cpp)
+            useLegacyPackaging true
+            keepDebugSymbols += ['**/*.so']   // (stripped by android.sh already)
+        }
+    }
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
+}
