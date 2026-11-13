@@ -79,8 +79,9 @@ training mode, widescreen, online play and replays, as the two older games have.
 ## The definitive version's stages (3rd Strike)
 
 With New Generation's and 2nd Impact's ROM sets beside 3rd Strike's, a fight can be on any of their stages, or on
-each opponent's own, with that game's music: in arcade fights, training, the stage viewer and the modes. Their stages
-are drawn by their own games' stage code, run beside 3rd Strike's.
+each opponent's own, with that game's music: in arcade fights, training, the stage viewer and the modes. In the arcade
+game each opponent's stage can also come from any of the three games at random. Their stages are drawn by their own
+games' stage code, run beside 3rd Strike's.
 
 ## Alternative modes (3rd Strike)
 
