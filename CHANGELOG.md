@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Opponent's stage, any game** (3rd Strike, Stage page, on in the Enhanced preset): in the arcade game, with Stage
+  at the game's choice, each fight is on the opponent's own stage from 3rd Strike, New Generation or 2nd Impact, one
+  of them at random (fighting Akuma: his stage from 3rd Strike or 2nd Impact). Only the games whose sets are there
+  are drawn from; with 3rd Strike's set alone nothing changes. (Issue #7)
+
 ## 0.1.0-beta.3
 
 The three Street Fighter III games in one app, and online play through its own service.
