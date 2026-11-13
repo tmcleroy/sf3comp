@@ -4,23 +4,41 @@
 [![Release](https://img.shields.io/github/v/release/tmcleroy/sf3comp?include_prereleases)](https://github.com/tmcleroy/sf3comp/releases)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
-![Ken against Ryu in widescreen](docs/screenshots/widescreen.jpg)
+<img width="1561" height="1220" alt="sf3-logo-menu" src="https://github.com/user-attachments/assets/ec532429-2d1e-48b9-90e0-632ec7c45785" />
+
+
+
+
 
 **SF3comp is an unofficial native port of Capcom's three Street Fighter III arcade games (CPS-3), New Generation, 2nd
 Impact and 3rd Strike, in one app for macOS, Linux (Steam Deck and Steam Machine included) and Windows.** The games'
-SH-2 programs are translated ahead of time into C++ and run on a machine written for this project, not an emulator.
+SH-2 programs are translated ahead of time into C++ and run natively on your machine.
 All three get a full training mode, online play with rollback and widescreen. 3rd Strike also gets new modes and the
-stages and music of the other two: one definitive Third Strike.
+stages and music from New Generation and Second Impact.
 
 **[Get started →](#getting-started)**
 
 **No game files are included.** You need your own arcade ROM sets: `sfiii3nr1` (3rd Strike), `sfiiin` (New
 Generation) and `sfiii2n` (2nd Impact), any of them; `sfiii3n` too for 3rd Strike's later revision ([what you need](#what-you-need)). This project cannot help you get them.
 
-| | |
-| --- | --- |
-| ![Training mode: hit boxes, input display, frame data, frame meter and stun readouts](docs/screenshots/training.jpg) | ![Tag team battle: Ibuki tagged in, her partner's health beside her bar](docs/screenshots/tag-team.jpg) |
-| ![New Generation's beer festival stage in 3rd Strike](docs/screenshots/stage-new-generation.jpg) | ![2nd Impact's Oro stage in 3rd Strike](docs/screenshots/stage-2nd-impact.jpg) |
+## What sf3comp does that I haven't found in any other 3rd Strike port
+### I'm aware there are other 3rd strike decomp/recomp projects, this is what I believe makes mine unique
+- **New Generation's and 2nd Impact's stages and music, playable in 3rd Strike.** With those ROM sets beside 3rd Strike's, you can fight on any of their stages. They are drawn by those games' own stage code running beside 3rd Strike's, not converted into another engine.
+  <img width="3584" height="1764" alt="sf3comp-all-stages" src="https://github.com/user-attachments/assets/16e71b6d-c4bf-48a9-a300-9d661f491c4b" />
+- **It's based on the arcade version (CPS-3):**  The other native ports are either matching decomps meant to compile to the CPS-3 ROM (which is very cool) or built from the console versions that aren't played competitively.
+- **Arcade code with a full console-like feature set:** Rollback online play, a full training mode (hit boxes, frame data and frame meter, a dummy that parries, record and replay) and save states, all on the arcade program itself, so there is no console behaviour to correct.
+
+  https://github.com/user-attachments/assets/89200dbd-9bf8-4c74-ab92-0e046ec7acca
+
+- **Checked against the original:** The translated code is compared with an interpreter block by block (registers, cycles and RAM), and each hand-written routine is compared call by call with the game's own code (registers, RAM and hardware writes).
+- **Fully native picture and sound, from the game's own drawing and sound code:** No emulator runs and no video or sound chip is emulated: the game hands its frames and voices straight to the port's own renderer and mixer. The board's chips are modelled only as the reference the checks compare against.
+- **An optional arcade timing mode:** that slows the CPU where the real board's bus, cache and pipeline do, measured against jotego's CPS-3 core for the MiSTer run in simulation: within a frame of it over start-up and attract mode.
+- **Modes the board never had:** tag team battle (including two against two for four players), ring out, and endless battle on stages that scroll one into the next.
+- **The whole trilogy:** New Generation and 2nd Impact are fully playable in the same app, each with training mode, widescreen and rollback online. I recomped them to add their stages to 3rd strike and ended up making both games playable as well.
+- **Match replays:** every match is kept, and you can take control from any moment of a replay.
+
+
+
 
 ## Training mode
 
@@ -86,7 +104,7 @@ playable by either player.
 - **A launcher** that checks your ROM set, sets every feature and both players' controls, hosts and joins online
   matches, and adds the game to Steam.
 
-![The launcher](docs/screenshots/launcher.png)
+<img width="1092" height="804" alt="image" src="https://github.com/user-attachments/assets/ca7ca2fe-ff78-4358-8af7-4ff47f7c5e09" />
 
 ## Getting started
 
