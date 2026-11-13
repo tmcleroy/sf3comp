@@ -22,6 +22,7 @@
 #include <string>
 #include <filesystem>
 #include <memory>
+#include <random>
 
 namespace cps3recomp {
 
@@ -375,6 +376,14 @@ namespace {
     int g_choiceWanted = 0;
     int g_sessionChoice = 0; // (the menu's Stage's choice of another game's stage, or its opponent's stages: StageChosen)
     int g_modeChoice = 0;    // (a mode's Stage row's choice of another game's stage: StageForMode, battle.cpp)
+    // The opponent's stage from any game ("Opponent's stage, any game", the arcade game with the menu's Stage at the
+    // game's choice): for each fight, the stage of the character 3rd Strike chose, as 3rd Strike, New Generation or 2nd
+    // Impact has it, one of those whose set is there and which has that character's stage, at random
+    struct RandomVersion {
+        int forStage = -1;       // (3rd Strike's next stage it was thrown for; -1 none yet)
+        int pick = 0;            // (the choice thrown: 0 3rd Strike's own, else New Generation's or 2nd Impact's opponent's)
+        bool gone[2] = {};       // (New Generation's, 2nd Impact's set found and not read: left out)
+    } g_random;
     bool g_onlyMusic = false; // (the stage viewer: nothing of 3rd Strike's own heard but music: StageBehindOnlyMusic)
     bool g_boardMusic = true; // (the modes' stage behind: its own music, or 3rd Strike's fight's: StageBehindMusic)
     int g_cameraWanted = kFollow;
@@ -501,6 +510,22 @@ namespace {
         }
         fprintf(stderr, "stages: the set %s is not beside %s%s%s\n", game.set, RomPath().c_str(), error.empty() ? "" : ": ", error.c_str());
         return nullptr;
+    }
+
+    // Whether another game's set is where LoadSet looks for it (the launcher's choice, or beside 3rd Strike's)
+    bool SetThere(const StageGame &game) {
+        std::error_code e;
+        if (const std::string &chosen = GuestRomPath(game.set); !chosen.empty() && std::filesystem::exists(std::filesystem::u8path(chosen), e)) {
+            return true;
+        }
+        const std::filesystem::path folder = std::filesystem::u8path(RomPath()).parent_path();
+        return std::filesystem::exists(folder / (std::string(game.set) + ".zip"), e) || std::filesystem::exists(folder / game.set, e);
+    }
+    // Another game's stage of the character whose stage 3rd Strike chose (`own`, its number), -1 none: both number their
+    // stages as 3rd Strike its characters (New Generation's 0-12, 2nd Impact's 0-14); Akuma's red stage (15) is Akuma's
+    int OpponentStage(const StageGame &game, int own) {
+        own = own == 15 ? 14 : own;
+        return own <= (&game == &kNewGeneration ? 12 : 14) ? own : -1;
     }
 
     int StageNow() {
@@ -1278,6 +1303,7 @@ namespace {
 } // namespace
 
 bool MusicVoice(int voice); // (music.cpp)
+bool BattleOn();           // (battle.cpp)
 
 // Each frame: the board for the choice made (loaded when the choice changes: a moment's pause)
 namespace {
@@ -2505,7 +2531,36 @@ void StagesBeforeFrame(Machine &machine) {
                 music ? "the stage's music" : "3rd Strike's own", silenced);
     }
     // (a mode's own Stage row before the menu's Stage: the menu's is for the modes that have no stage of their own to say)
-    const int choice = g_choiceWanted ? g_choiceWanted : g_modeChoice ? g_modeChoice : g_sessionChoice;
+    int choice = g_choiceWanted ? g_choiceWanted : g_modeChoice ? g_modeChoice : g_sessionChoice;
+    // (the opponent's stage from any game: in the arcade game (no training session, no alternative mode), the menu's
+    // Stage at the game's choice; thrown between fights as 3rd Strike's next stage changes. 3rd Strike's own thrown with
+    // another game's board there: that board kept, on no stage of its own, for the next throw)
+    const bool random = FeatureOn("stage_random_version") && FeatureValue("stage") == 0 && !choice && !session::InSession() && !BattleOn();
+    constexpr int kNewGenerationOpponents = kOpponentsFirst, kSecondImpactOpponents = kOpponentsFirst + 1;
+    if (!random) {
+        g_random.forStage = -1;
+        g_random.pick = 0;
+    } else {
+        const int own = Ram8(sfiii3::kStage);
+        if (!OnStage() && own != g_random.forStage) {
+            g_random.forStage = own;
+            int picks[3] = {0}, count = 1;
+            for (int n = 0; n < 2; n++) {
+                const int pick = n ? kSecondImpactOpponents : kNewGenerationOpponents;
+                const StageGame &game = *kChoices[pick].game;
+                if (!g_random.gone[n] && OpponentStage(game, own) >= 0 && SetThere(game)) {
+                    picks[count++] = pick;
+                }
+            }
+            static std::mt19937 dice{std::random_device{}()};
+            g_random.pick = picks[std::uniform_int_distribution<int>(0, count - 1)(dice)];
+            if (getenv("SFIII3_GUEST_LOG")) {
+                fprintf(stderr, "guest stage: frame %llu, any game's opponent's stage for 3rd Strike's %d: %d of %d games, choice %d\n",
+                        static_cast<unsigned long long>(machine.frame), own, count, 3, g_random.pick);
+            }
+        }
+        choice = g_random.pick ? g_random.pick : g.loaded && kChoices[g.loaded].stage == kOpponents ? g.loaded : 0;
+    }
     // (debugging aid, SFIII3_GUEST_LOG=1: every 300 frames, the guest stage wanted, the one whose board is there and
     // whether a fight is on it; games/sfiii3/checkguestmodes.sh reads it)
     static const bool guestLog = getenv("SFIII3_GUEST_LOG") != nullptr;
@@ -2520,8 +2575,9 @@ void StagesBeforeFrame(Machine &machine) {
     if (choice == g.loaded && choice && kChoices[choice].stage == kOpponents && machine.StageBoard() && idle) {
         // (the opponent's: between fights, 3rd Strike's next stage chosen, the board started again on its way to that one)
         const int most = kChoices[choice].game == &kNewGeneration ? 12 : 14;
-        // (New Generation's 6, Hugo's number though it has no Hugo, is a beer festival: Hugo's, as Germany's)
-        const int next = Ram8(sfiii3::kStage) <= most ? Ram8(sfiii3::kStage) : -1;
+        // (New Generation's 6, Hugo's number though it has no Hugo, is a beer festival: Hugo's, as Germany's; the
+        // opponent's stage from any game's 3rd Strike's own thrown: none)
+        const int next = random && !g_random.pick ? -1 : OpponentStage(*kChoices[choice].game, Ram8(sfiii3::kStage));
         if (g_pre.on && next != g_pre.live.stage) {
             EndPreload(machine); // (the next fight's stage is another: that one wanted now)
         }
@@ -2594,6 +2650,11 @@ void StagesBeforeFrame(Machine &machine) {
     }
     if (choice && !machine.StageBoard()) {
         g.loaded = 0; // (not there: as without it)
+        if (random) {
+            g_random.gone[choice == kSecondImpactOpponents] = true; // (its set unreadable: not thrown again)
+            g_random.pick = 0;
+            return;
+        }
         SetFeatureValue("stage", 0);
     } else if (choice && Alone(*kChoices[choice].game)) {
         g.stage = kChoices[choice].stage == kOpponents ? -1 : g.stage;
@@ -2768,6 +2829,11 @@ void RegisterStages(Game &game) {
                              "after it is chosen. The opponent's: each fight on that game's stage of the character whose stage "
                              "3rd Strike chose (its own for the characters that game has not). Online, the host's choice.",
                              kFeatureMenuChoices, names});
+    game.features.push_back({"stage_random_version", "Stage", "Opponent's stage, any game",
+                             "In the arcade game, with Stage at the game's choice: each fight is on the opponent's stage from "
+                             "3rd Strike, New Generation or 2nd Impact, one of them at random (only the games whose sets are there "
+                             "and which have that character's stage). With 3rd Strike's set alone it changes nothing.",
+                             kFeatureEnhanced});
     game.features.push_back({"stages_preload", "Stage", "Load ahead",
                              "With the opponent's stages: between fights, the game's other stages are taken to their fights one by "
                              "one and kept, so that each opponent's is there at once. It takes the processor's time while no fight "
