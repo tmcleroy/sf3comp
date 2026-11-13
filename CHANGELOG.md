@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Android**: SF3comp-android.apk, the launcher and every game in one app for 64-bit ARM phones and tablets
+  (Android 9 and later), as CPS-2 Recomp's. Add the ROM sets from the phone with the system's picker (they are copied
+  into the app's folder); the screen has touch controls until a gamepad is used, Back or the screen's Menu button
+  opens the in-game menu, the Display page's shaders work, and online play reaches the same service. (Issue #14)
 - **Opponent's stage, any game** (3rd Strike, Stage page, on in the Enhanced preset): in the arcade game, with Stage
   at the game's choice, each fight is on the opponent's own stage from 3rd Strike, New Generation or 2nd Impact, one
   of them at random (fighting Akuma: his stage from 3rd Strike or 2nd Impact). Only the games whose sets are there

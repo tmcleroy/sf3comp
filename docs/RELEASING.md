@@ -28,23 +28,23 @@ them and attaches them to the draft that the tag opens.
    ```sh
    git status --short            # must print nothing: build exactly what was tagged
    bash cps3recomp/tools/translate.sh path/to/sfiii3nr1.zip      # and the other two games' (docs/BUILDING.md)
-   tools/release/all.sh          # audit, then macOS, Linux x86_64, Windows, then SHA256SUMS.txt
+   tools/release/all.sh          # audit, then macOS, Linux x86_64, Windows, Android, then SHA256SUMS.txt
    ```
 
    Each download is the collection: `sf3comp-launcher` and the programs `sfiii3`, `sfiiin` and `sfiii2n` (on macOS
-   inside `SF3comp.app`). The scripts refuse to start if a game's translated code is missing.
+   inside `SF3comp.app`; on Android, libraries in one APK, signed with the release key: docs/BUILDING.md). The scripts refuse to start if a game's translated code is missing.
 
    Each script refuses to pack an archive that holds game data or a personal path, or lacks a licence
    (`tools/release/check_archive.sh`).
 4. **Try each download** before anyone else does: unpack it somewhere else, start the launcher, choose the ROM sets,
    play a round of each game with a gamepad and with the keyboard. macOS on a Mac, the Linux one on a Steam Deck or Steam
-   Machine, the Windows one on a Windows PC.
+   Machine, the Windows one on a Windows PC, the APK on an Android phone or tablet.
 5. **Upload and publish:**
 
    ```sh
    cd build/release
    gh release upload "v$(cat ../../VERSION)" SF3comp-macOS.zip SF3comp-linux-x86_64.tar.gz \
-       SF3comp-windows-x64.zip SHA256SUMS.txt
+       SF3comp-windows-x64.zip SF3comp-android.apk SHA256SUMS.txt
    gh release edit "v$(cat ../../VERSION)" --draft=false
    ```
 

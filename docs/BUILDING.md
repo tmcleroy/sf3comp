@@ -73,7 +73,7 @@ online over a bad connection, rollback and all).
 interpreter, about a twentieth the speed), and starts everything with no window: each program lists its features, the
 launcher draws its pages to pictures. `tools/audit.sh` checks the files for anything that must never be
 committed. CI (`.github/workflows/ci.yml`) runs both, and the release scripts below with `NO_GAME_CODE=1`, on macOS,
-Linux and Windows.
+Linux and Windows, and builds the Android app.
 
 ## Release builds
 
@@ -85,6 +85,14 @@ with SDL built in and the licences beside the programs:
 | `macos.sh` | macOS | `build/release/SF3comp-macOS.zip` holding `SF3comp.app` (Apple silicon and Intel) |
 | `linux.sh` | Linux, x86_64 or ARM64 (Docker: cps2recomp's `cps2recomp-build` image) | `SF3comp-linux-x86_64.tar.gz` |
 | `windows.sh` | Linux with MinGW-w64 (the same image) | `SF3comp-windows-x64.zip` |
+| `android.sh` | macOS or Linux with a JDK 17 and the Android SDK (platform 34, NDK 27.2) | `SF3comp-android.apk` (ARM64, Android 9 and later) |
+
+The Android app is one APK with the launcher and every game, each a library (`lib<id>.so`) that the app starts in a
+process of its own (`android/`: `GameActivity.java`). `ROM_SETS=<folder> tools/release/android.sh` packs your own
+sets into a development APK (`SF3comp-android-with-roms-DO-NOT-SHARE.apk`) that sets them up on its first start: for
+your own phone, never to be shared. A release APK is signed with the key in `~/.config/sf3comp/android-signing.env`
+(`KEYSTORE`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`): every release must carry the same key, or it won't
+install over the one before. Without it the APK is signed with the Android debug key, fine for your own device.
 
 Each builds in `build/release-<system>/` (the games in `games/<id>`, the launcher in `launcher`) and needs every
 game's translated code (above) and Rust for librashader (`cps3recomp/tools/librashader.sh`, the Display
