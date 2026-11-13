@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.0-beta.3
+
+The three Street Fighter III games in one app, and online play through its own service.
+
 - **Online play has its own service** (`online/`, sf3comp-online), no longer cps2recomp's: codes, the lobby and the
   waiting room are this collection's alone, with a stats page for whoever runs it. Both players need this build or
   later; an older one still finds only the old service's lobby.
@@ -31,7 +35,6 @@
   and online play with rollback. 3rd Strike's settings, saves and ROM set carry over from the single-game launcher.
   Where a far background layer's art ends short of the wider picture at a stage's end, its own end is shown again,
   mirrored. Hit boxes sit on the fighters' pictures (they were a frame early).
-- Online play has a lobby and a waiting room of its own (they were shared with another collection's players).
 - The launcher finds ROM sets in a `rom` folder beside it, and shows 3rd Strike as "Street Fighter III 3rd Strike
   Definitive" (its folder of settings and saves is the one it had).
 - Board page: each setting now sets its own (Difficulty set the damage level and Damage level the difficulty, Timer
