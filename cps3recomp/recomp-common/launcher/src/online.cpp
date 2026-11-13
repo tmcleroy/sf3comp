@@ -248,6 +248,8 @@ std::vector<OpenMatch> Matches(const std::string& json) {
                         Text(json, at, end, "code"), Text(json, at, end, "name")};
         const size_t waiting = json.find("\"waiting\":", at);
         match.waiting = waiting != std::string::npos && waiting < end ? std::atoi(json.c_str() + waiting + 10) : 0;
+        const size_t watching = json.find("\"watching\":true", at);
+        match.watching = watching != std::string::npos && watching < end;
         if (!match.code.empty()) {
             matches.push_back(match);
         }

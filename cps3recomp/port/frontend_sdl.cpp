@@ -445,7 +445,7 @@ int RunWindowed(Port &port) {
     uint32_t menuWidth = 0, menuHeight = 0;
     bool menuDirty = false;
     uint16_t previousPad = 0, heldAtClose = 0;
-    unsigned previousMenu = 0;
+    recomp::MenuRepeat menuRepeat; // (the arrows held go on through the rows and the choices)
     int triggerHeld = 0;
     bool bothHeld = false; // a gamepad's Start and Select (Back) together: the menu
     // (with a zoom to work, the left stick's click opens the menu when it is let go, unless a shoulder was pressed
@@ -803,8 +803,7 @@ int RunWindowed(Port &port) {
                 menuNow |= SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_EAST) ? recomp::kMenuBack : 0;
             }
             menuNow |= touch.Menu();
-            unsigned menuPressed = menuNow & ~previousMenu;
-            previousMenu = menuNow;
+            unsigned menuPressed = menuRepeat.Step(menuNow);
             if (both) {
                 menuPressed = 0;
             }
