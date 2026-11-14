@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Widescreen in New Generation and 2nd Impact is the board's own**: the 16:9 mode both games have, the setting only
+  their Japanese sets' test menu shows. The picture is 495 columns, the life bars, faces and gauges are laid out at
+  the corners, and the stages' ends are the game's own, so the corners are no longer reached sooner and there are no
+  invisible walls to choose. Switched in the in-game menu, the game starts again, as the board does when the setting
+  changes. 3rd Strike keeps its widescreen: its own wide mode leaves the panel laid out for 4:3. (Issue #18)
 - **Android**: SF3comp-android.apk, the launcher and every game in one app for 64-bit ARM phones and tablets
   (Android 9 and later), as CPS-2 Recomp's. Add the ROM sets from the phone with the system's picker (they are copied
   into the app's folder); the screen has touch controls until a gamepad is used, Back or the screen's Menu button

@@ -713,10 +713,12 @@ void RegisterTraining(Game &) {
             }
             // (asked only as "Start over" puts the players in a corner, the round just put back: the camera goes there
             // with them, to the end the session's choice names (restart_at: 2 and 4 the left corner, 3 and 5 the right);
-            // these games keep the players in the picture, and would bring them back to where the camera was)
+            // these games keep the players in the picture, and would bring them back to where the camera was. The end's
+            // second word is where the camera itself stops: the same as the first, but in the board's wide picture, where
+            // it stops 56 columns sooner (widescreen.cpp) and the first stays the stage's end)
             const int place = FeatureSetting("restart_at");
             if (place >= 2) {
-                SetRam16(facts.cameraX, Ram16(place % 2 == 0 ? facts.cameraLeft : facts.cameraRight));
+                SetRam16(facts.cameraX, Ram16((place % 2 == 0 ? facts.cameraLeft : facts.cameraRight) + 2));
             }
             return true;
         };

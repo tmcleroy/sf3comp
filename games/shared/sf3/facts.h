@@ -9,6 +9,10 @@
 
 #include <cstdint>
 
+namespace cps3recomp {
+class Machine;
+}
+
 namespace sf3 {
 
 // A list of boxes a player's record points to (8 bytes a box: left, width, bottom, height, signed words from the
@@ -36,6 +40,13 @@ struct Facts {
     // has no such setting): each has a second copy 0x30 bytes on
     bool bonusGames;       // the game has bonus stages, and the setting for them (0x27)
     bool roundsBetweenTwo; // the rounds byte's high half is the rounds between two players (else one number for both)
+    // The board's own wide picture (the settings' byte 0x20: 1): 495 columns, the panel laid out to the corners and the
+    // camera's ends the game's for it, as it was shown on a 16:9 monitor. Only the Japanese sets' test menu has the
+    // setting (game_config_screen_item_jp). The game reads it as it starts, into this byte of RAM (1 wide), which it
+    // reads from then on (mode_init_task lays the panel out by it, test_mode_exit sets the screen's timing by it); so it
+    // is changed only with the board started again (widescreen.cpp). 0: the game's wide picture is not used (3rd
+    // Strike's leaves its panel laid out for 384 columns): widescreen is then the sources' own
+    uint32_t boardWide;
 
     // --- training mode (training.cpp) ---
 
@@ -43,7 +54,8 @@ struct Facts {
     // character, 3 the super art's coming, 4 choosing it, 5 chosen
     uint32_t selectState[2];
     // The camera: the middle of the picture in the stage (signed words: bg_w.bgw[1].wxy), and the ends it is kept
-    // between (r_limit, l_limit)
+    // between (r_limit, l_limit). Each end is two words: the stage's end, then where the camera stops, the same but in
+    // the board's wide picture (`boardWide`), where it stops 56 columns sooner (240 and 184, traced on Dudley's stage)
     uint32_t cameraX, cameraY, cameraRight, cameraLeft;
     int wall;              // the players' walls: this far beyond the camera's ends
     // The stage of the next fight (a byte: a character's number, whose stage it is; 0: not known, no choice offered)
@@ -109,6 +121,11 @@ struct Facts {
     bool stunMash;         // (the stun's facts are known: the dummy can mash out of it)
 };
 const Facts &TheFacts(); // (the game's src/facts.cpp)
+
+// The board's settings EEPROM's bytes, by the offsets above (the game's bytes high first in each word); setting one sets
+// its copy 0x30 bytes on too (base.cpp)
+uint8_t SettingsByte(const cps3recomp::Machine &m, uint32_t offset);
+void SetSettingsByte(cps3recomp::Machine &m, uint32_t offset, uint8_t value);
 
 // base.cpp: a round is being fought
 bool InRound();

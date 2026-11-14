@@ -21,6 +21,18 @@ bool InRound() {
     const Facts &f = TheFacts();
     return (cps3recomp::Ram8(f.locked[0]) == 0xFF || cps3recomp::Ram8(f.locked[1]) == 0xFF) && cps3recomp::Ram8(f.matchState) == 2;
 }
+
+// The settings EEPROM's bytes (the game's bytes are kept high first in each word; a block and its copy 0x30 on)
+void SetSettingsByte(cps3recomp::Machine &m, uint32_t offset, uint8_t value) {
+    for (const uint32_t base : {0x00u, 0x30u}) {
+        uint32_t &word = m.eeprom.words[(base + offset) / 4];
+        const int shift = (3 - static_cast<int>((base + offset) % 4)) * 8;
+        word = (word & ~(0xFFu << shift)) | (static_cast<uint32_t>(value) << shift);
+    }
+}
+uint8_t SettingsByte(const cps3recomp::Machine &m, uint32_t offset) {
+    return static_cast<uint8_t>(m.eeprom.words[offset / 4] >> ((3 - static_cast<int>(offset % 4)) * 8));
+}
 } // namespace sf3
 
 namespace cps3recomp {
@@ -31,16 +43,11 @@ namespace {
 
     bool g_skipping = false; // (follows the frame number alone: nothing a save state need hold)
 
-    // The settings EEPROM's bytes (the game's bytes are kept high first in each word; a block and its copy 0x30 on)
     void SetByte(Machine &m, uint32_t offset, uint8_t value) {
-        for (const uint32_t base : {0x00u, 0x30u}) {
-            uint32_t &word = m.eeprom.words[(base + offset) / 4];
-            const int shift = (3 - static_cast<int>((base + offset) % 4)) * 8;
-            word = (word & ~(0xFFu << shift)) | (static_cast<uint32_t>(value) << shift);
-        }
+        sf3::SetSettingsByte(m, offset, value);
     }
     uint8_t Byte(const Machine &m, uint32_t offset) {
-        return static_cast<uint8_t>(m.eeprom.words[offset / 4] >> ((3 - static_cast<int>(offset % 4)) * 8));
+        return sf3::SettingsByte(m, offset);
     }
 
     // Before the board's first frame (after switching on or a reset): the settings chosen, written in
