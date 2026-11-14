@@ -220,6 +220,18 @@ void RegisterPortFeatures() {
                                   "How large the window opens, in times the board's 224 lines (it can be made any size by "
                                   "dragging its edges; full screen is on the launcher's first page and F11).",
                                   0, {"3x", "2x", "4x", "5x", "6x"}});
+    // (display_fullscreen, display_screen: frontend_sdl.cpp, issue #15; a CRT at the board's own resolution)
+    TheGame().features.push_back({"display_fullscreen", "Display", "Full screen mode",
+                                  "Desktop: full screen at the screen's own resolution, the picture fitted as the rows above "
+                                  "say. Arcade resolution: the screen switched to its mode closest to the board's 384 x 224 "
+                                  "at 59.6 Hz (an arcade monitor's, made with CRT Emudriver or a custom resolution), the "
+                                  "picture filling it pixel for pixel; turn Widescreen off for it. The menu is drawn at the "
+                                  "screen's own resolution there, its letters as sharp as they can be.",
+                                  0, {"Desktop", "Arcade resolution"}});
+    TheGame().features.push_back({"display_screen", "Display", "Screen",
+                                  "Which screen the game opens on and goes full screen on, where there are several: the main "
+                                  "one or another, in the order the system lists them. One that is not connected: the main.",
+                                  0, {"Main", "Second", "Third", "Fourth"}});
     // (custom_soundtrack: soundtrack.h; for a game whose sources follow its music driver: runtime/soundtrack.h)
     if (TheGame().songCount) {
         TheGame().features.push_back({"custom_soundtrack", "Sound", "Custom soundtrack",
@@ -236,6 +248,12 @@ Scaling DisplayScaling() {
 }
 Shape DisplayShape() {
     return static_cast<Shape>(std::clamp(FeatureValue("display_shape"), 0, 2));
+}
+bool ArcadeResolution() {
+    return FeatureValue("display_fullscreen") == 1;
+}
+int DisplayScreen() {
+    return std::clamp(FeatureValue("display_screen"), 0, 3);
 }
 int WindowSize() {
     static const int kTimes[] = {3, 2, 4, 5, 6};
@@ -814,12 +832,19 @@ namespace {
         return any;
     }
     // The menu's picture from the game's (MenuPicture): 4:3, three times the lines, each pixel the nearest
-    void MenuSized(const std::vector<uint32_t> &shown, int across, std::vector<uint32_t> &pixels, uint32_t &width, uint32_t &height) {
+    // (`wantWidth` x `wantHeight` given: that size instead, the screen's own pixels where the picture is shown on a
+    // small screen, so that the menu's letters are drawn on them and not shrunk)
+    void MenuSized(const std::vector<uint32_t> &shown, int across, std::vector<uint32_t> &pixels, uint32_t &width, uint32_t &height,
+                   int wantWidth = 0, int wantHeight = 0) {
         height = Video::kHeight * 3;
         width = height * 4 / 3 * static_cast<uint32_t>(across) / Video::kWidth;
+        if (wantWidth > 0 && wantHeight > 0) {
+            width = static_cast<uint32_t>(wantWidth);
+            height = static_cast<uint32_t>(wantHeight);
+        }
         pixels.resize(static_cast<size_t>(width) * height);
         for (uint32_t y = 0; y < height; y++) {
-            const uint32_t *from = &shown[static_cast<size_t>(y / 3) * across];
+            const uint32_t *from = &shown[static_cast<size_t>(y * Video::kHeight / height) * across];
             uint32_t *to = &pixels[static_cast<size_t>(y) * width];
             for (uint32_t x = 0; x < width; x++) {
                 to[x] = from[x * across / width];
@@ -847,7 +872,7 @@ bool Port::WindowedOverlay(std::vector<uint32_t> &overlay, Zoomed &zoomed) const
     return isZoomed;
 }
 
-void Port::MenuOverlay(std::vector<uint32_t> &overlay, uint32_t &width, uint32_t &height) const {
+void Port::MenuOverlay(std::vector<uint32_t> &overlay, uint32_t &width, uint32_t &height, int wantWidth, int wantHeight) const {
     const int across = ShownWidth();
     const size_t n = static_cast<size_t>(across) * Video::kHeight;
     m_probeBlack.assign(n, 0);
@@ -855,8 +880,8 @@ void Port::MenuOverlay(std::vector<uint32_t> &overlay, uint32_t &width, uint32_t
     ShownOver(m_probeBlack, nullptr);
     ShownOver(m_probeWhite, nullptr);
     std::vector<uint32_t> black, white;
-    MenuSized(m_probeBlack, across, black, width, height);
-    MenuSized(m_probeWhite, across, white, width, height);
+    MenuSized(m_probeBlack, across, black, width, height, wantWidth, wantHeight);
+    MenuSized(m_probeWhite, across, white, width, height, wantWidth, wantHeight);
     menu.Draw(black.data(), static_cast<int>(width), static_cast<int>(height));
     menu.Draw(white.data(), static_cast<int>(width), static_cast<int>(height));
     Probe(black, white, overlay);
@@ -1093,10 +1118,10 @@ bool Port::WindowedPicture(std::vector<uint32_t> &pixels, Zoomed &zoomed) {
     return true;
 }
 
-void Port::MenuPicture(std::vector<uint32_t> &pixels, uint32_t &width, uint32_t &height) const {
+void Port::MenuPicture(std::vector<uint32_t> &pixels, uint32_t &width, uint32_t &height, int wantWidth, int wantHeight) const {
     std::vector<uint32_t> shown;
     Shown(shown);
-    MenuSized(shown, ShownWidth(), pixels, width, height);
+    MenuSized(shown, ShownWidth(), pixels, width, height, wantWidth, wantHeight);
 }
 
 std::string Port::PlayerFolder() const {
