@@ -97,6 +97,7 @@ playable by either player.
 - **Native picture and sound**: the game's drawing and sound code hands its frames and voices to the port's own
   renderer and mixer; the board's video and sound chips are modelled only as the reference the checks compare
   against. Sharp or smooth scaling, 4:3 or square pixels, RetroArch shaders, and a zoom that follows the fighters.
+  Full screen can switch an arcade monitor to the board's own 384 x 224 (CRT Emudriver), on the screen you choose.
 - **An in-game menu** (Esc or F1; on a gamepad the left stick's click, or Start and Select together): save states,
   speed, the cheats, the board's own settings and test menu, every feature. Pure plays exactly as the board does;
   Enhanced (the default) adds free play, arcade timing, integer scaling and, in widescreen, invisible walls.

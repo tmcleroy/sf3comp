@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Arcade resolution and screen choice** (Display page, and the launcher's): Full screen mode's Arcade resolution
+  switches the screen to its mode closest to the board's 384 x 224 at 59.6 Hz (an arcade monitor's modeline from CRT
+  Emudriver, or a custom resolution) and fills it pixel for pixel; Screen chooses which monitor the game opens and goes
+  full screen on. The in-game menu is drawn on the screen's own pixels wherever the picture is under 672 lines, so its
+  letters are no longer shrunk and crushed at low resolutions. (Issue #15)
 - **Android**: SF3comp-android.apk, the launcher and every game in one app for 64-bit ARM phones and tablets
   (Android 9 and later), as CPS-2 Recomp's. Add the ROM sets from the phone with the system's picker (they are copied
   into the app's folder); the screen has touch controls until a gamepad is used, Back or the screen's Menu button

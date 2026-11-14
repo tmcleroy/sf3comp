@@ -187,8 +187,8 @@ struct Port {
     // What the menu asked for (it is closed if that went well)
     void MenuAct(Menu::Action action);
     bool quit = false; // the player chose the menu's "Quit game": the frontend stops
-    // The game's picture at the size the menu is drawn at (4:3, three times the lines)
-    void MenuPicture(std::vector<uint32_t> &pixels, uint32_t &width, uint32_t &height) const;
+    // The game's picture at the size the menu is drawn at (4:3, three times the lines; or `wantWidth` x `wantHeight`)
+    void MenuPicture(std::vector<uint32_t> &pixels, uint32_t &width, uint32_t &height, int wantWidth = 0, int wantHeight = 0) const;
     // The picture with the readout over it (runtime/game.h, SetHud), as the window and screenshots show it; and
     // where on it the readout's panels went (none: not asked)
     void Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels = nullptr) const;
@@ -207,7 +207,7 @@ struct Port {
     // when nothing); zoomed (true), as Windowed zooms (the overlay rawAbove)
     bool WindowedOverlay(std::vector<uint32_t> &overlay, Zoomed &zoomed) const;
     // ... and the menu's picture's (MenuPicture with the menu drawn over it), the menu's picture's size
-    void MenuOverlay(std::vector<uint32_t> &overlay, uint32_t &width, uint32_t &height) const;
+    void MenuOverlay(std::vector<uint32_t> &overlay, uint32_t &width, uint32_t &height, int wantWidth = 0, int wantHeight = 0) const;
     // What Shown puts over a picture (the readout, the lines at the bottom, online's names and chat)
     void ShownOver(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels = nullptr) const;
     mutable std::vector<uint32_t> m_probeBlack, m_probeWhite;
@@ -357,5 +357,9 @@ void StartOnAndroid();
 Scaling DisplayScaling();
 Shape DisplayShape();
 int WindowSize();
+// The Display page's full screen mode (true: the screen switched to the board's resolution) and screen (0: the main
+// one, 1..3: the others in the system's order)
+bool ArcadeResolution();
+int DisplayScreen();
 
 } // namespace port
