@@ -93,7 +93,10 @@ playable by either player.
 
 ## Everything else
 
-- **Widescreen**: the stage drawn out to 16:9, or 16:9 played exactly as the board plays (its own walls).
+- **Widescreen**: in New Generation and 2nd Impact, the board's own 16:9 mode (2nd Impact's test menu has it as Screen
+  mode; New Generation has it hidden), with the life bars out at the corners. In 3rd Strike, whose wide mode is a
+  leftover Capcom never adapted its life bars to,
+  the stage drawn out to 16:9, or 16:9 played exactly as the board plays (its own walls).
 - **Native picture and sound**: the game's drawing and sound code hands its frames and voices to the port's own
   renderer and mixer; the board's video and sound chips are modelled only as the reference the checks compare
   against. Sharp or smooth scaling, 4:3 or square pixels, RetroArch shaders, and a zoom that follows the fighters.

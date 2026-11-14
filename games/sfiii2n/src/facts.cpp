@@ -41,6 +41,9 @@ const Facts &TheFacts() {
         .fullLife = 160,
         .bonusGames = true,
         .roundsBetweenTwo = false,
+        // (as New Generation's, found the same way: the third of the three bytes of RAM that differ with the settings'
+        // byte 0x20 set, 0x62 after the first as there)
+        .boardWide = 0x02065106,
         // (Sel_PL_1st's literal 0x0201432E is SP_No: 5 and 5 with both characters chosen, in dumps; a session's start
         // gets to the character choice by it, and player 1's controls then choose for player 2)
         .selectState = {0x0201432F, 0x02014337},

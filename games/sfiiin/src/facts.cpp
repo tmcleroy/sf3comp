@@ -42,6 +42,12 @@ const Facts &TheFacts() {
         .fullLife = 160,
         .bonusGames = false,   // (the game has none: the settings' byte 0x27 is 0)
         .roundsBetweenTwo = false,
+        // (the settings' byte 0x20 set to 1 at start-up: the board's picture 495 columns (its timing registers 0x76 to 0x265,
+        // set_screen_mode's 7 where it is otherwise 3), the panel out at the corners, the fighters' start and the camera's
+        // ends the game's own for it. Of the three bytes of RAM that then differ from a start without it and stay so, this
+        // is the one test_mode_exit (0x06005692) reads to choose the mode, and the game's routines read throughout. Seen
+        // in fights on every stage: games/shared/sf3/checkwide.sh)
+        .boardWide = 0x0205ED46,
         // (Sel_PL_3rd's literal 0x02012CEA is SP_No, a word for each of four steps for each player: traced through a
         // made-up game, player 1's low byte 1, 2, 3, 4, 5 at frames 780-889; a session's start gets to the character
         // choice by it, and player 1's controls then choose for player 2)

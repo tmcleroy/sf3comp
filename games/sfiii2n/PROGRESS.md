@@ -24,11 +24,18 @@ rest). This game does not need 3rd Strike's whole feature set: training mode is 
 Not yet: custom soundtrack, native sound (the board's mixer is what is heard: `Game::boardSound`; the native mixer has
 no sound driver of this game's feeding it, and played nothing).
 
-Widescreen (`games/shared/sf3/widescreen.cpp`, `checkwide.sh`): where a far layer's art ends short of the wider picture at a
-stage's end, the renderer shows the layer's own end again, mirrored, under everything else (`native::SetFillEnds`).
-checkwide.sh still names a few pictures: 2 to 5 columns on New Generation's stage 13 and 2nd Impact's 3 and 4 with the
-invisible walls, 24 on 2nd Impact's stage 4 (its pieces there are objects, not a tilemap), and 2nd Impact's stage 9, whose
-cliff is black art (not a fault).
+Widescreen (`games/shared/sf3/widescreen.cpp`, `checkwide.sh`) is the board's own wide picture (2026-11-13, issue #18):
+the settings' byte 0x20 written before the board's first frame, a setting the test menu has as Screen mode
+(the game page's first row, Screen mode). The game then sets the screen's timing
+for 495 columns (`set_screen_mode` with 7 instead of 3), lays its panel out to the corners and keeps the camera's ends
+for the wider picture. It reads the setting as it starts, into a byte of RAM (`Facts::boardWide`) it reads from then
+on; `mode_init_task` lays the panel out by it, so that byte set while the game runs gives a wide picture with the
+panel still laid out for 384. So when that byte is not what the switch says (switched in the in-game menu, or a first
+start whose settings the game wrote its defaults over), the setting is written and the board started again, as a
+training session's start does. checkwide.sh: every stage in both corners with nothing empty at
+the edges (2nd Impact's stage 9 aside, whose cliff is black art), switched in a session and back, and with widescreen
+off the same hashes as never asked for. The sources' 64 columns a side and their invisible walls (still 3rd Strike
+990608's) are no longer used here.
 
 ## Facts
 
