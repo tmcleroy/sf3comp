@@ -25,8 +25,8 @@ Not yet: custom soundtrack, native sound (the board's mixer is what is heard: `G
 no sound driver of this game's feeding it, and played nothing).
 
 Widescreen (`games/shared/sf3/widescreen.cpp`, `checkwide.sh`) is the board's own wide picture (2026-11-13, issue #18):
-the settings' byte 0x20 written before the board's first frame, a setting only the Japanese sets' test menu shows
-(`game_config_screen_item_jp`; this Asia set's game page leaves the row out). The game then sets the screen's timing
+the settings' byte 0x20 written before the board's first frame, a setting 2nd Impact's test menu has as Screen mode
+(this set's game page leaves the row out, though its code has it, `game_config_screen_item_jp`). The game then sets the screen's timing
 for 495 columns (`set_screen_mode` with 7 instead of 3), lays its panel out to the corners and keeps the camera's ends
 for the wider picture. It reads the setting as it starts, into a byte of RAM (`Facts::boardWide`) it reads from then
 on; `mode_init_task` lays the panel out by it, so that byte set while the game runs gives a wide picture with the

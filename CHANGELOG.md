@@ -2,8 +2,8 @@
 
 ## Unreleased
 
-- **Widescreen in New Generation and 2nd Impact is the board's own**: the 16:9 mode both games have, the setting only
-  their Japanese sets' test menu shows. The picture is 495 columns, the life bars, faces and gauges are laid out at
+- **Widescreen in New Generation and 2nd Impact is the board's own**: the 16:9 mode both games have (2nd Impact's
+  test menu calls it Screen mode; New Generation's leaves the row out). The picture is 495 columns, the life bars, faces and gauges are laid out at
   the corners, and the stages' ends are the game's own, so the corners are no longer reached sooner and there are no
   invisible walls to choose. Switched in the in-game menu, the game starts again, as the board does when the setting
   changes. 3rd Strike keeps its widescreen: its own wide mode leaves the panel laid out for 4:3. (Issue #18)

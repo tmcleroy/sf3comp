@@ -5,8 +5,8 @@
 //
 // New Generation and 2nd Impact have a wide picture of their own: the board shows 495 columns, the game lays its panel
 // out to the picture's corners and keeps the camera's ends where the wider picture needs them, as it did on a 16:9
-// monitor. The game takes it from a setting (the settings' byte 0x20) that only the Japanese sets' test menu shows: it
-// is written here before the board's first frame, as the Board page's settings are, and the game does the rest. The
+// monitor. The game takes it from a setting (the settings' byte 0x20) (2nd Impact's test menu has it as Screen mode, New
+// Generation's leaves it out): it is written here before the board's first frame, as the Board page's settings are, and the game does the rest. The
 // game reads it as it starts, so switched in the in-game menu the board starts again (as the test menu's way out does).
 //
 // 3rd Strike 990608 (whose own wide picture leaves its panel laid out for 384 columns, on the left) has the sources'

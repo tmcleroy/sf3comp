@@ -41,8 +41,8 @@ struct Facts {
     bool bonusGames;       // the game has bonus stages, and the setting for them (0x27)
     bool roundsBetweenTwo; // the rounds byte's high half is the rounds between two players (else one number for both)
     // The board's own wide picture (the settings' byte 0x20: 1): 495 columns, the panel laid out to the corners and the
-    // camera's ends the game's for it, as it was shown on a 16:9 monitor. Only the Japanese sets' test menu has the
-    // setting (game_config_screen_item_jp). The game reads it as it starts, into this byte of RAM (1 wide), which it
+    // camera's ends the game's for it, as it was shown on a 16:9 monitor. 2nd Impact's test menu has the setting
+    // (Screen mode, the game page's first row); New Generation's leaves the row out. The game reads it as it starts, into this byte of RAM (1 wide), which it
     // reads from then on (mode_init_task lays the panel out by it, test_mode_exit sets the screen's timing by it); so it
     // is changed only with the board started again (widescreen.cpp). 0: the game's wide picture is not used (3rd
     // Strike's leaves its panel laid out for 384 columns): widescreen is then the sources' own
