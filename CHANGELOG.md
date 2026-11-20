@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Online Tag team battle: both players choose while the game is paused**: the host's Esc menu now pauses the game
+  for both players and opens the other player's, so each chooses their fighters and super arts there. The other
+  player then says **Ready**, and the host's **Start Tag team battle** waits until they have (changing a fighter
+  takes Ready back). The other player no longer has to choose their team before the host starts.
+
 ## 0.2.0-beta.2
 
 **4rd Strike joins the collection, 3rd Strike's Tag team battle can be played online, the game can record video

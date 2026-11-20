@@ -96,6 +96,9 @@ struct Options {
     Netplay::Settings net;
     std::string netSay;         // --net-say [FRAME:]TEXT: (tests) the line said in the chat at FRAME of the match (120)
     uint64_t netSayAt = 120;
+    // --net-command FRAME:TEXT, again for more: (tests) an event this side makes at FRAME of the match (Netplay::Command:
+    // "team_2_1=6" a fighter, "ready=1", "mode=2:7" the tag team battle with seed 7)
+    std::vector<std::pair<uint64_t, std::string>> netCommands;
     std::string netTyping;      // --net-typing TEXT: (pictures) a line shown as being typed, all through the match
 };
 
@@ -402,6 +405,28 @@ struct Port {
     void OnlineEvent(int player, const std::string &text, uint64_t at);
     std::map<std::string, std::map<uint64_t, int>> onlinePickLog;
     std::map<std::string, int> onlinePickBase; // (each row as it was before its first event)
+    // The host's pause for choosing: while the host's match menu is open the game stands still for both ("setup=1",
+    // the host's event; "setup=0" when it closes), and the other player's opens by itself. The other player says
+    // "ready=1" when their fighters are chosen (a pick of theirs after it takes it back); a mode other than Versus starts
+    // only with the other player ready at its frame (the host's Start waits for it: onlinePendingMode). By frame, as the
+    // picks are, so that a rollback runs them again alike; the paused frames are left out of match replays.
+    // Only the events themselves are kept (a rollback runs them again alike); what they make of the pause and Ready is
+    // worked out from them (OnlineSetupScan), a mode's start being the same at its frame on both sides.
+    std::map<uint64_t, int> onlineSetupLog; // (the host's "setup": frame, value)
+    std::map<uint64_t, int> onlineModeLog;  // (the host's "mode": frame, mode)
+    std::map<uint64_t, int> onlineReadyLog; // (the other player's Ready as their frame's events leave it: a pick, 0)
+    struct OnlineSetupState {
+        bool paused = false, ready = false;
+        uint64_t pausedFrames = 0; // (how many frames before were paused)
+    };
+    OnlineSetupState OnlineSetupScan(uint64_t before) const; // (the events of the frames before `before`)
+    bool OnlinePausedAt(uint64_t at) const;
+    uint64_t OnlinePausedBefore(uint64_t at) const;
+    bool OnlineOtherReady() const; // (the other player's Ready, as the frames run so far have it)
+    bool onlineSetupSent = false;                   // (the host: what it last said)
+    int onlinePendingMode = -1;                     // (the host: a Start waiting for the other player's Ready)
+    int onlineReadyMine = -1;                       // (the other player: Ready as chosen, before its event has run)
+    void OnlineSetupFrame();                        // (each tick of a match: the host's pause and its Start)
     // Esc in a match: the match's own menu (Menu::OpenOnline), drawn over the game, which goes on: the host's modes to
     // start (OnlineCommand), this player's own picks for them (onlinePicks, sent as events), leaving. Watching, or a
     // host waiting, Esc asks only whether to leave (`leaving`, answered by LeaveQuestion)

@@ -1008,9 +1008,18 @@ bool Port::Tick() {
         const bool ready = net->Ready(frame);
         HearChat();
         HearEvents();
+        OnlineSetupFrame();
         if (!opt.netTyping.empty()) {
             typing = true;
             typed = opt.netTyping;
+        }
+        for (auto it = opt.netCommands.begin(); it != opt.netCommands.end();) {
+            if (frame >= it->first) {
+                net->Command(it->second);
+                it = opt.netCommands.erase(it);
+            } else {
+                ++it;
+            }
         }
         if (!opt.netSay.empty() && frame >= opt.netSayAt) {
             typed = opt.netSay;
@@ -2425,7 +2434,77 @@ namespace {
     bool TagTeamOnline() {
         return TheGame().startOnline && FindFeature("team_size") && FindFeature("team_1_1");
     }
+    // (the Ready row's place in Port::onlineRows: not one of the game's features)
+    constexpr const char *kReadyRow = "#ready";
 } // namespace
+
+// The pause and the other player's Ready after the events of the frames before `before`: in each frame the host's
+// (its setup, then its mode, which starts if it is Versus or the other player is ready, ending the pause and the
+// Ready), then the other player's
+Port::OnlineSetupState Port::OnlineSetupScan(uint64_t before) const {
+    std::set<uint64_t> frames;
+    for (const auto *log : {&onlineSetupLog, &onlineModeLog, &onlineReadyLog}) {
+        for (auto it = log->begin(); it != log->end() && it->first < before; ++it) {
+            frames.insert(it->first);
+        }
+    }
+    OnlineSetupState state;
+    uint64_t last = 0;
+    const bool tag = TagTeamOnline();
+    for (const uint64_t at : frames) {
+        if (state.paused) {
+            state.pausedFrames += at - last;
+        }
+        last = at;
+        if (const auto setup = onlineSetupLog.find(at); setup != onlineSetupLog.end()) {
+            state.paused = setup->second != 0;
+        }
+        if (const auto mode = onlineModeLog.find(at); mode != onlineModeLog.end() && (mode->second == 0 || !tag || state.ready)) {
+            state.paused = state.ready = false;
+        }
+        if (const auto ready = onlineReadyLog.find(at); ready != onlineReadyLog.end()) {
+            state.ready = ready->second != 0;
+        }
+    }
+    if (state.paused && before > last) {
+        state.pausedFrames += before - last;
+    }
+    return state;
+}
+
+bool Port::OnlinePausedAt(uint64_t at) const {
+    return OnlineSetupScan(at + 1).paused;
+}
+
+uint64_t Port::OnlinePausedBefore(uint64_t at) const {
+    return OnlineSetupScan(at).pausedFrames;
+}
+
+bool Port::OnlineOtherReady() const {
+    return OnlineSetupScan(UINT64_MAX).ready;
+}
+
+// Each tick of a match, the host's side: its match menu open is the pause for both, and a Start that waits for the
+// other player's Ready is sent once it has come (the menu closed gives it up)
+void Port::OnlineSetupFrame() {
+    if (!net || connecting || !net->Hosting() || !TheGame().startOnline) {
+        return;
+    }
+    if (!menu.OnlineOpen()) {
+        onlinePendingMode = -1;
+    }
+    if (onlinePendingMode >= 0 && OnlineOtherReady()) {
+        const uint32_t seed = static_cast<uint32_t>(std::random_device()()) | 1;
+        net->Command("mode=" + std::to_string(onlinePendingMode) + ":" + std::to_string(seed));
+        onlinePendingMode = -1;
+        menu.Close();
+    }
+    const bool want = menu.OnlineOpen();
+    if (want != onlineSetupSent) {
+        net->Command(want ? "setup=1" : "setup=0");
+        onlineSetupSent = want;
+    }
+}
 
 void Port::OnlineEvent(int player, const std::string &text, uint64_t at) {
     for (size_t from = 0; from < text.size();) {
@@ -2437,8 +2516,22 @@ void Port::OnlineEvent(int player, const std::string &text, uint64_t at) {
             continue;
         }
         const std::string name = item.substr(0, eq);
-        if (name == "mode" && player == 0 && TheGame().startOnline) {
+        if (name == "setup" && player == 0) {
+            onlineSetupLog[at] = atoi(item.c_str() + eq + 1) != 0;
+        } else if (name == "ready" && player == 1) { // (the other player's: their Ready, Port::onlineReadyLog)
+            onlineReadyLog[at] = atoi(item.c_str() + eq + 1) != 0;
+            if (net && net->Local() == 1) {
+                onlineReadyMine = -1; // (its event has run: the log says it now)
+            }
+        } else if (name == "mode" && player == 0 && TheGame().startOnline) {
             const int mode = atoi(item.c_str() + eq + 1);
+            onlineModeLog[at] = mode;
+            if (mode != 0 && TagTeamOnline() && !OnlineSetupScan(at).ready) {
+                // (the other player not ready before this frame, on both sides alike: not started)
+                fprintf(stderr, "online: mode %d not started at frame %llu: the other player is not ready\n", mode,
+                        static_cast<unsigned long long>(at));
+                continue;
+            }
             const size_t colon = item.find(':', eq);
             const uint32_t seed = colon == std::string::npos ? 1 : static_cast<uint32_t>(strtoul(item.c_str() + colon + 1, nullptr, 10));
             // (each row as the events before this frame left it: a rollback back to here may have run later ones already)
@@ -2457,6 +2550,9 @@ void Port::OnlineEvent(int player, const std::string &text, uint64_t at) {
                 }
                 onlinePickLog[name][at] = value;
                 SetFeatureForNow(feature->name, value);
+                if (player == 1) {
+                    onlineReadyLog[at] = 0; // (a fighter changed: not ready until said again)
+                }
             }
         }
     }
@@ -2477,8 +2573,9 @@ void Port::OpenOnlineMenu() {
             // (the host's: the mode, a command that starts it for both, and Versus that ends it)
             onlineModes = {2, 0};
             online.commands.push_back({Menu::kOnlinePage, "Start Tag team battle",
-                                       "Starts the tag team battle for both players, with your settings of its page from before the "
-                                       "match (style, fighters, stage), and each player's own fighters and super arts below."});
+                                       "Starts the tag team battle for both players once the other player has said Ready (until "
+                                       "then it waits, the game paused), with your settings of its page from before the match (style, "
+                                       "fighters, stage), and each player's own fighters and super arts below."});
             online.commands.push_back({Menu::kOnlinePage, "Back to Versus",
                                        "Ends the mode for both players: the board starts again, and each presses Start to come back in."});
         }
@@ -2501,18 +2598,45 @@ void Port::OpenOnlineMenu() {
                      {found->choices.begin(), found->choices.end()}});
             }
         }
+        // The other player's Ready: theirs to say (the host's row shows it; the game is paused while the host's menu is open)
+        onlineRows.push_back(kReadyRow);
+        if (net->Hosting()) {
+            online.features.push_back({Menu::kOnlinePage, "The other player",
+                                       "Whether the other player has chosen their team and said Ready. Start waits for it. "
+                                       "The game stands still for both while this menu is open.",
+                                       {"Choosing", "Ready"}});
+        } else {
+            online.features.push_back({Menu::kOnlinePage, "Ready",
+                                       "Say Ready once your fighters and super arts are chosen: the host can start the mode only "
+                                       "then. Changing a fighter takes it back.",
+                                       {"Not yet", "Ready"}});
+        }
     }
     online.value = [this](size_t row) {
         if (row >= onlineRows.size()) {
             return 0;
         }
+        if (onlineRows[row] == kReadyRow) {
+            return onlineReadyMine >= 0 ? onlineReadyMine : OnlineOtherReady() ? 1 : 0;
+        }
         const auto it = onlinePicks.find(onlineRows[row]);
         return it != onlinePicks.end() ? it->second : FeatureValue(onlineRows[row].c_str());
     };
     online.setValue = [this](size_t row, int value) {
-        if (row < onlineRows.size() && net) {
-            onlinePicks[onlineRows[row]] = value;
-            net->Command(onlineRows[row] + "=" + std::to_string(value));
+        if (row >= onlineRows.size() || !net) {
+            return;
+        }
+        if (onlineRows[row] == kReadyRow) {
+            if (!net->Hosting()) { // (the host's row only shows it)
+                onlineReadyMine = value;
+                net->Command(std::string("ready=") + (value ? "1" : "0"));
+            }
+            return;
+        }
+        onlinePicks[onlineRows[row]] = value;
+        net->Command(onlineRows[row] + "=" + std::to_string(value));
+        if (!net->Hosting()) {
+            onlineReadyMine = 0; // (a fighter changed takes Ready back: OnlineEvent)
         }
     };
     online.leave = net->Hosting() && hostedFromMenu ? "Leave the match (play alone)" : "Leave the match";
@@ -2522,6 +2646,12 @@ void Port::OpenOnlineMenu() {
 }
 
 void Port::OnlineCommand(size_t index) {
+    if (net && index < onlineModes.size() && onlineModes[index] != 0 && TagTeamOnline() && !OnlineOtherReady()) {
+        // (the other player still choosing: started when they say Ready, the menu left open and the game paused)
+        onlinePendingMode = onlineModes[index];
+        chat.push_back({"Starts when the other player is ready", tick + 8 * 60, true});
+        return;
+    }
     if (net && index < onlineModes.size()) {
         const uint32_t seed = static_cast<uint32_t>(std::random_device()()) | 1;
         net->Command("mode=" + std::to_string(onlineModes[index]) + ":" + std::to_string(seed));
@@ -2557,7 +2687,18 @@ void Port::HearEvents() {
             const std::string row = item.substr(0, eq);
             const int value = atoi(item.c_str() + eq + 1);
             std::string said;
-            if (row == "mode" && player == 0 && value >= 0 && value < 3) {
+            if (row == "setup" && player == 0) {
+                if (!net->Hosting()) {
+                    if (value && !menu.IsOpen()) {
+                        OpenOnlineMenu(); // (the other player's own picks, to choose while paused)
+                    } else if (!value && menu.OnlineOpen()) {
+                        menu.Close();
+                    }
+                    said = value ? "The host paused the game: choose your team, then Ready" : "The game goes on";
+                }
+            } else if (row == "ready" && player == 1) {
+                said = who + (player == net->Local() ? (value ? " are ready" : " are choosing") : (value ? " is ready" : " is choosing"));
+            } else if (row == "mode" && player == 0 && value >= 0 && value < 3) {
                 said = who + (value == 0 ? " went back to Versus" : std::string(" started ") + kOnlineModes[value]);
             } else if (const Feature *feature = FindFeature(row); feature && OwnRow(player, row) && value >= 0 &&
                                                                    value < static_cast<int>(feature->choices.size())) {
@@ -2662,6 +2803,12 @@ void Port::Matched() {
     onlinePickLog.clear();
     onlinePickBase.clear();
     onlinePicks.clear();
+    onlineSetupLog.clear();
+    onlineModeLog.clear();
+    onlineReadyLog.clear();
+    onlineSetupSent = false;
+    onlinePendingMode = -1;
+    onlineReadyMine = -1;
     frame = 0; // (the match's frames count from its start, on both sides)
     ReplayStop(false);
     ReplayEnd();
@@ -3009,6 +3156,7 @@ void Usage() {
             "  --net-list             (hosting) the match in the lobby, the Online card's list of open matches\n"
             "  --net-name NAME        ... under this name; and either side's: shown to the other player\n"
             "  --net-say [FRAME:]TEXT (tests) TEXT said in the chat at FRAME of the match (120 unless said)\n"
+            "  --net-command FRAME:TEXT (tests) an event of this side made at FRAME of the match (Netplay::Command), again for more\n"
             "  --net-typing TEXT      (pictures) TEXT shown as a chat line being typed, all through the match\n"
             "  --net-arcade           (hosting) the game played alone until the other player comes, who then challenges\n"
             "  --net-invite TO:FROM   (hosting) the player TO in the launcher's waiting room invited, from FROM (ids;\n"
@@ -3157,6 +3305,12 @@ bool ParseArgs(int argc, char **argv, port::Options &o) {
             o.net.arcade = true;
         } else if (a == "--net-name") {
             o.net.name = next();
+        } else if (a == "--net-command") {
+            const std::string v = next();
+            const size_t colon = v.find(':');
+            if (colon != std::string::npos) {
+                o.netCommands.push_back({strtoull(v.c_str(), nullptr, 10), v.substr(colon + 1)});
+            }
         } else if (a == "--net-say") {
             o.netSay = next();
             const size_t colon = o.netSay.find(':');
