@@ -1342,9 +1342,12 @@ void Netplay::Run(Port &port, uint64_t at, bool drawing) {
             port.OnlineEvent(player, event->second, at);
         }
     }
-    port.machine->drawing = drawing;
-    port.Step(players);
-    port.machine->drawing = true;
+    // (the host's pause for choosing, Port::onlineSetupLog: the game stands still for both)
+    if (!port.OnlinePausedAt(at)) {
+        port.machine->drawing = drawing;
+        port.Step(players);
+        port.machine->drawing = true;
+    }
     if ((at + 1) % kHashEvery == 0 || port.hashFile) {
         k.hash = port.StateHash();
     }
@@ -1411,7 +1414,9 @@ void Netplay::Frame(Port &port, uint16_t controls) {
             uint16_t pads[Machine::kMaxPlayers] = {};
             pads[local] = localInput[at % kInputs];
             pads[remote] = remoteInput[at % kInputs];
-            port.ReplayConfirmed(at, pads); // (match replays: replay.h)
+            if (!port.OnlinePausedAt(at)) { // (the paused frames left out: the game did not run them)
+                port.ReplayConfirmed(at - port.OnlinePausedBefore(at), pads); // (match replays: replay.h)
+            }
         }
         if (port.hashFile) {
             fprintf(port.hashFile, "%llu %08x\n", static_cast<unsigned long long>(at + 1), k.hash);
