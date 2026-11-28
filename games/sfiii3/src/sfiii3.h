@@ -107,6 +107,10 @@ constexpr uint32_t kMeterCountShown[2] = {0x020286AB, 0x020286DF};
 constexpr uint32_t kMaxGauge[2] = {0x020695B3, 0x020695DF};
 constexpr uint32_t kMaxMeterCount[2] = {0x020695BD, 0x020695E9};
 constexpr uint32_t kMeterUpdate[2] = {0x020157C8, 0x020157C9};
+// The super art chosen for the match (0-2), and the super freeze's count down (a byte: each player's is in the other's
+// record) (Grouflon's 3rd_training_lua)
+constexpr uint32_t kArt[2] = {0x0201138B, 0x0201138C};
+constexpr uint32_t kSuperFreeze[2] = {0x02069520, 0x02069088};
 // Stun: the most a player can take before being stunned (a byte), its timer two bytes on, and how much has been taken
 // (the high byte of the long six bytes on)
 constexpr uint32_t kStunMost[2] = {0x020695F7, 0x0206960B};

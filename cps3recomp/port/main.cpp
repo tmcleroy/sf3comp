@@ -88,8 +88,9 @@ bool Movie::Save(const std::string &path) const {
 }
 
 namespace {
-    constexpr uint32_t kStateVersion = 5; // (2: the colours made again from colour RAM, not kept; 3: the custom soundtrack's place;
-                                          // 4: the native mixer's voices; 5: the team battle's super arts and online flag)
+    constexpr uint32_t kStateVersion = 6; // (2: the colours made again from colour RAM, not kept; 3: the custom soundtrack's place;
+                                          // 4: the native mixer's voices; 5: the team battle's super arts and online flag;
+                                          // 6: the training's timed super arts)
 
     bool ReadFile(const std::string &path, std::vector<uint8_t> &data) {
         FILE *f = fopen(path.c_str(), "rb");

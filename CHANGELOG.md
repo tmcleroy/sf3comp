@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Timed super arts with the gauge kept full**: Yun's and Yang's 3rd (Genei-jin, Sei'ei-enbu), Oro's 1st and 3rd,
+  Makoto's, Q's and Twelve's 3rd now last their whole time with training's **Gauge refills** or the **Full gauge**
+  cheat on. Refilling the bar the moment the art began had ended it at once; the gauge is left to run down now and
+  filled again once it is empty (as 3rd_training_lua does).
 - **Rewind and a practice point** (cps2recomp's, #443 there): two switches on the Game page (and the launcher's
   Features page), off unless chosen, never online, in every game of the collection. Hold R (a gamepad's left trigger)
   and the game runs backwards through its last half a minute, unheard; `]` (the left shoulder held half a second) keeps
