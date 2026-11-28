@@ -1,6 +1,6 @@
 # Features
 
-Every feature is a switch of its own, on the launcher's Features page and in the in-game menu. **Pure** plays exactly
+Every feature is a switch of its own, in the in-game menu (the launcher's Settings page has only what is set before a game starts: the window and the arcade monitor). **Pure** plays exactly
 as the board does; **Enhanced** (the default) adds free play and straight-to-the-title. `sfiii3 --list-features`
 prints them all with their descriptions. Online, the host's choices of the ones that change play are the match's.
 
@@ -31,7 +31,7 @@ How each part works and what it was checked against: [games/sfiii3/PROGRESS.md](
 
 ## Rewind and the practice point
 
-Two switches on the Game page of the in-game menu (and the launcher's Features page), off unless chosen, in every game
+Two switches on the Game tab of the in-game menu, off unless chosen, in every game
 and never online, nor while a match replay plays (its own Backspace and seeking are its); as cps2recomp's.
 
 | Switch | Keys (gamepad) | What it does |
@@ -78,7 +78,7 @@ three times the board's lines, its pixels in the Display page's shape (`port::Sv
 
 ## Video recording
 
-The in-game menu's **Game > Video** page, every game (`cps3recomp/port/video_record.h`, cps2recomp's). **Record video**
+The in-game menu's **Capture** tab, every game (`cps3recomp/port/video_record.h`, cps2recomp's). **Record video**
 (Alt+F12) records what is played and heard as an MP4 in `videos/` in the game's folder, as `<game> <date> <time>.mp4`,
 until the row (now **Stop recording video**) or Alt+F12 again; quitting the game finishes it too. The picture is as
 screenshots (F12) take it, readouts and all, without the port's lines at the bottom (the speed, the zoom's label, what
@@ -121,7 +121,7 @@ and online play keeps nothing.
 ## Scene export
 
 The picture taken apart (`cps3recomp/port/scene.h`, cps2recomp's, with the same files and `scene.json`; the in-game
-menu's **Game > Scene export** page, every game). **Save scene** (Shift+F12) writes a folder in `exports/scenes/` beside
+menu's **Capture** tab (Scene export), every game). **Save scene** (Shift+F12) writes a folder in `exports/scenes/` beside
 the saves: `picture.png`, the picture as the board drew it, and each of its layers by itself, with nothing where the
 layer has nothing. A CPS-3 has no fixed layers: its picture is the frame's object list drawn in its order, with the
 board's four tilemaps among the objects, and the text layer over all of it. So each run of the list that is one

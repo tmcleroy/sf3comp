@@ -7,6 +7,8 @@
 #include <cstring>
 
 #include "../recomp-common/menu_layout.h"
+#include "../recomp-common/menu_sdl.h"
+#include "../recomp-common/settings.h"
 #include "../runtime/system.h"
 #include "../runtime/game.h"
 
@@ -56,11 +58,21 @@ void Menu::Open(bool withStates) {
     if (onOpen) {
         onOpen();
     }
+    Configure(withStates);
+    m_menu.Open();
+    if (!m_waiting.empty()) {
+        m_menu.Note(m_waiting);
+        m_waiting.clear();
+    }
+}
+
+void Menu::Configure(bool withStates) {
+    m_withStates = withStates;
     const cps3recomp::Game &game = cps3recomp::TheGame();
     recomp::MenuConfig config;
-    // The standard layout (recomp-common/menu_layout.h, cps2recomp's): Online, Display, Game, Replays and Stage first;
-    // Alternative modes (Training mode under it, Dummy under that); the save states; the other pages and the board's
-    // own rows; Reset all options, Reset game, Quit game, Resume. Under Game: the speed, Mute, Board, Cheats, Sound.
+    // The standard layout (recomp-common/menu_layout.h, cps2recomp's), as tabs: the command row (Back, Save state, Load
+    // state, Slot, Reset game, Quit game, Resume) and the tabs Game, Display, Sound, Online, Training, Modes, Stage, Cheats
+    // and Capture. Under Game: the speed, Mute, the Board page and the board's own rows.
     // (the game's pages first, so that their words are what the rows say: Standard keeps them and places the pages)
     std::vector<std::string> modes;
     for (const cps3recomp::Page &page : game.pages) {
@@ -91,7 +103,7 @@ void Menu::Open(bool withStates) {
     rows.resetOptionsDescription = "Puts every option back as it first was (the launcher's Enhanced preset), and the speed to full. The "
                                    "game's own settings (its Test menu) and the controls stay as they are.";
     rows.resetDescription = "Starts the board again, as if switched off and on.";
-    recomp::layout::Standard(config, rows);
+    recomp::layout::Tabbed(config, rows);
     for (const cps3recomp::Feature &feature : game.features) {
         config.features.push_back({feature.category, feature.title, feature.description, {feature.choices.begin(), feature.choices.end()}});
     }
@@ -165,6 +177,17 @@ void Menu::Open(bool withStates) {
                    offered[feature][static_cast<size_t>(choice)];
         };
     }
+    // (an option's default, which X puts back and against which a row shows as changed: as the launcher's Enhanced
+    // preset has it, as Reset all options puts it)
+    {
+        const std::vector<recomp::FeatureInfo> list = cps3recomp::FeatureList();
+        recomp::Ini preset("");
+        recomp::SetPreset(preset, list, "enhanced");
+        std::vector<int> defaults = recomp::FeatureValues(preset, list);
+        config.defaultValue = [defaults = std::move(defaults)](size_t feature) { return feature < defaults.size() ? defaults[feature] : 0; };
+    }
+    config.tabsName = recomp::sdl::kTabsName;
+    config.backName = recomp::sdl::kBackName;
     recomp::layout::Speeds(config);
     config.slots = kSlots;
     config.speedDescription = "Left/Right: slow motion, or faster than the board. While playing, P (or a click of the right stick) stops "
@@ -174,12 +197,55 @@ void Menu::Open(bool withStates) {
     config.setMuted = [this](bool to) { muted = to; };
     config.confirmName = "Enter or A";
     config.closeName = "Esc";
-    m_menu.Configure(std::move(config));
-    m_menu.Open();
-    if (!m_waiting.empty()) {
-        m_menu.Note(m_waiting);
-        m_waiting.clear();
+    // (each option's hotkey, shown on its row: H or Y there gives it one; the ids are the menu features', the port's
+    // own extra row having none)
+    m_ids.clear();
+    for (const cps3recomp::Feature &feature : game.features) {
+        m_ids.push_back(feature.name);
     }
+    if (extraAt != SIZE_MAX) {
+        m_ids.insert(m_ids.begin() + static_cast<std::ptrdiff_t>(extraAt), "");
+    }
+    LoadHotkeys();
+    config.hotkey = [this](size_t feature) { return feature < m_ids.size() && !m_ids[feature].empty() ? m_hotkeys.Of(m_ids[feature]).Name() : std::string(); };
+    config.hotkeyName = recomp::sdl::kHotkeyName;
+    m_menu.Configure(std::move(config));
+    m_configured = true;
+}
+
+void Menu::LoadHotkeys() {
+    recomp::Ini settings(cps3recomp::SettingsPath());
+    settings.load();
+    m_hotkeys.Load(settings.get("menu", "hotkeys"));
+    m_hotkeysLoaded = true;
+}
+
+bool Menu::HotkeyListen(const SDL_Event &event, const std::function<std::string(recomp::Hotkey)> &taken) {
+    if (m_online || !m_menu.IsOpen()) {
+        return false;
+    }
+    bool changed = false;
+    const bool answered = recomp::sdl::HotkeyListen(event, m_menu, m_hotkeys, m_ids, taken, changed);
+    if (changed) {
+        recomp::Ini settings(cps3recomp::SettingsPath());
+        settings.load();
+        settings.set("menu", "hotkeys", m_hotkeys.Save());
+        settings.save();
+    }
+    return answered;
+}
+
+std::string Menu::HotkeyPress(const SDL_Event &event) {
+    if (!m_hotkeysLoaded) {
+        LoadHotkeys(); // (before the menu is first opened: those kept from before)
+    }
+    if (IsOpen() || m_hotkeys.Find(recomp::sdl::HotkeyOf(event)).empty()) {
+        return "";
+    }
+    if (!m_configured) {
+        Configure(m_withStates); // (the menu's options, for Step, before it is first opened)
+    }
+    return recomp::sdl::HotkeyPress(event, m_menu, m_hotkeys, m_ids);
 }
 
 Menu::Menu() {

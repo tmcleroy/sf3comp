@@ -176,6 +176,8 @@ struct Port {
     // F12 (issue #31): the picture as shown, readout and all (not the zoom's), saved as a PNG in the player's folder's
     // screenshots/; where it went is said at the bottom for a while
     bool Screenshot();
+    // The picture as it is, for the launcher's tile of the game (picture.png in the game's folder): on quitting
+    void KeepPicture();
     std::string shotSaid;
     int shotTicks = 0;
     // The scene export (scene.h, cps2recomp's issue #366): Shift+F12 or the Scene export page's Save scene, the picture and

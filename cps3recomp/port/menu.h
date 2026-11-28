@@ -12,6 +12,7 @@
 #pragma once
 
 #include "../recomp-common/menu.h"
+#include "../recomp-common/hotkey.h"
 
 #include <cstdint>
 #include <functional>
@@ -27,6 +28,11 @@ public:
     Menu();
     // withStates: show the save state rows
     void Open(bool withStates);
+    // Hotkeys (recomp-common/hotkey.h; settings.ini's [menu] hotkeys): H or Y on an option's row asks for a key or
+    // button. HotkeyListen: an event while it asks, which answers it (true: the event was that), `taken` saying why
+    // one plays the game. HotkeyPress: in the game, a hotkey's event steps its option; what it is now ("" none).
+    bool HotkeyListen(const SDL_Event &event, const std::function<std::string(recomp::Hotkey)> &taken);
+    std::string HotkeyPress(const SDL_Event &event);
     // During an online match (Port::OpenOnlineMenu): the match's own menu, drawn small over the game, which goes on for
     // both players. It opens on its Online match page (the host's modes to start, as commands; this player's own picks,
     // as features), and its first page has that page, Mute, Resume and leaving the match. A command chosen is
@@ -139,6 +145,8 @@ public:
     }
 
 private:
+    void Configure(bool withStates); // (the menu as Open shows it, without opening it)
+    void LoadHotkeys();
     // (the menu open, or last open: the online match's while it is)
     recomp::Menu &Shown() {
         return m_online ? m_onlineMenu : m_menu;
@@ -150,6 +158,11 @@ private:
     recomp::Menu m_menu;
     recomp::Menu m_onlineMenu; // (made afresh at each OpenOnline: on its page, its first row)
     bool m_online = false;
+    recomp::Hotkeys m_hotkeys;
+    std::vector<std::string> m_ids; // (each menu feature's id, for the hotkeys)
+    bool m_configured = false;      // (Configure has given m_menu the game's features)
+    bool m_hotkeysLoaded = false;
+    bool m_withStates = true;
     size_t m_command = 0, m_replay = 0;
     std::string m_waiting; // (a note given while the menu was closed: Note)
 };

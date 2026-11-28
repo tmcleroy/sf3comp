@@ -17,7 +17,7 @@ CDI images are not read (they are usually re-compressed and missing parts of the
 
 1. Put the disc image **beside your 3rd Strike ROM set** (the folder that holds `sfiii3nr1.zip`). It is also found in
    the custom soundtrack folder chosen on the launcher, or beside the game's settings.
-2. On the launcher's Features page (3rd Strike, **Sound**), or in the in-game menu's Sound page, set
+2. In the in-game menu's Sound tab (3rd Strike), set
    **Custom soundtrack** to **Dreamcast arranged**. The choice is only there once a disc image is beside the ROM set
    (or the music has been copied already): without one, it isn't offered.
 3. Start a fight. The first time, the arranged tracks are copied off the disc into a `dreamcast` folder beside the

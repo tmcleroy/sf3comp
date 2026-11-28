@@ -845,8 +845,35 @@ int RunWindowed(Port &port) {
             if ((ev.type == SDL_EVENT_KEY_DOWN && !ev.key.repeat) || ev.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
                 port.LagPressed(ev.common.timestamp); // (the input lag readout: Port::Lag)
             }
+            // Hotkeys (recomp-common/hotkey.h): while the menu asks for one (H or Y on an option's row), the key or button
+            // pressed is the answer, any but those that play the game; in the game (not online: the match decides its
+            // options), a hotkey steps its option and says what it is now
+            if (port.menu.HotkeyListen(ev, [&](recomp::Hotkey hotkey) -> std::string {
+                    if (hotkey.key != SDL_SCANCODE_UNKNOWN && KeyBound(hotkey.key)) {
+                        return "That key plays the game.";
+                    }
+                    if (hotkey.button != SDL_GAMEPAD_BUTTON_INVALID && ButtonBound(hotkey.button)) {
+                        return "That button plays the game.";
+                    }
+                    return "";
+                })) {
+                menuDirty = true;
+                continue;
+            }
+            if (!port.net && !port.menu.IsOpen()) {
+                if (std::string said = port.menu.HotkeyPress(ev); !said.empty()) {
+                    for (char &c : said) { // (in capitals, as the rest said at the bottom)
+                        c = static_cast<char>(toupper(static_cast<unsigned char>(c)));
+                    }
+                    port.Said(said.c_str());
+                    continue;
+                }
+            }
             switch (ev.type) {
-            case SDL_EVENT_QUIT: running = false; break;
+            case SDL_EVENT_QUIT:
+                port.KeepPicture(); // (the launcher's tile of the game: its last picture)
+                running = false;
+                break;
             case SDL_EVENT_KEY_DOWN:
                 if (!port.menu.IsOpen() && !ev.key.repeat &&
                     (ev.key.scancode == SDL_SCANCODE_Q || ev.key.scancode == SDL_SCANCODE_E || ev.key.scancode == SDL_SCANCODE_W) &&
