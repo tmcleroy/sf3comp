@@ -58,6 +58,16 @@ void Menu::Open(bool withStates) {
     if (onOpen) {
         onOpen();
     }
+    Configure(withStates);
+    m_menu.Open();
+    if (!m_waiting.empty()) {
+        m_menu.Note(m_waiting);
+        m_waiting.clear();
+    }
+}
+
+void Menu::Configure(bool withStates) {
+    m_withStates = withStates;
     const cps3recomp::Game &game = cps3recomp::TheGame();
     recomp::MenuConfig config;
     // The standard layout (recomp-common/menu_layout.h, cps2recomp's), as tabs: the command row (Back, Save state, Load
@@ -187,12 +197,55 @@ void Menu::Open(bool withStates) {
     config.setMuted = [this](bool to) { muted = to; };
     config.confirmName = "Enter or A";
     config.closeName = "Esc";
-    m_menu.Configure(std::move(config));
-    m_menu.Open();
-    if (!m_waiting.empty()) {
-        m_menu.Note(m_waiting);
-        m_waiting.clear();
+    // (each option's hotkey, shown on its row: H or Y there gives it one; the ids are the menu features', the port's
+    // own extra row having none)
+    m_ids.clear();
+    for (const cps3recomp::Feature &feature : game.features) {
+        m_ids.push_back(feature.name);
     }
+    if (extraAt != SIZE_MAX) {
+        m_ids.insert(m_ids.begin() + static_cast<std::ptrdiff_t>(extraAt), "");
+    }
+    LoadHotkeys();
+    config.hotkey = [this](size_t feature) { return feature < m_ids.size() && !m_ids[feature].empty() ? m_hotkeys.Of(m_ids[feature]).Name() : std::string(); };
+    config.hotkeyName = recomp::sdl::kHotkeyName;
+    m_menu.Configure(std::move(config));
+    m_configured = true;
+}
+
+void Menu::LoadHotkeys() {
+    recomp::Ini settings(cps3recomp::SettingsPath());
+    settings.load();
+    m_hotkeys.Load(settings.get("menu", "hotkeys"));
+    m_hotkeysLoaded = true;
+}
+
+bool Menu::HotkeyListen(const SDL_Event &event, const std::function<std::string(recomp::Hotkey)> &taken) {
+    if (m_online || !m_menu.IsOpen()) {
+        return false;
+    }
+    bool changed = false;
+    const bool answered = recomp::sdl::HotkeyListen(event, m_menu, m_hotkeys, m_ids, taken, changed);
+    if (changed) {
+        recomp::Ini settings(cps3recomp::SettingsPath());
+        settings.load();
+        settings.set("menu", "hotkeys", m_hotkeys.Save());
+        settings.save();
+    }
+    return answered;
+}
+
+std::string Menu::HotkeyPress(const SDL_Event &event) {
+    if (!m_hotkeysLoaded) {
+        LoadHotkeys(); // (before the menu is first opened: those kept from before)
+    }
+    if (IsOpen() || m_hotkeys.Find(recomp::sdl::HotkeyOf(event)).empty()) {
+        return "";
+    }
+    if (!m_configured) {
+        Configure(m_withStates); // (the menu's options, for Step, before it is first opened)
+    }
+    return recomp::sdl::HotkeyPress(event, m_menu, m_hotkeys, m_ids);
 }
 
 Menu::Menu() {

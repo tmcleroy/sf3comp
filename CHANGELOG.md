@@ -7,6 +7,11 @@
   Online, Training, Modes, Stage, Cheats and Capture. LB/RB (or Q/E) change tab, X (or Delete) puts an option back as
   the Enhanced preset has it, and the mouse reaches everything. An option changed from that preset is marked. On an
   arcade monitor (or with Compact menu on) the menu is still drawn at the board's own resolution, one tab at a time.
+- **Hotkeys for the in-game menu's options** (cps2recomp's, #496 there): H (or a gamepad's Y) on an option's row asks for
+  a key or button; while playing it then steps that option (run-ahead through its frames, the shader through its list, a
+  switch on and off; Shift with a key goes back), and what it is now shows at the bottom. Keys and buttons that play the
+  game, and the menu's own, can't be one; off during online play, where the match decides. Kept per game in settings.ini.
+- The menu on a stood-up (vertical) picture fits: its top row no longer runs into itself.
 - **The launcher shows only what is set before a game starts** (cps2recomp's, #494 and #495): the window, VSync, the
   arcade monitor's mode and the set's format before hosting, on its Settings page (once Features). Everything else is
   in the in-game menu. The launcher has tabs along the top, and the games as a grid of pictures, each the last screen
