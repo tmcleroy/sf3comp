@@ -79,6 +79,7 @@ namespace {
             uint8_t who = 0, height = 0;
         } heights[128];
         bool toldGuard = false, toldStanding = false;
+        bool timedArt[2] = {}; // (each player's timed super art (Genei-jin and the like) running: the gauge left alone)
     } g;
 
     int LearnedHeight(uint8_t who, uint16_t anim) {
@@ -524,6 +525,15 @@ namespace {
         }
     }
 
+    // A timed super art: its gauge, not its bars, is the time it lasts (it counts down from full after the super
+    // freeze), and a full bar stays at the gauge's most rather than going back to 0. Oro's 1st and 3rd, Yang's, Yun's,
+    // Makoto's, Q's and Twelve's 3rd (characters by the word at the player's 0x3C0; Grouflon's 3rd_training_lua)
+    bool TimedArt(int p) {
+        const uint16_t who = Ram16(Player(p) + 0x3C0);
+        const uint8_t art = Ram8(sfiii3::kArt[p]);
+        return (who == 9 && (art == 0 || art == 2)) || ((who == 3 || who == 10 || who == 17 || who == 18 || who == 19) && art == 2);
+    }
+
     bool FullMeter(int p) {
         return FeatureOn("gauge_refill") || FeatureOn(p == 0 ? "full_gauge" : "full_gauge_2"); // (training's; the cheat)
     }
@@ -541,8 +551,16 @@ void TrainingBeforeFrame(Machine &m) {
         for (int p = 0; p < 2; p++) {
             const uint32_t base = Player(p);
             const uint8_t most = Ram8(sfiii3::kMaxMeterCount[p]);
-            if (FullMeter(p) && most && Ram8(sfiii3::kMeterCount[p]) != most && Ram8(sfiii3::kMeterCountShown[p]) != most) {
-                SetRam8(sfiii3::kGauge[p], 0);
+            // (a timed super art runs from its super freeze until its gauge is empty; refilling it then would end it)
+            const bool timed = TimedArt(p);
+            if (!timed || Ram8(sfiii3::kSuperFreeze[p]) > 0) {
+                g.timedArt[p] = timed && Ram8(sfiii3::kSuperFreeze[p]) > 0;
+            } else if (g.timedArt[p] && Ram8(sfiii3::kGauge[p]) == 0) {
+                g.timedArt[p] = false;
+            }
+            if (FullMeter(p) && most && !g.timedArt[p] && Ram8(sfiii3::kMeterCount[p]) != most &&
+                Ram8(sfiii3::kMeterCountShown[p]) != most) {
+                SetRam8(sfiii3::kGauge[p], timed ? Ram8(sfiii3::kMaxGauge[p]) : 0);
                 SetRam8(sfiii3::kMeterCount[p], most);
                 SetRam8(sfiii3::kMeterUpdate[p], 1);
             }
