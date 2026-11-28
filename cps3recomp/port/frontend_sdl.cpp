@@ -846,7 +846,10 @@ int RunWindowed(Port &port) {
                 port.LagPressed(ev.common.timestamp); // (the input lag readout: Port::Lag)
             }
             switch (ev.type) {
-            case SDL_EVENT_QUIT: running = false; break;
+            case SDL_EVENT_QUIT:
+                port.KeepPicture(); // (the launcher's tile of the game: its last picture)
+                running = false;
+                break;
             case SDL_EVENT_KEY_DOWN:
                 if (!port.menu.IsOpen() && !ev.key.repeat &&
                     (ev.key.scancode == SDL_SCANCODE_Q || ev.key.scancode == SDL_SCANCODE_E || ev.key.scancode == SDL_SCANCODE_W) &&

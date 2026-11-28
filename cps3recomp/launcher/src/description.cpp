@@ -334,6 +334,11 @@ launcher::Description describe_game(const GameInfo& game) {
                            "P / O: stop, one frame on   - / =: speed   F5 / F9: save and load a state   F6 / F7: slot   F2: operator's "
                            "test switch   F11: full screen. On a gamepad: right stick's click stops the game and starts it again, left "
                            "trigger goes on a frame while it is stopped. (A key or button given to the game above does only that.)"}};
+    // (the launcher shows only what is set before a game starts: port/main.cpp's LauncherFeatureList marks them;
+    // everything else is the in-game menu's)
+    d.launcher_features_only = true;
+    d.features_name = "Settings";
+    d.layout = launcher::Description::Layout::Tabs;
     return d;
 }
 

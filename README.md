@@ -101,7 +101,7 @@ games' stage code, run beside 3rd Strike's.
 
 ## Alternative modes (3rd Strike)
 
-The in-game menu's Alternative modes page has ways to play the board never had: **survival**, **endless battle** (the game plays
+The in-game menu's Modes tab has ways to play the board never had: **survival**, **endless battle** (the game plays
 both fighters on stages that scroll or fade one into the next; touch the controls to take one over), **ring out**,
 a **tag team battle** (tag your partner in, or two against two for four players), the **bonus games** straight
 away, a **stage viewer**, a **model viewer** and a **colour editor** whose colours you then fight in. And **Gill**,
@@ -118,7 +118,7 @@ playable by either player.
   against. Sharp or smooth scaling, 4:3 or square pixels, RetroArch shaders, and a zoom that follows the fighters.
   An arcade monitor (CRT Emudriver) gets the board's own 384 x 224 in full screen, or a super resolution such as
   2560 x 224, on the screen you choose, synced to the screen with a frame delay, and on Windows made at the board's
-  exact 59.60 Hz with Switchres, as GroovyMAME does: set up on the launcher's Features page.
+  exact 59.60 Hz with Switchres, as GroovyMAME does: set up on the launcher's Settings page.
 - **An in-game menu** (Esc or F1; on a gamepad Guide, or Start and Select together): save states,
   speed, the cheats, the board's own settings and test menu, every feature. Pure plays exactly as the board does;
   Enhanced (the default) adds free play, arcade timing, integer scaling and, in widescreen, invisible walls.
@@ -126,7 +126,7 @@ playable by either player.
   objects between them, the text layer; a guest stage's too), for a frame or a few seconds of them, and shown as 3D
   cut-outs in the scene diorama ([more](docs/FEATURES.md#scene-export)).
 - **Video recording**: what you play and hear saved as an MP4 that plays anywhere, the pixels sharp at 3 times the
-  board's size or more, the custom soundtrack too (Alt+F12, or the menu's **Game > Video** page); and **instant
+  board's size or more, the custom soundtrack too (Alt+F12, or the menu's **Capture** tab); and **instant
   replay**, the last 30 seconds saved after they happen (Alt+Shift+F12) ([more](docs/FEATURES.md#video-recording)).
 - **Controls**: keyboard, gamepad or arcade stick, every button changeable per player.
 - **A custom soundtrack**: your own music in place of the board's, by song or as a playlist.

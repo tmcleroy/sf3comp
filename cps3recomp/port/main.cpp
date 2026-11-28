@@ -864,6 +864,7 @@ void Port::MenuAct(Menu::Action action) {
         menu.Close();
         return;
     case Menu::Action::Quit:
+        KeepPicture(); // (before the menu goes: the game's picture, not the menu's)
         quit = true;
         menu.Close();
         return;
@@ -1713,6 +1714,24 @@ std::string Port::PlayerFolder() const {
 
 std::string Port::StatePath(int slot) const {
     return PlayerFolder() + "state" + std::to_string(slot) + ".bin";
+}
+
+void Port::KeepPicture() {
+    // (a run of a few seconds at least, in a window: not a test's, nor a start that went straight back out)
+    if (opt.headless || frame < 600) {
+        return;
+    }
+    const int ticks = shotTicks;
+    shotTicks = 0;
+    shooting = true;
+    std::vector<uint32_t> shown;
+    Shown(shown);
+    shooting = false;
+    shotTicks = ticks;
+    const std::string path = PlayerFolder() + "picture.png";
+    if (!WritePng(path.c_str(), shown.data(), static_cast<uint32_t>(ShownWidth()), Video::kHeight)) {
+        fprintf(stderr, "picture: could not write %s\n", path.c_str());
+    }
 }
 
 bool Port::Screenshot() {
@@ -3428,7 +3447,7 @@ void Port::RunFrame() {
         memcpy(lastRecorded, pad, sizeof(pad));
     }
     // (tests: --menu FRAME:KEYS[:shot.png]: the menu opened at that frame and those buttons pressed in it:
-    // u d l r, a for a button)
+    // u d l r, a for a button, b for Back, q and e for the tab before and after, x for an option's default)
     if (!opt.menuTest.empty() && strtoull(opt.menuTest.c_str(), nullptr, 10) == frame) {
         const size_t first = opt.menuTest.find(':'), second = opt.menuTest.find(':', first + 1);
         const std::string keys =
@@ -3441,7 +3460,11 @@ void Port::RunFrame() {
             menu.Open(true);
         }
         for (const char key : keys) {
-            MenuAct(menu.Buttons(key == 'u' ? kUp : key == 'd' ? kDown : key == 'l' ? kLeft : key == 'r' ? kRight : key == 'a' ? kPunch1 : 0));
+            MenuAct(key == 'b'   ? menu.Press(recomp::kMenuBack)
+                    : key == 'q' ? menu.Press(recomp::kMenuTabPrev)
+                    : key == 'e' ? menu.Press(recomp::kMenuTabNext)
+                    : key == 'x' ? menu.Press(recomp::kMenuDefault)
+                                 : menu.Buttons(key == 'u' ? kUp : key == 'd' ? kDown : key == 'l' ? kLeft : key == 'r' ? kRight : key == 'a' ? kPunch1 : 0));
         }
         if (net && !connecting) {
             if (second != std::string::npos) {
@@ -3623,6 +3646,18 @@ std::string LauncherFeatureList() {
     std::vector<recomp::FeatureInfo> list = FeatureList();
     // (nor are the ones whose switch is on the launcher's first page: game.h, kFeatureFirstPage)
     list.erase(std::remove_if(list.begin(), list.end(), [](const recomp::FeatureInfo &f) { return f.flags & kFeatureFirstPage; }), list.end());
+    // (what the launcher shows, all else being the in-game menu's alone: what has to be set before the game starts,
+    // recomp-common settings.h's kFeatureLauncher: the window, the arcade monitor's mode, the set's format before hosting)
+    static const char *const kInLauncher[] = {
+        "window_size", "display_vsync", "display_borderless",                         // the window and how it is drawn
+        "crt_resolution", "crt_screen", "crt_monitor", "crt_switchres",                // the arcade monitor's mode
+        "online_first_to",                                                            // set before hosting
+    };
+    for (recomp::FeatureInfo &f : list) {
+        if (std::any_of(std::begin(kInLauncher), std::end(kInLauncher), [&f](const char *name) { return f.name == name; })) {
+            f.flags |= recomp::kFeatureLauncher;
+        }
+    }
     return recomp::FeatureListText(list);
 }
 

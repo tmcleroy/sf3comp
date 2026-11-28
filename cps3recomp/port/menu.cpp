@@ -7,6 +7,8 @@
 #include <cstring>
 
 #include "../recomp-common/menu_layout.h"
+#include "../recomp-common/menu_sdl.h"
+#include "../recomp-common/settings.h"
 #include "../runtime/system.h"
 #include "../runtime/game.h"
 
@@ -58,9 +60,9 @@ void Menu::Open(bool withStates) {
     }
     const cps3recomp::Game &game = cps3recomp::TheGame();
     recomp::MenuConfig config;
-    // The standard layout (recomp-common/menu_layout.h, cps2recomp's): Online, Display, Game, Replays and Stage first;
-    // Alternative modes (Training mode under it, Dummy under that); the save states; the other pages and the board's
-    // own rows; Reset all options, Reset game, Quit game, Resume. Under Game: the speed, Mute, Board, Cheats, Sound.
+    // The standard layout (recomp-common/menu_layout.h, cps2recomp's), as tabs: the command row (Back, Save state, Load
+    // state, Slot, Reset game, Quit game, Resume) and the tabs Game, Display, Sound, Online, Training, Modes, Stage, Cheats
+    // and Capture. Under Game: the speed, Mute, the Board page and the board's own rows.
     // (the game's pages first, so that their words are what the rows say: Standard keeps them and places the pages)
     std::vector<std::string> modes;
     for (const cps3recomp::Page &page : game.pages) {
@@ -91,7 +93,7 @@ void Menu::Open(bool withStates) {
     rows.resetOptionsDescription = "Puts every option back as it first was (the launcher's Enhanced preset), and the speed to full. The "
                                    "game's own settings (its Test menu) and the controls stay as they are.";
     rows.resetDescription = "Starts the board again, as if switched off and on.";
-    recomp::layout::Standard(config, rows);
+    recomp::layout::Tabbed(config, rows);
     for (const cps3recomp::Feature &feature : game.features) {
         config.features.push_back({feature.category, feature.title, feature.description, {feature.choices.begin(), feature.choices.end()}});
     }
@@ -165,6 +167,17 @@ void Menu::Open(bool withStates) {
                    offered[feature][static_cast<size_t>(choice)];
         };
     }
+    // (an option's default, which X puts back and against which a row shows as changed: as the launcher's Enhanced
+    // preset has it, as Reset all options puts it)
+    {
+        const std::vector<recomp::FeatureInfo> list = cps3recomp::FeatureList();
+        recomp::Ini preset("");
+        recomp::SetPreset(preset, list, "enhanced");
+        std::vector<int> defaults = recomp::FeatureValues(preset, list);
+        config.defaultValue = [defaults = std::move(defaults)](size_t feature) { return feature < defaults.size() ? defaults[feature] : 0; };
+    }
+    config.tabsName = recomp::sdl::kTabsName;
+    config.backName = recomp::sdl::kBackName;
     recomp::layout::Speeds(config);
     config.slots = kSlots;
     config.speedDescription = "Left/Right: slow motion, or faster than the board. While playing, P (or a click of the right stick) stops "
